@@ -1,0 +1,36 @@
+// api/_lifi.js — shared helpers for the LiFi serverless functions.
+// Vercel runs each /api/*.js as a serverless function. These run server-side,
+// so the integrator string + API key never reach the browser.
+
+export const LIFI = "https://li.quest/v1";
+
+// HARDCODED — must match the integration registered at portal.li.fi exactly.
+// (Do NOT read from process.env here: a stale/wrong Vercel env var was
+// overriding this with "x1scroll-teleporter" and breaking fee collection.)
+export const INTEGRATOR = "x1-teleporter-labs";
+export const INTEGRATOR_FEE = "0.01";
+export const FEE_WALLET_EVM = process.env.FEE_WALLET_EVM || "";
+export const FEE_WALLET_SVM = process.env.FEE_WALLET_SVM || "";
+
+export function lifiHeaders() {
+  const h = { Accept: "application/json" };
+  if (process.env.LIFI_API_KEY) h["x-lifi-api-key"] = process.env.LIFI_API_KEY;
+  return h;
+}
+
+export async function lifiGet(pathAndQuery) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 15000);
+  try {
+    const r = await fetch(`${LIFI}${pathAndQuery}`, { headers: lifiHeaders(), signal: ctrl.signal });
+    const text = await r.text();
+    let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    return { status: r.status, data };
+  } finally { clearTimeout(t); }
+}
+
+// tiny CORS helper (same-origin in prod, but harmless and helps local dev)
+export function cors(res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
+}
