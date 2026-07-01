@@ -1599,7 +1599,7 @@ export default function Teleporter() {
       if (routeType === "x1_reverse" || routeType === "x1_onward") {
         const isOnward = routeType === "x1_onward";
         try {
-          setBridgeStage(0); setDestTx(null); setPhase("relaying");
+          setBridgeStage(0); setDestTx(null); setWarpStatus(null); setPhase("relaying");
           const sol = solWallet?.provider || listSolProviders()[0]?.provider || null;
           if (!sol?.publicKey) { flash("Connect your X1 wallet to bridge from X1", "err"); setPhase("quoted"); return; }
           const { Connection } = await import("@solana/web3.js");
@@ -1623,43 +1623,46 @@ export default function Teleporter() {
           if (res.sent || res.signature) {
             const sig = res.signature;
             setWarpSig(sig); setBridgeStage((s) => Math.max(s, 2)); setPhase("relaying");
-            flash(`X1 burn sent (${sig?.slice(0,8)}…)`, "info");
-            const t3 = setTimeout(() => setBridgeStage((s) => Math.max(s, 3)), 3000);
-            const t4 = setTimeout(() => setBridgeStage((s) => Math.max(s, 4)), 12000);
-            const t5 = setTimeout(() => {
-              setBridgeStage(5);
+            flash(`X1 burn sent (${sig?.slice(0,8)}…) — awaiting guardians`, "info");
+            // Every stage below is gated on the REAL Warp API. No optimistic
+            // timers: "Guardians signed" / "Released on Solana" must NEVER show
+            // unless the bridge actually reports guardian sigs and a dest tx.
+            const poll = await pollWarpStatus(sig, {
+              api: WARP_API.mainnet, from: "x1", maxMs: 300000,
+              onUpdate: (stage, detail) => {
+                setWarpStatus({ stage, detail });
+                if (stage === "status") setBridgeStage((s) => Math.max(s, 3));               // detected on X1
+                if (stage === "guardians_signing" && (detail.count || 0) >= 1) setBridgeStage((s) => Math.max(s, 4));
+              },
+            }).catch((e) => ({ ok: false, error: e?.message }));
+
+            if (poll?.ok && poll.destinationTx) {
+              // Real release confirmed by the bridge.
+              setBridgeStage(5); setDestTx(poll.destinationTx);
               if (isOnward) {
-                // Leg 1 done — USDC should be on Solana now. Offer leg 2 (LiFi).
                 updateHistory(histId, { status: "stage1_done" });
                 rememberIntent({ routeType, from, to, token, toToken, amount: quote?.amount, solanaAmount: quote?.solanaAmount,
                   recvToken: quote?.recvToken, recvChain: quote?.recvChain, stage: "awaiting_stage2", histId, ts: Date.now() });
                 setPhase("step2");
                 flash("USDC landed on Solana ✓ — continue to finish the hop to " + (CHAINS[to]?.name || to), "success");
               } else {
+                updateHistory(histId, { status: "done" });
                 setPhase("done");
-                flash("USDC released on Solana ✓ — check your Solana wallet", "success");
+                flash(`USDC released on Solana ✓ — dest ${String(poll.destinationTx).slice(0, 8)}…`, "success");
               }
-            }, 25000);
-            pollWarpStatus(sig, { api: WARP_API.mainnet, from: "x1",
-              onUpdate: (stage, detail) => {
-                setWarpStatus({ stage, detail });
-                if (stage === "guardians_signing" && (detail.count||0) >= 1) setBridgeStage((s)=>Math.max(s,4));
-                if (stage === "complete") {
-                  clearTimeout(t3);clearTimeout(t4);clearTimeout(t5);
-                  setBridgeStage(5); if(detail.destinationTx) setDestTx(detail.destinationTx);
-                  if (isOnward) {
-                    updateHistory(histId, { status: "stage1_done" });
-                    rememberIntent({ routeType, from, to, token, toToken, amount: quote?.amount, solanaAmount: quote?.solanaAmount,
-                      recvToken: quote?.recvToken, recvChain: quote?.recvChain, stage: "awaiting_stage2", histId, ts: Date.now() });
-                    setPhase("step2");
-                    flash("USDC landed on Solana ✓ — continue to " + (CHAINS[to]?.name || to), "success");
-                  } else {
-                    setPhase("done");
-                  }
-                }
-              },
-            }).catch(()=>{});
-            if (!isOnward) updateHistory(histId, { status: "done" });
+            } else {
+              // NOT released. The burn landed on X1 but the relay hasn't completed.
+              // Tell the truth and persist it as a resumable/pending transfer so it
+              // shows honestly in History instead of a fake "complete".
+              updateHistory(histId, { status: poll?.terminal ? "failed" : "relaying" });
+              rememberIntent({ routeType, from, to, token, toToken, amount: quote?.amount, solanaAmount: quote?.solanaAmount,
+                recvToken: quote?.recvToken, recvChain: quote?.recvChain, stage: "awaiting_relay", histId, warpSig: sig, ts: Date.now() });
+              setPhase("relaying");
+              const why = poll?.terminal ? "the bridge reported a terminal failure"
+                : poll?.sawSigs ? "guardians signed but the release hasn't landed yet"
+                : "no guardian signatures yet — the X1→Solana relay hasn't picked it up";
+              flash(`Not released yet — ${why}. Your USDC.x is burned on X1 and safe; source ${String(sig).slice(0, 10)}…. Track it in History.`, "err");
+            }
           }
         } catch (e) {
           console.error("[Reverse] error:", e);
