@@ -7,6 +7,7 @@ export default defineConfig({
   // Buffer at the entry (src/main.jsx) and map `global` -> globalThis here.
   define: {
     global: "globalThis",
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
   },
   resolve: {
     alias: {

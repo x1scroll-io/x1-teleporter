@@ -457,8 +457,9 @@ export async function runReverse({ connection, userPubkey, amountHuman, feeAmoun
     const feeUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, feeWalletPk, true, TOKEN_2022_PROGRAM_ID);
     const feeAmount_base = toBaseUnits(feeAmount);
     
-    const { Token2022Program } = await import("@solana/spl-token");
-    const transferFeeIx = Token2022Program.createTransferInstruction(
+    // USDC.x is a Token-2022 mint — use createTransferInstruction with the
+    // Token-2022 program id (there is no separate "Token2022Program" class).
+    const transferFeeIx = createTransferInstruction(
       userUsdcxAta, feeUsdcxAta, userPk, feeAmount_base, [], TOKEN_2022_PROGRAM_ID
     );
     built.transaction.instructions.unshift(transferFeeIx);
