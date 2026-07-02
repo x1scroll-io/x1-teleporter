@@ -1528,7 +1528,12 @@ export default function Teleporter() {
     }
   }, [buildLifiQuery, executeLiFiSolanaTx, pending, updateHistory, clearIntent, to, amount, quote]);
 
-  // Submit the self-relay for a stuck X1->Solana transfer when guardians have signed.
+  // Auto-submit reverse relay when guardians sign
+  useEffect(() => {
+    if (phase === "relay_ready" && pendingRelay && !relayLoading) {
+      executeRelay();
+    }
+  }, [phase, pendingRelay, relayLoading, executeRelay]);
   const executeRelay = useCallback(async () => {
     if (!pendingRelay) { flash("No pending relay", "err"); return; }
     setRelayLoading(true);
@@ -1722,13 +1727,14 @@ export default function Teleporter() {
               rememberIntent({ routeType, from, to, token, toToken, amount: quote?.amount, solanaAmount: quote?.solanaAmount,
                 recvToken: quote?.recvToken, recvChain: quote?.recvChain, stage: "awaiting_relay", histId, warpSig: sig, ts: Date.now() });
               
-              // If guardians signed, allow user to complete the release.
+              // If guardians signed, auto-submit the release (no extra button).
               if (warpStatus?.stage === "guardians_signing" && (warpStatus?.detail?.sigs?.length || 0) > 0) {
                 const sigs = warpStatus.detail.sigs;
-                setPhase("relay_ready");
-                flash(`Guardians signed (${sigs.length} sigs) — tap "Complete release" to finish`, "info");
-                // Store relay params for the button handler
+                console.log("[Reverse] Guardians signed, auto-submitting relay…");
+                flash(`Guardians signed (${sigs.length} sigs) — submitting release…`, "info");
+                // Store for auto-submit and fire immediately
                 setPendingRelay({ sigs, seq: BigInt(quote?.seq || 0), sender: Buffer.from(quote?.sender || "", "base64"), amount: quote?.amount || 0, timestamp: quote?.timestamp || 0, histId });
+                setPhase("relay_ready");
               } else {
                 setPhase("relaying");
                 flash(`Waiting for guardians to sign. Source: ${String(sig).slice(0, 10)}…`, "info");
@@ -2141,8 +2147,8 @@ export default function Teleporter() {
                 🌉 Open Warp Bridge to finish → X1
               </a>
             ) : phase === "relay_ready" ? (
-              <button style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)" }} onClick={executeRelay} disabled={relayLoading}>
-                {relayLoading ? "Completing release…" : "✓ Complete release"}
+              <button style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)", opacity: 0.7 }} disabled>
+                Completing release…
               </button>
             ) : phase === "done" ? (
               <button style={{ ...S.cta, background: "#16321f", color: "#5ee08a", borderColor: "#1f6b3a" }} onClick={reset}>
