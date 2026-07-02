@@ -56,7 +56,7 @@ export const WARP_ACCOUNTS = {
   // seq 72058023433695936) transferred the flat 1 USDC Warp fee to THIS account.
   // The program validates account #9 against its configured fee token account;
   // a stale value here makes bridge_out fail with "Assertion failed".
-  feeCollectorAta: new PublicKey("687zDcYjQ15bLw3vVneVNUh8BryG7sw9Z2iLidPaG2uA"),
+  feeCollectorAta: new PublicKey("6ob9XW6f6mweGu5sGh3JwW2Vp6UNQApjuPvrubXMQXyi"),
 };
 
 const USDC_DECIMALS = 6;

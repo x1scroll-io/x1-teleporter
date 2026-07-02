@@ -10,7 +10,7 @@
  *   forward lock : 5EwuE3rr4exxnzaVNLzfZ9kUbrqWmz43Bj6bWgWE6Qy9trLVAkz7sQF12BkBzXVsBAtLw7LEMjVQkrETGcq3nSPU
  *   reverse burn : 4yZdEJncRsNS9CZpVkGAitVCmWZoy2K6BPcFpYyRo9b1myubJpW4hf2WqukegQjQ9SWEeFzxB3VzMxi3DCX6pn7m
  *
- * A stale constant (e.g. the old 6ob9XW fee account) fails HERE, loudly, at
+ * A stale constant (e.g. the wrong 687zD fee account) fails HERE, loudly, at
  * build time — instead of surfacing as "Assertion failed" mid-bridge.
  */
 import { readFileSync } from "node:fs";
@@ -44,7 +44,7 @@ const checks = [
   ["vaultTokenAccount",  actual("vaultTokenAccount"),getAssociatedTokenAddressSync(USDC, new PublicKey(pda([enc("vault"), USDC.toBytes()])), true, TOKEN_PROGRAM_ID).toBase58(), "ATA[USDC, vault]"],
   // --- Forward fixed accounts, pinned from tx 5EwuE3rr (Operation: lock) ---
   ["feePda",             actual("feePda"),           "7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2Jig7j",                           "tx 5EwuE3rr acct #8"],
-  ["feeCollectorAta",    actual("feeCollectorAta"),  "687zDcYjQ15bLw3vVneVNUh8BryG7sw9Z2iLidPaG2uA",                           "tx 5EwuE3rr acct #9 (got the 1 USDC fee)"],
+  ["feeCollectorAta",    actual("feeCollectorAta"),  "6ob9XW6f6mweGu5sGh3JwW2Vp6UNQApjuPvrubXMQXyi",                           "tx 3A6FeNFD BridgeOut acct #10 / inner transferChecked (got the 1 USDC fee)"],
   // --- Reverse (X1 -> Solana) ---
   ["X1_USDCX_MINT",      actual("X1_USDCX_MINT"),    USDCX.toBase58(),                                                         "X1 wrapped mint"],
   ["X1_FEE_COLLECTOR",   actual("X1_FEE_COLLECTOR"), "7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2Jig7j",                           "tx 4yZdEJnc acct #8"],
