@@ -522,7 +522,13 @@ export async function submitReverseRelay(conn, { signatures, seq, sender, amount
   const sim = await conn.simulateTransaction(tx, { sigVerify: false, replaceRecentBlockhash: true });
   if (sim.value.err) {
     const logs = sim.value.logs || [];
-    throw new Error(`Simulation failed: ${JSON.stringify(sim.value.err)}. Logs: ${logs.slice(-3).join(" | ")}`);
+    const key = logs.filter((l) => /error|failed|assert|constraint|insufficient|invalid|unauthorized|disabled|paused/i.test(l)).slice(-3).join(" | ");
+    console.group("[Relay] bridge_in simulation FAILED");
+    console.log("err:", sim.value.err);
+    console.log("program logs:");
+    logs.forEach((l) => console.log("  " + l));
+    console.groupEnd();
+    throw new Error(`Simulation failed: ${JSON.stringify(sim.value.err)}${key ? " — " + key : ""} (full logs in console)`);
   }
   onProgress(`Simulation OK (${sim.value.unitsConsumed} CU)`);
   return { tx, sim };

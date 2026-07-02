@@ -1565,8 +1565,12 @@ export default function Teleporter() {
       if (histId) updateHistory(histId, { status: "done", destTx: sig });
       flash(`Released ✓ — ${String(sig).slice(0, 8)}…`, "success");
     } catch (e) {
-      console.error("[Relay] error:", e);
-      flash(`Release failed: ${e?.message}`, "err");
+      console.group("[Relay] Submission FAILED");
+      console.error("error:", e);
+      console.error("message:", e?.message);
+      console.error("stack:", e?.stack);
+      console.groupEnd();
+      flash(`Release failed: ${e?.message}. Check console for full error.`, "err");
     } finally {
       setRelayLoading(false);
     }
@@ -1663,9 +1667,14 @@ export default function Teleporter() {
           });
           if (!res.success) {
             const simLogs = res.sim?.logs || [];
-            const assertLine = simLogs.find((l) => /assert|Error|failed|panic/i.test(l)) || "";
-            console.log("[Reverse] sim failed:", JSON.stringify(res.sim?.err), simLogs);
-            flash(`Reverse sim failed: ${assertLine || JSON.stringify(res.sim?.err || "unknown")}`, "err");
+            const assertLines = simLogs.filter((l) => /error|failed|assert|constraint|insufficient|invalid|unauthorized/i.test(l)).slice(-3);
+            console.group("[Reverse] Burn simulation FAILED");
+            console.log("err:", res.sim?.err);
+            console.log("program logs:");
+            simLogs.forEach((l) => console.log("  " + l));
+            console.groupEnd();
+            const key = assertLines.join(" | ");
+            flash(`Reverse burn failed: ${JSON.stringify(res.sim?.err)}${key ? " — " + key : ""} (full logs in console)`, "err");
             setPhase("quoted"); setBridgeStage(0); updateHistory(histId, { status: "failed" });
             return;
           }
@@ -1757,9 +1766,17 @@ export default function Teleporter() {
           flash("Bridge submitted — tracking…", "info");
         }
       } catch (e) {
+        console.group("[LiFi/Solana] Execution FAILED");
+        console.error("error:", e);
+        console.error("message:", e?.message);
+        console.error("code:", e?.code);
+        console.error("stack:", e?.stack);
+        console.groupEnd();
         updateHistory(histId, { status: "failed" });
         setPhase("quoted");
-        flash(e?.message?.includes("reject") || e?.code === 4001 ? "Transaction rejected" : (e.message || "Send failed"), "err");
+        const isReject = e?.message?.includes("reject") || e?.code === 4001 || e?.message?.includes("User rejected");
+        const msg = isReject ? "Transaction rejected by wallet" : (e?.message || "Send failed");
+        flash(`${msg}. Check console for full error.`, "err");
       }
       return;
     }
