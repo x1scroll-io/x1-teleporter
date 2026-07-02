@@ -156,7 +156,7 @@ const X1_RPC =
 const FEE_WALLET_SVM = "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu"; // "tip" vanity SVM wallet
 
 // X1 fee wallet for reverse (X1→Solana) bridge fee collection
-const FEE_WALLET_X1 = "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV"; // TODO: update with proper fee wallet
+const FEE_WALLET_X1 = "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu";
 
 function calcFee(amountUsd) {
   const n = parseFloat(amountUsd);
