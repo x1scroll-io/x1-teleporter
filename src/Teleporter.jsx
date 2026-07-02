@@ -1447,6 +1447,7 @@ export default function Teleporter() {
         if (res.sent || res.signature) {
           const sig = res.signature;
           setWarpSig(sig);
+          setBridgeStage((s) => Math.max(s, 2)); // "Bridge-out sent" done
           setPhase("relaying");
           flash(`bridge_out sent. Watching guardians + relay… (${sig?.slice(0,8)}…)`, "info");
           const { pollWarpStatus, WARP_API } = await import("./warpBridge.js");
@@ -1455,12 +1456,18 @@ export default function Teleporter() {
             from: "sol",
             onUpdate: (stage, detail) => {
               setWarpStatus({ stage, detail });
-              if (stage === "guardians_signing") flash(`Guardians signing: ${detail.count} collected`, "info");
-              if (stage === "complete") flash("USDC.x minted on X1 ✓", "success");
+              // Drive the progress bars off REAL relay events (not timers):
+              if (stage === "status") setBridgeStage((s) => Math.max(s, 3)); // Detected on Solana
+              if (stage === "guardians_signing") {
+                setBridgeStage((s) => Math.max(s, 4)); // Guardians signed
+                flash(`Guardians signing: ${detail.count} collected`, "info");
+              }
+              if (stage === "complete") { setBridgeStage(5); flash("USDC.x minted on X1 ✓", "success"); }
               if (stage === "failed") flash("Warp relay reported failure — see status", "err");
             },
           });
           if (result.ok) {
+            setBridgeStage(5); // all bars green → "Minted on X1" ✓
             if (pending?.histId) updateHistory(pending.histId, { status: "done", destTx: result.destinationTx });
             setProgress(1); setPhase("done");
             flash(`Complete! USDC.x on X1${result.destinationTx ? ` (dest ${String(result.destinationTx).slice(0,8)}…)` : ""}`, "success");
@@ -2088,18 +2095,21 @@ export default function Teleporter() {
               )}
               <Row k="You receive" v={`≈ ${quote.net.toFixed(2)} ${quote.recvToken} on ${quote.recvChain}`} hi />
               {quote.note && <div style={{ fontSize: 11, color: "#7d8aa0", marginTop: 4 }}>{quote.note}</div>}
-              {warpLimits?.ok && (
+              {warpLimits?.ok && (warpLimits.sol.outflow > 0 || warpLimits.x1.outflow > 0) && (
                 <div style={{ fontSize: 11, color: "#7d8aa0", marginTop: 8, lineHeight: 1.5 }}>
                   <div><strong>Daily capacity:</strong></div>
-                  {from === "sol" && to === "x1" && (
+                  {from === "sol" && to === "x1" && warpLimits.sol.outflow > 0 && (
                     <div>Sol→X1: {warpLimits.sol.outflow.toLocaleString()} USDC outflow / {warpLimits.x1.inflow.toLocaleString()} USDC inflow</div>
                   )}
-                  {from === "x1" && to === "sol" && (
+                  {from === "x1" && to === "sol" && warpLimits.x1.outflow > 0 && (
                     <div>X1→Sol: {warpLimits.x1.outflow.toLocaleString()} USDC.x outflow / {warpLimits.sol.inflow.toLocaleString()} USDC inflow</div>
                   )}
-                  {quote.amount > (from === "sol" ? warpLimits.sol.outflow : warpLimits.x1.outflow) && (
-                    <div style={{ color: "#f59e0b", marginTop: 4 }}>⚠️ Amount exceeds 24h capacity</div>
-                  )}
+                  {(() => {
+                    const cap = from === "sol" ? warpLimits.sol.outflow : warpLimits.x1.outflow;
+                    return cap > 0 && quote.amount > cap ? (
+                      <div style={{ color: "#f59e0b", marginTop: 4 }}>⚠️ Amount exceeds 24h capacity</div>
+                    ) : null;
+                  })()}
                 </div>
               )}
               <div style={S.stepStrip}>
