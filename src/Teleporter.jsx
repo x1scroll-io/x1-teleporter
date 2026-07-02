@@ -560,6 +560,7 @@ export default function Teleporter() {
   const [toToken, setToToken] = useState("USDC");
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState(null);
+  const [warpLimits, setWarpLimits] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle|quoting|quoted|bridging|relaying|step2|handoff|done|failed
   const [progress, setProgress] = useState(0);
   const [warpSig, setWarpSig] = useState(null);
@@ -1239,6 +1240,11 @@ export default function Teleporter() {
     }
 
     setPhase("quoting");
+
+    // Fetch daily limits (inflow/outflow) from Warp to warn on capacity
+    const { fetchWarpLimits, WARP_API } = await import("./warpBridge.js");
+    const limits = await fetchWarpLimits(WARP_API.mainnet);
+    if (limits.ok) setWarpLimits(limits);
 
     // sol_x1 — pure Warp bridge, no LiFi leg. Our 1% skim. In HANDOFF mode we
     // land USDC on Solana and the user finishes on Warp Bridge (Warp charges
@@ -2071,6 +2077,20 @@ export default function Teleporter() {
               )}
               <Row k="You receive" v={`≈ ${quote.net.toFixed(2)} ${quote.recvToken} on ${quote.recvChain}`} hi />
               {quote.note && <div style={{ fontSize: 11, color: "#7d8aa0", marginTop: 4 }}>{quote.note}</div>}
+              {warpLimits?.ok && (
+                <div style={{ fontSize: 11, color: "#7d8aa0", marginTop: 8, lineHeight: 1.5 }}>
+                  <div><strong>Daily capacity:</strong></div>
+                  {from === "sol" && to === "x1" && (
+                    <div>Sol→X1: {warpLimits.sol.outflow.toLocaleString()} USDC outflow / {warpLimits.x1.inflow.toLocaleString()} USDC inflow</div>
+                  )}
+                  {from === "x1" && to === "sol" && (
+                    <div>X1→Sol: {warpLimits.x1.outflow.toLocaleString()} USDC.x outflow / {warpLimits.sol.inflow.toLocaleString()} USDC inflow</div>
+                  )}
+                  {quote.amount > (from === "sol" ? warpLimits.sol.outflow : warpLimits.x1.outflow) && (
+                    <div style={{ color: "#f59e0b", marginTop: 4 }}>⚠️ Amount exceeds 24h capacity</div>
+                  )}
+                </div>
+              )}
               <div style={S.stepStrip}>
                 {quote.steps.map((s, i) => (
                   <span key={i} style={S.stepChip}>

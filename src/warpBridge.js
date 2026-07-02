@@ -478,6 +478,31 @@ export const WARP_API = {
   testnet: "https://api.bridge.testnet.x1.xyz",
 };
 
+// Fetch daily inflow/outflow limits from Warp config (Sol/X1 caps per 24h)
+export async function fetchWarpLimits(api = WARP_API.mainnet) {
+  try {
+    const resp = await fetch(`${api}/config`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const config = await resp.json();
+    // Expected: { chains: { sol: { dailyInflow, dailyOutflow, ... }, x1: { ... } } }
+    return {
+      ok: true,
+      sol: {
+        inflow: config?.chains?.sol?.dailyInflow || 0,
+        outflow: config?.chains?.sol?.dailyOutflow || 0,
+      },
+      x1: {
+        inflow: config?.chains?.x1?.dailyInflow || 0,
+        outflow: config?.chains?.x1?.dailyOutflow || 0,
+      },
+      raw: config,
+    };
+  } catch (e) {
+    console.warn("[Warp] fetchWarpLimits error:", e?.message);
+    return { ok: false, error: e?.message };
+  }
+}
+
 // Self-relay: submit V1 bridge_in to release a stuck reverse transfer.
 // Takes guardian sigs + transfer details; builds, simulates, optionally sends.
 export async function submitReverseRelay(conn, { signatures, seq, sender, amount, timestamp, payer, onProgress = () => {} }) {
