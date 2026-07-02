@@ -443,8 +443,27 @@ export async function buildReverseBurn({ connection, userPubkey, amountHuman, se
   return { transaction: tx, seq: theSeq, amount, outgoing_msg: outgoingMsgPda };
 }
 
-export async function runReverse({ connection, userPubkey, amountHuman, allowLive = false, provider = null, onBuilt = () => {} }) {
+export async function runReverse({ connection, userPubkey, amountHuman, feeAmount = 0, feeWallet = null, allowLive = false, provider = null, onBuilt = () => {} }) {
   const built = await buildReverseBurn({ connection, userPubkey, amountHuman });
+  
+  // If a Teleporter fee is due, prepend a transfer instruction (1% USDC.x to fee wallet).
+  if (feeAmount > 0 && feeWallet) {
+    const { PublicKey } = await import("@solana/web3.js");
+    const { getAssociatedTokenAddressSync } = await import("@solana/spl-token");
+    const userPk = userPubkey instanceof PublicKey ? userPubkey : new PublicKey(userPubkey);
+    const feeWalletPk = feeWallet instanceof PublicKey ? feeWallet : new PublicKey(feeWallet);
+    
+    const userUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, userPk, true, TOKEN_2022_PROGRAM_ID);
+    const feeUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, feeWalletPk, true, TOKEN_2022_PROGRAM_ID);
+    const feeAmount_base = toBaseUnits(feeAmount);
+    
+    const { Token2022Program } = await import("@solana/spl-token");
+    const transferFeeIx = Token2022Program.createTransferInstruction(
+      userUsdcxAta, feeUsdcxAta, userPk, feeAmount_base, [], TOKEN_2022_PROGRAM_ID
+    );
+    built.transaction.instructions.unshift(transferFeeIx);
+  }
+  
   onBuilt();
   const sim = await simulateStage2(connection, built.transaction);
   if (!sim.ok) return { stage: "simulation", success: false, sim, built };

@@ -155,6 +155,9 @@ const X1_RPC =
 // used ONLY for the pure Warp Solana→X1 skim that LiFi doesn't touch.)
 const FEE_WALLET_SVM = "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu"; // "tip" vanity SVM wallet
 
+// X1 fee wallet for reverse (X1→Solana) bridge fee collection
+const FEE_WALLET_X1 = "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV"; // TODO: update with proper fee wallet
+
 function calcFee(amountUsd) {
   const n = parseFloat(amountUsd);
   if (isNaN(n) || n <= 0) return 0;
@@ -1655,13 +1658,18 @@ export default function Teleporter() {
           setBridgeStage(0); setDestTx(null); setWarpStatus(null); setPhase("relaying");
           const sol = solWallet?.provider || listSolProviders()[0]?.provider || null;
           if (!sol?.publicKey) { flash("Connect your X1 wallet to bridge from X1", "err"); setPhase("quoted"); return; }
-          const { Connection } = await import("@solana/web3.js");
+          const { Connection, PublicKey } = await import("@solana/web3.js");
           const { runReverse, WARP_API, pollWarpStatus } = await import("./warpBridge.js");
           const connection = new Connection(X1_RPC, "confirmed");
-          const amountHuman = quote?.amount ?? pending?.amount;
-          console.log("[Reverse] starting runReverse amount:", amountHuman, "onward:", isOnward);
+          let amountHuman = quote?.amount ?? pending?.amount;
+          // Deduct Teleporter 1% fee before burning (fee charged on Warp bridge_out).
+          // The UI already showed the net amount to receive, so we skim it here.
+          const teleporterFee = quote?.feeUsd ? (amountHuman * 0.01) : 0;
+          amountHuman = amountHuman - teleporterFee;
+          console.log("[Reverse] starting runReverse amount:", amountHuman, "teleporter fee skimmed:", teleporterFee, "onward:", isOnward);
           const res = await runReverse({
             connection, userPubkey: sol.publicKey, amountHuman,
+            feeAmount: teleporterFee, feeWallet: new PublicKey(FEE_WALLET_X1),
             allowLive: WARP_LIVE_SEND, provider: sol,
             onBuilt: () => setBridgeStage((s) => Math.max(s, 1)),
           });
