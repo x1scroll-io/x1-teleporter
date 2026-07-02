@@ -567,6 +567,8 @@ export default function Teleporter() {
   const [warpStatus, setWarpStatus] = useState(null);
   const [pendingRelay, setPendingRelay] = useState(null);
   const [relayLoading, setRelayLoading] = useState(false);
+  const [relayError, setRelayError] = useState(null);
+  const relayAttemptedRef = useRef(null);
   const [bridgeStage, setBridgeStage] = useState(0); // 0-5 benchmark progress
   const [destTx, setDestTx] = useState(null);        // release/mint tx hash
   const [showSplash, setShowSplash] = useState(true); // landing page gate
@@ -1535,14 +1537,10 @@ export default function Teleporter() {
   }, [buildLifiQuery, executeLiFiSolanaTx, pending, updateHistory, clearIntent, to, amount, quote]);
 
   // Auto-submit reverse relay when guardians sign
-  useEffect(() => {
-    if (phase === "relay_ready" && pendingRelay && !relayLoading) {
-      executeRelay();
-    }
-  }, [phase, pendingRelay, relayLoading, executeRelay]);
   const executeRelay = useCallback(async () => {
     if (!pendingRelay) { flash("No pending relay", "err"); return; }
     setRelayLoading(true);
+    setRelayError(null);
     try {
       const { Connection } = await import("@solana/web3.js");
       const { submitReverseRelay } = await import("./warpBridge.js");
@@ -1584,11 +1582,24 @@ export default function Teleporter() {
       console.error("message:", e?.message);
       console.error("stack:", e?.stack);
       console.groupEnd();
+      setRelayError(e?.message || "Release failed");
       flash(`Release failed: ${e?.message}. Check console for full error.`, "err");
     } finally {
       setRelayLoading(false);
     }
   }, [pendingRelay, solWallet, updateHistory]);
+
+  // Auto-submit reverse relay when guardians sign (defined AFTER executeRelay
+  // so the callback exists — const isn't hoisted, referencing it earlier crashes).
+  // Fires ONCE per transfer (keyed by histId) so a failed relay doesn't loop.
+  useEffect(() => {
+    if (phase === "relay_ready" && pendingRelay && !relayLoading) {
+      const key = pendingRelay.histId || String(pendingRelay.seq);
+      if (relayAttemptedRef.current === key) return; // already tried this one
+      relayAttemptedRef.current = key;
+      executeRelay();
+    }
+  }, [phase, pendingRelay, relayLoading, executeRelay]);
 
   // Dispatcher for the step2 button: x1_onward finishes via LiFi, everything
   // else (forward x1, sol_x1) finishes via the Warp Stage 2.
@@ -2167,9 +2178,15 @@ export default function Teleporter() {
                 🌉 Open Warp Bridge to finish → X1
               </a>
             ) : phase === "relay_ready" ? (
-              <button style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)", opacity: 0.7 }} disabled>
-                Completing release…
-              </button>
+              relayError ? (
+                <button style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)" }} onClick={executeRelay} disabled={relayLoading}>
+                  {relayLoading ? "Completing release…" : "↻ Retry release"}
+                </button>
+              ) : (
+                <button style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)", opacity: 0.7 }} disabled>
+                  Completing release…
+                </button>
+              )
             ) : phase === "done" ? (
               <button style={{ ...S.cta, background: "#16321f", color: "#5ee08a", borderColor: "#1f6b3a" }} onClick={reset}>
                 ✓ Complete — bridge again
