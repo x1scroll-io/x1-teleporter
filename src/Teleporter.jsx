@@ -561,6 +561,8 @@ export default function Teleporter() {
   const [progress, setProgress] = useState(0);
   const [warpSig, setWarpSig] = useState(null);
   const [warpStatus, setWarpStatus] = useState(null);
+  const [pendingRelay, setPendingRelay] = useState(null);
+  const [relayLoading, setRelayLoading] = useState(false);
   const [bridgeStage, setBridgeStage] = useState(0); // 0-5 benchmark progress
   const [destTx, setDestTx] = useState(null);        // release/mint tx hash
   const [showSplash, setShowSplash] = useState(true); // landing page gate
@@ -1453,7 +1455,7 @@ export default function Teleporter() {
             flash(`Complete! USDC.x on X1${result.destinationTx ? ` (dest ${String(result.destinationTx).slice(0,8)}…)` : ""}`, "success");
           } else if (result.timedOut) {
             setPhase("relaying");
-            flash(`Still relaying after 3min${result.sawSigs ? " (guardians signed)" : ""}. Source sig: ${sig}. Check Warp API.`, "info");
+            flash(`Still relaying after 3min${result.sawSigs ? " (guardians signed)" : ""}. Guardians are working on it — check back in a few minutes. If this persists, the release may have already landed on-chain; verify at solscan or on-chain block explorers.`, "info");
           } else {
             setPhase("quoted");
             flash("Relay did not complete — capture the status JSON for the Warp team.", "err");
@@ -1522,6 +1524,53 @@ export default function Teleporter() {
       flash(e?.message || "Onward leg failed — your USDC is safe on Solana, try again", "err");
     }
   }, [buildLifiQuery, executeLiFiSolanaTx, pending, updateHistory, clearIntent, to, amount, quote]);
+
+  // Submit the self-relay for a stuck X1->Solana transfer when guardians have signed.
+  const executeRelay = useCallback(async () => {
+    if (!pendingRelay) { flash("No pending relay", "err"); return; }
+    setRelayLoading(true);
+    try {
+      const { Connection } = await import("@solana/web3.js");
+      const { submitReverseRelay } = await import("./warpBridge.js");
+      const conn = new Connection(SOLANA_RPC || "https://api.mainnet-beta.solana.com", "confirmed");
+      const solProv = solWallet?.provider || listSolProviders()[0]?.provider;
+      if (!solProv?.publicKey) { flash("Connect your Solana wallet to complete the release", "err"); setRelayLoading(false); return; }
+      
+      flash("Simulating release…", "info");
+      const { tx, sim } = await submitReverseRelay(conn, {
+        signatures: pendingRelay.sigs,
+        seq: pendingRelay.seq,
+        sender: pendingRelay.sender,
+        amount: pendingRelay.amount,
+        timestamp: pendingRelay.timestamp,
+        payer: solProv.publicKey,
+        onProgress: (msg) => flash(msg, "info"),
+      });
+      
+      if (!WARP_LIVE_SEND) {
+        flash(`Release ready (sim OK) — set WARP_LIVE_SEND to true to execute`, "info");
+        setRelayLoading(false);
+        return;
+      }
+      
+      flash("Signing and sending…", "info");
+      tx.sign([solProv]);
+      const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+      await conn.confirmTransaction(sig, "confirmed");
+      
+      setPhase("done");
+      setDestTx(sig);
+      setPendingRelay(null);
+      const histId = pendingRelay.histId;
+      if (histId) updateHistory(histId, { status: "done", destTx: sig });
+      flash(`Released ✓ — ${String(sig).slice(0, 8)}…`, "success");
+    } catch (e) {
+      console.error("[Relay] error:", e);
+      flash(`Release failed: ${e?.message}`, "err");
+    } finally {
+      setRelayLoading(false);
+    }
+  }, [pendingRelay, solWallet, updateHistory]);
 
   // Dispatcher for the step2 button: x1_onward finishes via LiFi, everything
   // else (forward x1, sol_x1) finishes via the Warp Stage 2.
@@ -1651,17 +1700,22 @@ export default function Teleporter() {
                 flash(`USDC released on Solana ✓ — dest ${String(poll.destinationTx).slice(0, 8)}…`, "success");
               }
             } else {
-              // NOT released. The burn landed on X1 but the relay hasn't completed.
-              // Tell the truth and persist it as a resumable/pending transfer so it
-              // shows honestly in History instead of a fake "complete".
+              // NOT released yet. If guardians signed, offer a self-relay button.
               updateHistory(histId, { status: poll?.terminal ? "failed" : "relaying" });
               rememberIntent({ routeType, from, to, token, toToken, amount: quote?.amount, solanaAmount: quote?.solanaAmount,
                 recvToken: quote?.recvToken, recvChain: quote?.recvChain, stage: "awaiting_relay", histId, warpSig: sig, ts: Date.now() });
-              setPhase("relaying");
-              const why = poll?.terminal ? "the bridge reported a terminal failure"
-                : poll?.sawSigs ? "guardians signed but the release hasn't landed yet"
-                : "no guardian signatures yet — the X1→Solana relay hasn't picked it up";
-              flash(`Not released yet — ${why}. Your USDC.x is burned on X1 and safe; source ${String(sig).slice(0, 10)}…. Track it in History.`, "err");
+              
+              // If guardians signed, allow user to complete the release.
+              if (warpStatus?.stage === "guardians_signing" && (warpStatus?.detail?.sigs?.length || 0) > 0) {
+                const sigs = warpStatus.detail.sigs;
+                setPhase("relay_ready");
+                flash(`Guardians signed (${sigs.length} sigs) — tap "Complete release" to finish`, "info");
+                // Store relay params for the button handler
+                setPendingRelay({ sigs, seq: BigInt(quote?.seq || 0), sender: Buffer.from(quote?.sender || "", "base64"), amount: quote?.amount || 0, timestamp: quote?.timestamp || 0, histId });
+              } else {
+                setPhase("relaying");
+                flash(`Waiting for guardians to sign. Source: ${String(sig).slice(0, 10)}…`, "info");
+              }
             }
           }
         } catch (e) {
@@ -2061,6 +2115,10 @@ export default function Teleporter() {
                  style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)", textDecoration: "none", display: "block", textAlign: "center" }}>
                 🌉 Open Warp Bridge to finish → X1
               </a>
+            ) : phase === "relay_ready" ? (
+              <button style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)" }} onClick={executeRelay} disabled={relayLoading}>
+                {relayLoading ? "Completing release…" : "✓ Complete release"}
+              </button>
             ) : phase === "done" ? (
               <button style={{ ...S.cta, background: "#16321f", color: "#5ee08a", borderColor: "#1f6b3a" }} onClick={reset}>
                 ✓ Complete — bridge again
