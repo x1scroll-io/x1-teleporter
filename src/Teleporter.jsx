@@ -895,6 +895,34 @@ export default function Teleporter() {
     const w = getOriginWallet();
     if (!w || w.type !== "evm" || !w.provider) throw new Error("Connect an EVM wallet to sign");
 
+    // ── ENSURE CORRECT SOURCE CHAIN ──
+    // LiFi builds the tx for a specific chain (txReq.chainId). If the wallet is
+    // on a different network (e.g. connected to Ethereum but bridging from BNB),
+    // the approval + bridge tx would execute on the WRONG chain and revert.
+    // Switch the wallet to the chain LiFi built for, first.
+    try {
+      let targetChainId = txReq.chainId;
+      if (typeof targetChainId === "string") targetChainId = parseInt(targetChainId, targetChainId.startsWith("0x") ? 16 : 10);
+      if (targetChainId && Number.isFinite(targetChainId)) {
+        const targetHex = "0x" + targetChainId.toString(16);
+        const currentHex = await w.provider.request({ method: "eth_chainId" });
+        if (String(currentHex).toLowerCase() !== targetHex.toLowerCase()) {
+          const chainName = Object.values(CHAINS).find((c) => c.chainId === targetChainId)?.name || `chain ${targetChainId}`;
+          flash(`Switch your wallet to ${chainName}…`, "info");
+          try {
+            await w.provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: targetHex }] });
+          } catch (switchErr) {
+            if (switchErr?.code === 4902) throw new Error(`Add ${chainName} to your wallet, then retry the bridge`);
+            throw new Error(`Approve the network switch to ${chainName} in your wallet, then retry`);
+          }
+        }
+      }
+    } catch (e) {
+      if (e?.message?.includes("network switch") || e?.message?.includes("Add ")) throw e;
+      // Non-fatal (some providers don't support eth_chainId cleanly) — continue.
+      console.warn("[LiFi] chain check skipped:", e?.message);
+    }
+
     // ── ERC-20 APPROVAL (the step whose absence caused the Across V4 revert) ──
     // LiFi must be allowed to pull your token before it can bridge it. For any
     // ERC-20 source (i.e. not the chain's native coin), check the allowance for
