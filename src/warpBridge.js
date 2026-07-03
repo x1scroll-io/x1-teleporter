@@ -95,6 +95,23 @@ function encodeBridgeOutData(seq, amountGross) {
   return buf;
 }
 
+// On-chain fallback for the forward direction: has the mint landed on X1?
+// bridge_in on X1 creates the incoming-message PDA ["evt_in", u64LE(seq)] under
+// the Warp program. If that account exists, USDC.x was minted for this seq —
+// true regardless of whether the status API ever returns "complete".
+export async function verifyX1Mint(x1Connection, seq) {
+  try {
+    const { PublicKey } = await import("@solana/web3.js");
+    const enc = (s) => new TextEncoder().encode(s);
+    const u64le = (v) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(v)); return b; };
+    const evtIn = PublicKey.findProgramAddressSync([enc("evt_in"), u64le(seq)], WARP_PROGRAM_ID)[0];
+    const info = await x1Connection.getAccountInfo(evtIn);
+    return { minted: !!info, evtIn: evtIn.toBase58() };
+  } catch (e) {
+    return { minted: false, error: e?.message };
+  }
+}
+
 // Read the REAL outgoing sequence from the Warp Config account.
 // The program asserts the seq passed to bridge_out matches its expected
 // out_seq_counter; a made-up value (e.g. a timestamp) fails that assertion.

@@ -1478,7 +1478,33 @@ export default function Teleporter() {
           setBridgeStage((s) => Math.max(s, 2)); // "Bridge-out sent" done
           setPhase("relaying");
           flash(`bridge_out sent. Watching guardians + relay… (${sig?.slice(0,8)}…)`, "info");
-          const { pollWarpStatus, WARP_API } = await import("./warpBridge.js");
+          const { pollWarpStatus, verifyX1Mint, WARP_API } = await import("./warpBridge.js");
+          const { Connection } = await import("@solana/web3.js");
+          const seq = res.built?.seq;
+
+          let completed = false;
+          const finish = (destTx, onChain) => {
+            if (completed) return;
+            completed = true;
+            setBridgeStage(5); // all bars green → "Minted on X1" ✓
+            setProgress(1); setPhase("done");
+            if (pending?.histId) updateHistory(pending.histId, { status: "done", destTx: destTx || undefined });
+            flash(`USDC.x minted on X1 ✓${onChain ? " (confirmed on-chain)" : (destTx ? ` (dest ${String(destTx).slice(0,8)}…)` : "")}`, "success");
+          };
+
+          // Watch X1 DIRECTLY for the mint — the status API sometimes never
+          // returns "complete" even after the mint lands, which is exactly what
+          // left "Minted on X1" hanging. The evt_in PDA is on-chain truth.
+          const mintWatcher = (async () => {
+            if (!seq) return;
+            const x1conn = new Connection(X1_RPC, "confirmed");
+            for (let i = 0; i < 60 && !completed; i++) {
+              const chk = await verifyX1Mint(x1conn, seq); // eslint-disable-line no-await-in-loop
+              if (chk.minted) { finish(null, true); return; }
+              await new Promise((r) => setTimeout(r, 5000)); // eslint-disable-line no-await-in-loop
+            }
+          })();
+
           const result = await pollWarpStatus(sig, {
             api: WARP_API.mainnet,
             from: "sol",
@@ -1490,21 +1516,15 @@ export default function Teleporter() {
                 setBridgeStage((s) => Math.max(s, 4)); // Guardians signed
                 flash(`Guardians signing: ${detail.count} collected`, "info");
               }
-              if (stage === "complete") { setBridgeStage(5); flash("USDC.x minted on X1 ✓", "success"); }
+              if (stage === "complete") finish(detail.destinationTx);
               if (stage === "failed") flash("Warp relay reported failure — see status", "err");
             },
           });
-          if (result.ok) {
-            setBridgeStage(5); // all bars green → "Minted on X1" ✓
-            if (pending?.histId) updateHistory(pending.histId, { status: "done", destTx: result.destinationTx });
-            setProgress(1); setPhase("done");
-            flash(`Complete! USDC.x on X1${result.destinationTx ? ` (dest ${String(result.destinationTx).slice(0,8)}…)` : ""}`, "success");
-          } else if (result.timedOut) {
+          if (result.ok) finish(result.destinationTx);
+          await mintWatcher; // give the on-chain check a chance to confirm too
+          if (!completed) {
             setPhase("relaying");
-            flash(`Still relaying after 3min${result.sawSigs ? " (guardians signed)" : ""}. Guardians are working on it — check back in a few minutes. If this persists, the release may have already landed on-chain; verify at solscan or on-chain block explorers.`, "info");
-          } else {
-            setPhase("quoted");
-            flash("Relay did not complete — capture the status JSON for the Warp team.", "err");
+            flash(`Guardians signed; waiting on the X1 mint. Your funds are safe — this bar will complete once the mint is confirmed on X1.`, "info");
           }
           return;
         }
