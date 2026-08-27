@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "verify": "node verify-accounts.mjs",
+    "test": "node --test src/lib/flags.test.ts",
     "prebuild": "node verify-accounts.mjs"
   },
   "dependencies": {

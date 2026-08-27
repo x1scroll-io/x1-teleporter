@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+
+jobs:
+  ci:
+    name: Install, typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: |
+          if [ -f tsconfig.json ]; then
+            npx tsc --noEmit
+          else
+            echo "No tsconfig.json found — skipping typecheck."
+          fi
+
+      - name: Lint
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.lint ? 0 : 1)"; then
+            npm run lint
+          else
+            echo "No lint script found — skipping lint."
+          fi
+
+      - name: Test
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)"; then
+            npm test
+          else
+            echo "No test script found — skipping tests."
+          fi
+
+      - name: Build
+        run: |
+          # Guard the api-lifi naming regression: the serverless routes live in
+          # api/lifi/ and must exist, or the bridge quote/status endpoints break.
+          if [ ! -d api/lifi ]; then
+            echo "::error::api/lifi/ directory is missing (api-lifi naming regression). Build aborted."
+            exit 1
+          fi
+          npm run build
