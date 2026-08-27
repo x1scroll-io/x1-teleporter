@@ -7,18 +7,20 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveFlags, THORCHAIN, ANYSWAP } from "./flags.ts";
+import { resolveFlags, THORCHAIN, ANYSWAP, REVERSE_ENABLED } from "./flags.ts";
 
 test("flags default to false when no env vars are set", () => {
   // Singleton values (resolved from the real environment at module load —
   // which has no flags set under node --test, so this exercises the default).
   assert.equal(THORCHAIN, false);
   assert.equal(ANYSWAP, false);
+  assert.equal(REVERSE_ENABLED, false);
 
   // Explicit empty env: same result via the pure resolver.
   const flags = resolveFlags({});
   assert.equal(flags.THORCHAIN, false);
   assert.equal(flags.ANYSWAP, false);
+  assert.equal(flags.REVERSE_ENABLED, false);
 });
 
 test("NEXT_PUBLIC_ flag name takes precedence over VITE_ name", () => {

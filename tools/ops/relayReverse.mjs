@@ -2,6 +2,11 @@
 /**
  * relayReverse.mjs — permissionless self-relay for stuck X1 -> Solana transfers.
  *
+ * ⚠️ UNVERIFIED recovery tool. Hardcodes 2-of-N signature threshold. Legacy
+ * bridge_in acceptance on Solana is untested. Do NOT run without manual
+ * review. — step 1.2: removed from the user-facing path; kept only as an
+ * ops-side recovery tool.
+ *
  * Context: X1 -> Solana runs on Warp V1 (68-byte message, WARP::BRIDGE::V1 domain).
  * Guardians sign it, but the official submitter isn't completing the Solana-side
  * release. Per Warp, the submitter is PERMISSIONLESS — so we finish it ourselves
@@ -13,9 +18,9 @@
  * a bad build reverts atomically and moves nothing.
  *
  * Usage:
- *   node tools/relayReverse.mjs <attestations.json>                 # verify + build + (sim if SOLANA_RPC set)
- *   SOLANA_RPC=<url> node tools/relayReverse.mjs <attestations.json>            # + simulate each
- *   SOLANA_RPC=<url> node tools/relayReverse.mjs <attestations.json> --keypair ~/id.json --send   # LIVE release
+ *   node tools/ops/relayReverse.mjs <attestations.json>                 # verify + build + (sim if SOLANA_RPC set)
+ *   SOLANA_RPC=<url> node tools/ops/relayReverse.mjs <attestations.json>            # + simulate each
+ *   SOLANA_RPC=<url> node tools/ops/relayReverse.mjs <attestations.json> --keypair ~/id.json --send   # LIVE release
  *
  * The recipient is fixed by the guardian message (bridge-to-self); --keypair is only
  * the fee payer and does NOT need to be the recipient.
@@ -110,7 +115,7 @@ function buildRelayTx(t, payer) {
 
 // ---- main ----
 const [, , jsonPath, ...rest] = process.argv;
-if (!jsonPath) { console.error("usage: node tools/relayReverse.mjs <attestations.json> [--keypair path --send]"); process.exit(2); }
+if (!jsonPath) { console.error("usage: node tools/ops/relayReverse.mjs <attestations.json> [--keypair path --send]"); process.exit(2); }
 const doSend = rest.includes("--send");
 const kpIdx = rest.indexOf("--keypair");
 const rpc = process.env.SOLANA_RPC;
