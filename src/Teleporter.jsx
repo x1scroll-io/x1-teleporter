@@ -930,9 +930,12 @@ export default function Teleporter() {
     // present), we approve EXACTLY the amount being bridged — never MaxUint256 —
     // and only AFTER validating the spender:
     //   1. the approval target must be the SAME contract the bridge tx calls
-    //      (transactionRequest.to), and
+    //      (transactionRequest.to),
     //   2. the tool executing the step must be a tool LiFi lists for the source
-    //      chain in /v1/tools (fetched through our proxy).
+    //      chain in /v1/tools (fetched through our proxy), and
+    //   3. the approval target must be LiFi's pinned Diamond contract for the
+    //      chain (lifiDiamondAllowlist.js) — the independent anchor that
+    //      catches tampered responses which pass 1+2 by being self-consistent.
     // Any check that fails ABORTS the transaction before anything is signed.
     // Native sends (value-based) and steps LiFi marks as needing no allowance
     // (no approvalAddress) skip this entirely.

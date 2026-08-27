@@ -11,7 +11,14 @@
  *          a. the approval target must be the SAME contract the bridge
  *             transaction calls (transactionRequest.to), and
  *          b. the tool executing the step must be a tool LI.Fi lists for the
- *             source chain in /v1/tools.
+ *             source chain in /v1/tools, and
+ *          c. the approval target must be LI.Fi's Diamond contract for the
+ *             chain, per the pinned allowlist in lifiDiamondAllowlist.js.
+ *             (a) and (b) only compare fields from the SAME response — a
+ *             self-consistent but tampered response could pass both. (c) is
+ *             the independent anchor: it compares against LI.Fi's published
+ *             deployment records, so an unknown chain or an address that is
+ *             not the pinned Diamond ABORTS.
  *   Any check that cannot be satisfied ABORTS the approval (fail-closed).
  *
  * ADAPTED TO THE REAL LI.Fi API SHAPE (verified against li.quest 2026-08-27)
@@ -29,6 +36,11 @@
  *
  * This module is pure (no DOM, no fetch) so it runs under node --test.
  */
+
+import {
+  isKnownLiFiDiamond,
+  isKnownLiFiDiamondChain,
+} from "./lifiDiamondAllowlist.js";
 
 export const ERC20_APPROVE_SELECTOR = "0x095ea7b3"; // approve(address,uint256)
 export const MAX_UINT256 = (1n << 256n) - 1n;
@@ -191,6 +203,26 @@ export function validateLiFiApproval({ step, toolsData }) {
     );
   }
 
+  // INDEPENDENT ANCHOR (Step 1.1 amendment): the approval target must be
+  // LI.Fi's Diamond contract for this chain, pinned from LI.Fi's own
+  // deployment records (lifiDiamondAllowlist.js). The checks below only
+  // compare fields from the SAME response — a self-consistent but tampered
+  // response could pass them. The allowlist is independent of the response,
+  // so an unknown chain or an address that is not the pinned Diamond ABORTS.
+  const chainId = action?.fromToken?.chainId ?? txReq?.chainId;
+  if (!isKnownLiFiDiamondChain(chainId)) {
+    throw new LiFiApprovalValidationError(
+      `Cannot verify LI.Fi's Diamond contract on chain ${String(chainId)} — approval aborted.`,
+      "unknown-chain",
+    );
+  }
+  if (!isKnownLiFiDiamond(chainId, spender)) {
+    throw new LiFiApprovalValidationError(
+      "Approval target is not LI.Fi's known Diamond contract for this chain — transaction aborted.",
+      "address-not-allowlisted",
+    );
+  }
+
   // The contract we approve must be the contract the bridge tx calls.
   const txTo = normalizeEvmAddress(txReq?.to);
   if (!txTo) {
@@ -213,7 +245,6 @@ export function validateLiFiApproval({ step, toolsData }) {
       "tools-unavailable",
     );
   }
-  const chainId = action?.fromToken?.chainId ?? txReq?.chainId;
   const toolKey = step?.tool || step?.toolDetails?.key || null;
   if (!toolKey) {
     throw new LiFiApprovalValidationError(

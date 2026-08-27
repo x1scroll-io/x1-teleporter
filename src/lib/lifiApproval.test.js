@@ -7,6 +7,10 @@
  *   (a) exact amount used (never MaxUint256),
  *   (b) unknown spender rejected (abort before signing),
  *   (c) known spender accepted.
+ * Plus the Step 1.1 amendment:
+ *   (d) the spender must be LI.Fi's pinned Diamond for the chain — the
+ *       independent allowlist anchor that catches self-consistent tampered
+ *       responses (unknown chain / unknown address → abort).
  *
  * Fixtures mirror the REAL li.quest API shapes (verified 2026-08-27):
  *   /v1/tools → { bridges: [{ key, supportedChains: [{fromChainId,toChainId}] }],
@@ -27,6 +31,7 @@ import {
   LiFiApprovalValidationError,
   MAX_UINT256,
 } from "./lifiApproval.js";
+import { LIFI_DIAMOND_ALLOWLIST, isKnownLiFiDiamond } from "./lifiDiamondAllowlist.js";
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -128,10 +133,11 @@ test("approval data builder rejects invalid inputs", () => {
 // ── (b) Unknown spender rejected (abort before signing) ────────────────────
 
 test("approval target that differs from the bridge tx target is REJECTED", () => {
+  // Approval target IS the real Diamond, but the bridge tx would call a
+  // different contract — the response is internally inconsistent.
   const evil = "0x1111111111111111111111111111111111111111";
   const step = makeStep({
-    estimate: { approvalAddress: evil, fromAmount: "10000000" },
-    transactionRequest: { chainId: 1, to: DIAMOND, data: "0x1234", value: "0x0" },
+    transactionRequest: { chainId: 1, to: evil, data: "0x1234", value: "0x0" },
   });
   assertValidationError(
     () => validateLiFiApproval({ step, toolsData: TOOLS_FIXTURE }),
@@ -140,13 +146,11 @@ test("approval target that differs from the bridge tx target is REJECTED", () =>
 });
 
 test("tool NOT listed by /v1/tools for the chain is REJECTED", () => {
-  // Self-consistent quote (approvalAddress == tx.to) but a bogus tool key.
-  const evil = "0x2222222222222222222222222222222222222222";
+  // Self-consistent quote (approvalAddress == tx.to == real Diamond) but a
+  // bogus tool key.
   const step = makeStep({
     tool: "evilbridge",
     toolDetails: { key: "evilbridge", name: "Evil Bridge" },
-    estimate: { approvalAddress: evil, fromAmount: "10000000" },
-    transactionRequest: { chainId: 1, to: evil, data: "0x1234", value: "0x0" },
   });
   assertValidationError(
     () => validateLiFiApproval({ step, toolsData: TOOLS_FIXTURE }),
@@ -164,6 +168,77 @@ test("a REAL tool used on a chain it does NOT support is REJECTED", () => {
   assertValidationError(
     () => validateLiFiApproval({ step, toolsData: TOOLS_FIXTURE }),
     "unknown-tool",
+  );
+});
+
+// ── (d) Diamond allowlist — the independent anchor (Step 1.1 amendment) ────
+
+test("SELF-CONSISTENT quote pointing at a NON-Diamond contract is REJECTED", () => {
+  // The attack this amendment exists for: approvalAddress == tx.to and the
+  // tool is real, so the consistency checks pass — but the target is not
+  // LI.Fi's pinned Diamond. The allowlist must catch it.
+  const evil = "0x2222222222222222222222222222222222222222";
+  const step = makeStep({
+    estimate: { approvalAddress: evil, fromAmount: "10000000" },
+    transactionRequest: { chainId: 1, to: evil, data: "0x1234", value: "0x0" },
+  });
+  assertValidationError(
+    () => validateLiFiApproval({ step, toolsData: TOOLS_FIXTURE }),
+    "address-not-allowlisted",
+  );
+});
+
+test("approval on a chain with NO pinned Diamond is REJECTED (fail-closed)", () => {
+  // chain 999999 is not in the allowlist — even with the real Diamond
+  // address, we must not approve on a chain we cannot independently verify.
+  const step = makeStep({
+    action: {
+      fromToken: { address: USDC_ETH, chainId: 999999, symbol: "USDC", decimals: 6 },
+      fromAmount: "10000000",
+    },
+    transactionRequest: { chainId: 999999, to: DIAMOND, data: "0x1234", value: "0x0" },
+  });
+  assertValidationError(
+    () => validateLiFiApproval({ step, toolsData: TOOLS_FIXTURE }),
+    "unknown-chain",
+  );
+});
+
+test("every allowlisted chain accepts its pinned Diamond", () => {
+  // Iterate the whole allowlist: for each chain, a self-consistent quote
+  // (approvalAddress == tx.to == pinned Diamond, real tool) must pass.
+  const diamond = "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE";
+  const chains = Object.keys(LIFI_DIAMOND_ALLOWLIST).map(Number);
+  assert.ok(chains.length >= 8, "allowlist should cover all app EVM chains");
+  for (const cid of chains) {
+    const step = {
+      tool: "across",
+      toolDetails: { key: "across", name: "AcrossV4" },
+      action: {
+        fromToken: { address: USDC_ETH, chainId: cid, symbol: "USDC", decimals: 6 },
+        fromAmount: "10000000",
+      },
+      estimate: { approvalAddress: diamond, fromAmount: "10000000" },
+      transactionRequest: { chainId: cid, to: diamond, data: "0x1234", value: "0x0" },
+    };
+    const toolsData = {
+      bridges: [{ key: "across", supportedChains: [{ fromChainId: cid, toChainId: cid }] }],
+      exchanges: [],
+    };
+    const res = validateLiFiApproval({ step, toolsData });
+    assert.equal(res.approved, true, `chain ${cid} should accept its Diamond`);
+    assert.equal(res.spender, diamond.toLowerCase());
+    assert.equal(res.chainId, cid);
+  }
+});
+
+test("allowlist rejects wrong address for a KNOWN chain", () => {
+  // A valid EVM address that is NOT the Diamond on chain 1.
+  const wrongButValid = "0x1111111111111111111111111111111111111111";
+  assert.equal(
+    isKnownLiFiDiamond(1, wrongButValid),
+    false,
+    "non-Diamond address must not be on the allowlist",
   );
 });
 
