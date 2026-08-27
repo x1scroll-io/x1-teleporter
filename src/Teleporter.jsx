@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { validateLiFiApproval, buildApprovalData, LiFiApprovalValidationError } from "./lib/lifiApproval.js";
+import { REVERSE_ENABLED } from "./lib/flags.ts";
+import { determineRoute } from "./lib/routes.ts";
 
 /**
  * TELEPORTER — any-chain → any-chain stablecoin aggregator + X1 on-ramp
@@ -130,8 +132,10 @@ const X1_REVERSE_MIN = 25;
 // clean against mainnet and you've confirmed the PDAs + seq. See STAGE2_README.
 const WARP_LIVE = true;
 // SECOND gate: even with WARP_LIVE true, this must ALSO be true to actually
-// broadcast. ENABLED for operator mainnet validation — real bridge_out fires.
-const WARP_LIVE_SEND = true;
+// broadcast.
+// MUST NEVER be true without a working completion path. See step 1.2 — a
+// partial fix enabled burns with no relay behind them.
+const WARP_LIVE_SEND = false;
 // X1 HANDOFF MODE: when AUTO_X1_HOP is false, Teleporter hands users to the
 // official Warp Bridge. TRUE = fire bridge_out ourselves (correct chain-
 // discriminated seq) and let the official submitter auto-relay to X1.
@@ -165,16 +169,9 @@ function calcFee(amountUsd) {
   return n < FEE.threshold ? FEE.flat : n * FEE.pct;
 }
 
-// route type from a (from,to) pair — the core routing brain, mirrored
-function determineRoute(from, to) {
-  if (to === "x1") return from === "sol" ? "sol_x1" : "x1";
-  if (from === "x1") {
-    // X1 → Solana is a single Warp burn/release. X1 → any other chain is a
-    // TWO-leg route: Warp burn (X1→Sol) then LiFi (Sol→destination).
-    return to === "sol" ? "x1_reverse" : "x1_onward";
-  }
-  return "direct";
-}
+// route type from a (from,to) pair — the core routing brain, mirrored in
+// src/lib/routes.ts (REVERSE_ENABLED gates all X1-source routes there).
+// routeAdvisory is defined here (below) and uses the imported determineRoute.
 
 // Pre-quote advisory: flags combinations that are KNOWN to be thin on liquidity
 // or route availability, so the user gets an instant heads-up instead of a quote
@@ -522,7 +519,7 @@ function RouteVisualizer({ hops, active, progress }) {
 //  SMALL UI PRIMITIVES
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ChainSelect({ label, value, onChange, exclude }) {
+function ChainSelect({ label, value, onChange, exclude, disabledChains = [] }) {
   return (
     <div style={{ flex: 1 }}>
       <div style={S.fieldLabel}>{label}</div>
@@ -530,6 +527,7 @@ function ChainSelect({ label, value, onChange, exclude }) {
         <select value={value} onChange={(e) => onChange(e.target.value)} style={S.select}>
           {Object.values(CHAINS)
             .filter((c) => c.id !== exclude)
+            .filter((c) => !disabledChains.includes(c.id))
             .map((c) => <option key={c.id} value={c.id} style={S.opt}>{c.glyph === c.name ? c.name : `${c.glyph}  ${c.name}`}</option>)}
         </select>
       </div>
@@ -566,10 +564,6 @@ export default function Teleporter() {
   const [progress, setProgress] = useState(0);
   const [warpSig, setWarpSig] = useState(null);
   const [warpStatus, setWarpStatus] = useState(null);
-  const [pendingRelay, setPendingRelay] = useState(null);
-  const [relayLoading, setRelayLoading] = useState(false);
-  const [relayError, setRelayError] = useState(null);
-  const relayAttemptedRef = useRef(null);
   const [bridgeStage, setBridgeStage] = useState(0); // 0-5 benchmark progress
   const [destTx, setDestTx] = useState(null);        // release/mint tx hash
   const [showSplash, setShowSplash] = useState(true); // landing page gate
@@ -1272,6 +1266,13 @@ export default function Teleporter() {
     if (!amount || parseFloat(amount) <= 0) return flash("Enter an amount", "err");
     if (from === to) return flash("Source and destination must differ", "err");
 
+    // Step 1.2: X1-source routes are gated behind REVERSE_ENABLED. The route
+    // builder already rejects them (determineRoute), but guard the quote path
+    // explicitly so a programmatic call can never price a disabled route.
+    if ((routeType === "x1_reverse" || routeType === "x1_onward") && !REVERSE_ENABLED) {
+      return flash("The X1 → off-ramp is disabled", "err");
+    }
+
     // CONNECT FIRST: quotes use your real wallet address (no placeholders), so
     // require the wallet(s) this route needs before pricing.
     const fromVm = CHAINS[from].walletType, toVm = CHAINS[to].walletType;
@@ -1615,71 +1616,6 @@ export default function Teleporter() {
     }
   }, [buildLifiQuery, executeLiFiSolanaTx, pending, updateHistory, clearIntent, to, amount, quote]);
 
-  // Auto-submit reverse relay when guardians sign
-  const executeRelay = useCallback(async () => {
-    if (!pendingRelay) { flash("No pending relay", "err"); return; }
-    setRelayLoading(true);
-    setRelayError(null);
-    try {
-      const { Connection } = await import("@solana/web3.js");
-      const { submitReverseRelay } = await import("./warpBridge.js");
-      const conn = new Connection(SOLANA_RPC || "https://api.mainnet-beta.solana.com", "confirmed");
-      const solProv = solWallet?.provider || listSolProviders()[0]?.provider;
-      if (!solProv?.publicKey) { flash("Connect your Solana wallet to complete the release", "err"); setRelayLoading(false); return; }
-      
-      flash("Simulating release…", "info");
-      const { tx, sim } = await submitReverseRelay(conn, {
-        signatures: pendingRelay.sigs,
-        seq: pendingRelay.seq,
-        sender: pendingRelay.sender,
-        amount: pendingRelay.amount,
-        timestamp: pendingRelay.timestamp,
-        payer: solProv.publicKey,
-        onProgress: (msg) => flash(msg, "info"),
-      });
-      
-      if (!WARP_LIVE_SEND) {
-        flash(`Release ready (sim OK) — set WARP_LIVE_SEND to true to execute`, "info");
-        setRelayLoading(false);
-        return;
-      }
-      
-      flash("Signing and sending…", "info");
-      tx.sign([solProv]);
-      const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-      await conn.confirmTransaction(sig, "confirmed");
-      
-      setPhase("done");
-      setDestTx(sig);
-      setPendingRelay(null);
-      const histId = pendingRelay.histId;
-      if (histId) updateHistory(histId, { status: "done", destTx: sig });
-      flash(`Released ✓ — ${String(sig).slice(0, 8)}…`, "success");
-    } catch (e) {
-      console.group("[Relay] Submission FAILED");
-      console.error("error:", e);
-      console.error("message:", e?.message);
-      console.error("stack:", e?.stack);
-      console.groupEnd();
-      setRelayError(e?.message || "Release failed");
-      flash(`Release failed: ${e?.message}. Check console for full error.`, "err");
-    } finally {
-      setRelayLoading(false);
-    }
-  }, [pendingRelay, solWallet, updateHistory]);
-
-  // Auto-submit reverse relay when guardians sign (defined AFTER executeRelay
-  // so the callback exists — const isn't hoisted, referencing it earlier crashes).
-  // Fires ONCE per transfer (keyed by histId) so a failed relay doesn't loop.
-  useEffect(() => {
-    if (phase === "relay_ready" && pendingRelay && !relayLoading) {
-      const key = pendingRelay.histId || String(pendingRelay.seq);
-      if (relayAttemptedRef.current === key) return; // already tried this one
-      relayAttemptedRef.current = key;
-      executeRelay();
-    }
-  }, [phase, pendingRelay, relayLoading, executeRelay]);
-
   // Dispatcher for the step2 button: x1_onward finishes via LiFi, everything
   // else (forward x1, sol_x1) finishes via the Warp Stage 2.
   const executeStep2 = useCallback(async () => {
@@ -1688,6 +1624,12 @@ export default function Teleporter() {
   }, [routeType, executeOnwardLeg2, executeStage2]);
 
   const execute = useCallback(async () => {
+    // Step 1.2: hard gate on the execute path — reverse routes cannot run
+    // while REVERSE_ENABLED is false, even if invoked programmatically.
+    if ((routeType === "x1_reverse" || routeType === "x1_onward") && !REVERSE_ENABLED) {
+      flash("The X1 → off-ramp is disabled", "err");
+      return;
+    }
     // SAFETY: require the RIGHT real wallet(s) for whatever VMs this route
     // touches, and NEVER let a placeholder address receive real funds.
     const PLACEHOLDER_SOL = "EAj1z4q6RN17BswMK38fADDEJQ5JTqy2WoTdky3drX6X";
@@ -1818,23 +1760,14 @@ export default function Teleporter() {
                 flash(`USDC released on Solana ✓ — dest ${String(poll.destinationTx).slice(0, 8)}…`, "success");
               }
             } else {
-              // NOT released yet. If guardians signed, offer a self-relay button.
+              // NOT released yet. No self-relay: the reverse completion path
+              // was removed in step 1.2 (the auto-submit block is deleted).
+              // Funds stay safe until the official submitter completes.
               updateHistory(histId, { status: poll?.terminal ? "failed" : "relaying" });
               rememberIntent({ routeType, from, to, token, toToken, amount: quote?.amount, solanaAmount: quote?.solanaAmount,
                 recvToken: quote?.recvToken, recvChain: quote?.recvChain, stage: "awaiting_relay", histId, warpSig: sig, ts: Date.now() });
-              
-              // If guardians signed, auto-submit the release (no extra button).
-              if (warpStatus?.stage === "guardians_signing" && (warpStatus?.detail?.sigs?.length || 0) > 0) {
-                const sigs = warpStatus.detail.sigs;
-                console.log("[Reverse] Guardians signed, auto-submitting relay…");
-                flash(`Guardians signed (${sigs.length} sigs) — submitting release…`, "info");
-                // Store for auto-submit and fire immediately
-                setPendingRelay({ sigs, seq: BigInt(quote?.seq || 0), sender: Buffer.from(quote?.sender || "", "base64"), amount: quote?.amount || 0, timestamp: quote?.timestamp || 0, histId });
-                setPhase("relay_ready");
-              } else {
-                setPhase("relaying");
-                flash(`Waiting for guardians to sign. Source: ${String(sig).slice(0, 10)}…`, "info");
-              }
+              setPhase("relaying");
+              flash(`Waiting for guardians to sign. Source: ${String(sig).slice(0, 10)}…`, "info");
             }
           }
         } catch (e) {
@@ -1914,6 +1847,13 @@ export default function Teleporter() {
   // resume an interrupted hop from the recovery banner
   const resumePending = useCallback(() => {
     if (!pending) return;
+    // Step 1.2: refuse to resume an X1-source intent while the reverse
+    // off-ramp is disabled (stored intents may predate the flag).
+    if (pending.from === "x1" && !REVERSE_ENABLED) {
+      flash("The X1 → off-ramp is disabled — this pending route can't be resumed", "err");
+      clearIntent();
+      return;
+    }
     // restore the form to the pending route and jump to stage 2
     setFrom(pending.from); setTo(pending.to);
     setToken(pending.token); setToToken(pending.toToken);
@@ -1926,7 +1866,7 @@ export default function Teleporter() {
     });
     setPhase("step2");
     flash("Resuming your X1 hop — approve Stage 2", "info");
-  }, [pending]);
+  }, [pending, clearIntent]);
 
   const reset = () => { setPhase("idle"); setQuote(null); setProgress(0); setTrackStatus(null); setRouteDetail(null); };
 
@@ -2095,8 +2035,15 @@ export default function Teleporter() {
         <div style={S.card}>
           {/* from / to selectors */}
           <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
-            <ChainSelect label="From" value={from} onChange={setFrom} exclude={to} />
-            <button style={S.swapBtn} onClick={() => { const f = from; setFrom(to); setTo(f); }}>⇄</button>
+            <ChainSelect label="From" value={from} onChange={setFrom} exclude={to}
+              disabledChains={REVERSE_ENABLED ? [] : ["x1"]} />
+            <button style={S.swapBtn} onClick={() => {
+              const f = from; const t = to;
+              // Step 1.2: swapping INTO an X1 source would construct a
+              // disabled reverse route — block it while the flag is off.
+              if (t === "x1" && !REVERSE_ENABLED) { flash("The X1 → off-ramp is disabled", "err"); return; }
+              setFrom(t); setTo(f);
+            }}>⇄</button>
             <ChainSelect label="To" value={to} onChange={setTo} exclude={from} />
           </div>
 
@@ -2259,16 +2206,6 @@ export default function Teleporter() {
                  style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)", textDecoration: "none", display: "block", textAlign: "center" }}>
                 🌉 Open Warp Bridge to finish → X1
               </a>
-            ) : phase === "relay_ready" ? (
-              relayError ? (
-                <button style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)" }} onClick={executeRelay} disabled={relayLoading}>
-                  {relayLoading ? "Completing release…" : "↻ Retry release"}
-                </button>
-              ) : (
-                <button style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)", opacity: 0.7 }} disabled>
-                  Completing release…
-                </button>
-              )
             ) : phase === "done" ? (
               <button style={{ ...S.cta, background: "#16321f", color: "#5ee08a", borderColor: "#1f6b3a" }} onClick={reset}>
                 ✓ Complete — bridge again

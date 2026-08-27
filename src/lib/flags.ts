@@ -23,7 +23,7 @@ function readEnv(): Env {
  * Resolve the flags from a raw env object. Exported for testing — the
  * singleton booleans below are resolved once at module load.
  */
-export function resolveFlags(env: Env): { THORCHAIN: boolean; ANYSWAP: boolean } {
+export function resolveFlags(env: Env): { THORCHAIN: boolean; ANYSWAP: boolean; REVERSE_ENABLED: boolean } {
   const on = (names: string[]): boolean => {
     for (const name of names) {
       const raw = env[name];
@@ -37,6 +37,7 @@ export function resolveFlags(env: Env): { THORCHAIN: boolean; ANYSWAP: boolean }
   return {
     THORCHAIN: on(["NEXT_PUBLIC_FLAG_THORCHAIN", "VITE_FLAG_THORCHAIN"]),
     ANYSWAP: on(["NEXT_PUBLIC_FLAG_ANYSWAP", "VITE_FLAG_ANYSWAP"]),
+    REVERSE_ENABLED: on(["NEXT_PUBLIC_FLAG_REVERSE_ENABLED", "VITE_FLAG_REVERSE_ENABLED"]),
   };
 }
 
@@ -47,3 +48,17 @@ export const THORCHAIN: boolean = flags.THORCHAIN;
 
 /** Whether the ANYSWAP route is enabled in the UI. Default: false. */
 export const ANYSWAP: boolean = flags.ANYSWAP;
+
+/**
+ * Whether the X1 → Solana reverse (off-ramp) route is enabled in the UI.
+ * Default: false.
+ *
+ * Step 1.2: the reverse self-relay was REMOVED from the user-facing path —
+ * the route was dead at step one (fee ATA missing on X1) and a partial fix
+ * would let burns go out with no working completion behind them. While this
+ * flag is false, the route builder rejects every X1-source route, so no
+ * X1 → Solana (x1_reverse) or X1 → onward (x1_onward) route can be
+ * constructed by the UI. Do NOT flip this on without a verified, working
+ * completion path for X1 burns.
+ */
+export const REVERSE_ENABLED: boolean = flags.REVERSE_ENABLED;
