@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { validateLiFiApproval, buildApprovalData, LiFiApprovalValidationError } from "./lib/lifiApproval.js";
 
 /**
  * TELEPORTER — any-chain → any-chain stablecoin aggregator + X1 on-ramp
@@ -925,19 +926,38 @@ export default function Teleporter() {
 
     // ── ERC-20 APPROVAL (the step whose absence caused the Across V4 revert) ──
     // LiFi must be allowed to pull your token before it can bridge it. For any
-    // ERC-20 source (i.e. not the chain's native coin), check the allowance for
-    // the LiFi spender and approve if it's short. Native sends (value-based)
-    // skip this. LiFi tells us the token + spender via the quote's estimate.
+    // ERC-20 source where LiFi says an allowance is needed (estimate.approvalAddress
+    // present), we approve EXACTLY the amount being bridged — never MaxUint256 —
+    // and only AFTER validating the spender:
+    //   1. the approval target must be the SAME contract the bridge tx calls
+    //      (transactionRequest.to), and
+    //   2. the tool executing the step must be a tool LiFi lists for the source
+    //      chain in /v1/tools (fetched through our proxy).
+    // Any check that fails ABORTS the transaction before anything is signed.
+    // Native sends (value-based) and steps LiFi marks as needing no allowance
+    // (no approvalAddress) skip this entirely.
     try {
-      const action = lifiData?.action || lifiData?.steps?.[0]?.action;
-      const est = lifiData?.estimate || lifiData?.steps?.[0]?.estimate;
+      // Validate against the SAME step object that supplies the bridge tx —
+      // never mix top-level fields with steps[0] fields from different steps.
+      const step = lifiData?.transactionRequest ? lifiData : (lifiData?.steps?.[0] || lifiData);
+      const action = step?.action || {};
+      const est = step?.estimate || {};
       const tokenAddr = action?.fromToken?.address;
-      const spender = est?.approvalAddress || txReq.to; // LiFi gives approvalAddress
-      const fromAmount = action?.fromAmount || est?.fromAmount;
+      const chainId = action?.fromToken?.chainId ?? txReq?.chainId;
       const isNative = !tokenAddr || /^0x0+$/.test(tokenAddr) ||
                        tokenAddr.toLowerCase() === "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
-      if (!isNative && tokenAddr && spender && fromAmount) {
-        const need = BigInt(fromAmount);
+      if (!isNative && est?.approvalAddress) {
+        // Fetch LiFi's tool list for the source chain. Fail-closed: if the
+        // list can't be fetched, validation aborts rather than approving blind.
+        let toolsData = null;
+        try {
+          const cidNum = Number(chainId);
+          const cidParam = Number.isFinite(cidNum) ? String(cidNum) : String(chainId);
+          const toolsRes = await fetch(`${API_BASE}/api/lifi/tools?chains=${encodeURIComponent(cidParam)}`);
+          if (toolsRes.ok) toolsData = await toolsRes.json();
+        } catch (e) { console.error("[LiFi] tools fetch failed:", e); }
+        const { spender, amount } = validateLiFiApproval({ step, toolsData });
+        const need = amount; // EXACT raw source amount from the quote
         // allowance(owner,spender) => 0xdd62ed3e
         const allowData = "0xdd62ed3e" +
           w.addr.slice(2).padStart(64, "0") +
@@ -949,10 +969,8 @@ export default function Teleporter() {
         const current = BigInt(allowanceHex && allowanceHex !== "0x" ? allowanceHex : "0x0");
         if (current < need) {
           flash("Approve token spend first (1 of 2)…", "info");
-          // approve(spender, max) => 0x095ea7b3
-          const maxUint = "f".repeat(64);
-          const approveData = "0x095ea7b3" +
-            spender.slice(2).padStart(64, "0") + maxUint;
+          // approve(spender, amount) — EXACT amount, never MaxUint256
+          const approveData = buildApprovalData({ spender, amount: need });
           const approveHash = await w.provider.request({
             method: "eth_sendTransaction",
             params: [{ from: w.addr, to: tokenAddr, data: approveData, value: "0x0" }],
@@ -964,6 +982,9 @@ export default function Teleporter() {
         }
       }
     } catch (e) {
+      // Spender-validation aborts carry a user-facing message; pass them
+      // through untouched. Everything else is an approval failure.
+      if (e instanceof LiFiApprovalValidationError) throw e;
       throw new Error("Token approval failed: " + (e?.message || e));
     }
 

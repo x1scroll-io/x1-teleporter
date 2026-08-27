@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "verify": "node verify-accounts.mjs",
-    "test": "node --test src/lib/flags.test.ts",
+    "test": "node --test src/lib/flags.test.ts src/lib/lifiApproval.test.js",
     "prebuild": "node verify-accounts.mjs"
   },
   "dependencies": {
