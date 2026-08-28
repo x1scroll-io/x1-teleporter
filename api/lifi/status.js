@@ -1,8 +1,9 @@
 // api/lifi/status.js — track an in-flight bridge.
-import { lifiGet, cors } from "../_lifi.js";
+import { lifiGet } from "../_lifi.js";
+import { cors } from "../_cors.js";
 
 export default async function handler(req, res) {
-  cors(res);
+  if (!cors(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
   try {
     const params = new URLSearchParams(req.query);
