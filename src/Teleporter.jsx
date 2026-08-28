@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { validateLiFiApproval, buildApprovalData, LiFiApprovalValidationError } from "./lib/lifiApproval.js";
 import { guardedSendEvmTx, SimulationError } from "./lib/simulateTx.js";
-import { REVERSE_ENABLED } from "./lib/flags.ts";
+import { REVERSE_ENABLED, WARP_LIVE_SEND } from "./lib/flags.ts";
 import { determineRoute } from "./lib/routes.ts";
 import { computeFee, quoteFees, lifiIntegratorFeeFor, FEE_RATES, FEE_WALLETS } from "./lib/fees.ts"; // Step 1.3C+D
 import { executeLiFiSolanaTx as executeLiFiSolanaTxShared } from "./lib/lifiSolanaTx.js"; // Step 3.1 — shared SOL→USDC executor (THORChain hop reuse)
@@ -136,9 +136,10 @@ const X1_REVERSE_MIN = 25;
 const WARP_LIVE = true;
 // SECOND gate: even with WARP_LIVE true, this must ALSO be true to actually
 // broadcast.
+// WARP_LIVE_SEND is env-driven — read from src/lib/flags.ts
+// (NEXT_PUBLIC_FLAG_WARP_LIVE_SEND then VITE_WARP_LIVE_SEND, default false).
 // MUST NEVER be true without a working completion path. See step 1.2 — a
 // partial fix enabled burns with no relay behind them.
-const WARP_LIVE_SEND = false;
 // X1 HANDOFF MODE: when AUTO_X1_HOP is false, Teleporter hands users to the
 // official Warp Bridge. TRUE = fire bridge_out ourselves (correct chain-
 // discriminated seq) and let the official submitter auto-relay to X1.
