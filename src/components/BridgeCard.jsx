@@ -15,6 +15,8 @@
 
 import { useState } from "react";
 import TeleportTab from "./TeleportTab.jsx";
+import THORChainTab from "./THORChainTab.jsx";
+import { THORCHAIN } from "../lib/flags.ts";
 
 const TABS = Object.freeze([
   { id: "teleport", label: "Teleport" },
@@ -45,8 +47,9 @@ const S = {
   placeholder: { padding: 16, color: "#7d8aa0", fontSize: 14 },
 };
 
-export default function BridgeCard({ initialTab = "teleport" }) {
+export default function BridgeCard({ initialTab = "teleport", flags = { THORCHAIN } }) {
   const [tab, setTab] = useState(initialTab);
+  const thorchainEnabled = flags.THORCHAIN === true;
   return (
     <div className="bridge-card" data-testid="bridge-card" style={S.card}>
       <nav className="bridge-card__tabs" role="tablist" style={S.tabs}>
@@ -67,6 +70,8 @@ export default function BridgeCard({ initialTab = "teleport" }) {
       </nav>
       {tab === "teleport" ? (
         <TeleportTab />
+      ) : tab === "thorchain" ? (
+        thorchainEnabled ? <THORChainTab /> : <div className="placeholder-tab" role="tabpanel" data-testid="thorchain-tab" style={S.placeholder}>{PLACEHOLDERS.thorchain}</div>
       ) : (
         <div className="placeholder-tab" role="tabpanel" data-testid={`${tab}-tab`} style={S.placeholder}>
           {PLACEHOLDERS[tab]}

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { validateLiFiApproval, buildApprovalData, LiFiApprovalValidationError } from "./lib/lifiApproval.js";
-import { guardedSendEvmTx, simulateSolanaTx, SimulationError } from "./lib/simulateTx.js";
+import { guardedSendEvmTx, SimulationError } from "./lib/simulateTx.js";
 import { REVERSE_ENABLED } from "./lib/flags.ts";
 import { determineRoute } from "./lib/routes.ts";
-import { computeFee, quoteFees, lifiIntegratorFeeFor, FEE_RATES, FEE_WALLETS } from "./lib/fees.ts"; // Step 1.3C+D — every fee reads from the unified module (policy: exactly 1%, once per journey)
+import { computeFee, quoteFees, lifiIntegratorFeeFor, FEE_RATES, FEE_WALLETS } from "./lib/fees.ts"; // Step 1.3C+D
+import { executeLiFiSolanaTx as executeLiFiSolanaTxShared } from "./lib/lifiSolanaTx.js"; // Step 3.1 — shared SOL→USDC executor (THORChain hop reuse)
 
 /**
  * TELEPORTER — any-chain → any-chain stablecoin aggregator + X1 on-ramp
@@ -825,82 +826,16 @@ export default function Teleporter() {
   // LiFi returns the Solana tx as a base64 VersionedTransaction in the quote;
   // the connected Solana/X1 wallet signs + sends it via its own RPC.
   const executeLiFiSolanaTx = useCallback(async (lifiData) => {
-    // LiFi returns the Solana tx in different shapes. Try direct locations first.
-    let txReq = lifiData?.transactionRequest
-      || lifiData?.steps?.[0]?.transactionRequest
-      || lifiData?.transactionData
-      || lifiData?.steps?.[0]?.transactionData;
-    let b64 = txReq?.data || txReq?.transaction || (typeof txReq === "string" ? txReq : null);
-
-    // If the quote didn't include the executable tx (common for Solana), ask
-    // LiFi to materialize it via /advanced/stepTransaction using the step.
-    if (!b64) {
-      const step = lifiData?.includedSteps?.[0] || lifiData?.steps?.[0] || lifiData;
-      console.log("[Onward leg2] no tx in quote — calling stepTransaction with step:", step?.id || "(quote)");
-      try {
-        const r = await fetch(`${API_BASE}/api/lifi/stepTransaction`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(step),
-        });
-        const stepData = await r.json();
-        console.log("[Onward leg2] stepTransaction response keys:", Object.keys(stepData || {}));
-        txReq = stepData?.transactionRequest || stepData?.steps?.[0]?.transactionRequest;
-        b64 = txReq?.data || txReq?.transaction || (typeof txReq === "string" ? txReq : null);
-      } catch (e) { console.error("[Onward leg2] stepTransaction failed:", e); }
-    }
-
-    if (!b64) {
-      console.error("[Onward leg2] STILL no tx data. Quote keys:", Object.keys(lifiData || {}),
-        "step0 keys:", Object.keys(lifiData?.steps?.[0] || {}),
-        "transactionRequest:", lifiData?.transactionRequest);
-      throw new Error("LiFi returned no executable Solana transaction for this route");
-    }
-
-    const sol = solWallet?.provider || listSolProviders()[0]?.provider || null;
-    if (!sol?.signAndSendTransaction && !sol?.signTransaction) {
-      throw new Error("Connect your Solana/X1 wallet to sign");
-    }
-
-    const { VersionedTransaction, Connection } = await import("@solana/web3.js");
-    const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const vtx = VersionedTransaction.deserialize(raw);
-    console.log("[Onward leg2] deserialized Solana tx, simulating…");
-
-    // ── MANDATORY PRE-SEND SIMULATION (Step 1.3A, fail-closed) ──
-    // Simulate the EXACT tx LiFi built before signing/broadcasting. If it
-    // would fail — or the sim RPC is unreachable — we BLOCK and surface the
-    // reason; the wallet is never prompted to sign a doomed tx.
-    const conn = new Connection(SOLANA_RPC, "confirmed");
-    const sim = await simulateSolanaTx(conn, vtx);
-    if (!sim.ok) {
-      if (sim.simUnavailable) {
-        throw new SimulationError(
-          `Simulation couldn't run (RPC: ${sim.rpcError || "unknown"}) — send blocked. Retry when the RPC is reachable.`,
-          { code: "sim-unavailable", reason: sim.rpcError || "simulation RPC unavailable", raw: sim },
-        );
-      }
-      const errText = typeof sim.err === "string" ? sim.err : JSON.stringify(sim.err);
-      const keyLogs = (sim.logs || [])
-        .filter((l) => /error|failed|assert|seq|insufficient|invalid|constraint/i.test(l))
-        .slice(-2)
-        .join(" | ");
-      throw new SimulationError(
-        `Simulation failed: ${errText}${keyLogs ? ` — ${keyLogs}` : ""}`,
-        { code: "solana-sim-failed", reason: errText, raw: sim },
-      );
-    }
-
-    console.log("[Onward leg2] simulation passed, signing…");
-    if (typeof sol.signAndSendTransaction === "function") {
-      const res = await sol.signAndSendTransaction(vtx);
-      const sig = res?.signature || res;
-      console.log("[Onward leg2] sent, sig:", sig);
-      return sig;
-    }
-    const signed = await sol.signTransaction(vtx);
-    const sig = await conn.sendRawTransaction(signed.serialize(), { maxRetries: 3 });
-    console.log("[Onward leg2] sent via RPC, sig:", sig);
-    return sig;
+    // Delegates to the shared executor (src/lib/lifiSolanaTx.js) — extracted
+    // verbatim in Step 3.1 so the THORChain hop's auto-advance calls the SAME
+    // code path (SOL→USDC same-chain swap) instead of duplicating it.
+    return executeLiFiSolanaTxShared({
+      lifiData,
+      solWallet,
+      listSolProviders,
+      apiBase: API_BASE,
+      solanaRpc: SOLANA_RPC,
+    });
   }, [solWallet, listSolProviders]);
 
   const executeLiFiTx = useCallback(async (lifiData) => {
