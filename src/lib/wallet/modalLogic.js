@@ -23,6 +23,11 @@
  */
 
 import { WALLET_FAMILIES, FAMILY_LABELS } from "./families.js";
+import {
+  BITCOIN_WALLETS,
+  isDepositAddressEntry,
+  isHardwareEntry,
+} from "./bitcoinRegistry.js";
 
 /** Stable id of the pinned Starport wallet in every family. */
 export const STARPORT_ID = "starport";
@@ -58,9 +63,9 @@ export const STARPORT_NAMES = Object.freeze(["starport", "Starport"]);
  * and a separate session — per WalletContext isolation, one session per
  * family, never merged across families.
  *
- * This map is intentionally SMALL (Starport + reference + a couple of
- * majors per family); the full canonical tables in docs/WALLET-REGISTRY.md
- * get wired in later steps behind the same modalLogic.
+ * The Bitcoin family uses the FULL canonical table from the registry
+ * (bitcoinRegistry.js — Step 2.3): every registry row renders, hardware
+ * sorts after software, and the deposit-address row is always last.
  */
 export const WALLET_REGISTRY = Object.freeze({
   evm: Object.freeze([
@@ -76,12 +81,7 @@ export const WALLET_REGISTRY = Object.freeze({
     Object.freeze({ id: "Backpack", name: "Backpack", installUrl: "https://backpack.app/" }),
     Object.freeze({ id: "Solflare", name: "Solflare", installUrl: "https://solflare.com/" }),
   ]),
-  bitcoin: Object.freeze([
-    Object.freeze({ id: STARPORT_ID, name: "Starport", pinned: true, installUrl: null }),
-    Object.freeze({ id: "Xverse", name: "Xverse", reference: true, installUrl: "https://www.xverse.app/" }),
-    Object.freeze({ id: "Phantom", name: "Phantom", installUrl: "https://phantom.app/" }),
-    Object.freeze({ id: "Unisat", name: "Unisat", installUrl: "https://unisat.io/" }),
-  ]),
+  bitcoin: BITCOIN_WALLETS,
   litecoin: Object.freeze([
     Object.freeze({ id: STARPORT_ID, name: "Starport", pinned: true, installUrl: null }),
     Object.freeze({ id: "Ctrl", name: "Ctrl (ex-XDEFI)", reference: true, installUrl: "https://ctrl.xyz/" }),
@@ -142,6 +142,19 @@ export function isStarportKey(key) {
 }
 
 /**
+ * Normalize discovered Bitcoin wallets (bitcoinDiscovery.js) into the match
+ * shape modalLogic consumes: `{ key, name, raw }`. `key` is the registry id
+ * (e.g. "Xverse", "Unisat") or a `standard:<name>` extra.
+ */
+export function normalizeBitcoinDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
  * Build the ordered wallet rows for one family.
  *
  * Order (binding, docs/WALLET-REGISTRY.md "Connect modal layout" — a
@@ -149,9 +162,14 @@ export function isStarportKey(key) {
  *   1. Pinned wallets first (Starport) — always visible, always first.
  *   2. The family's reference wallet (MetaMask / Phantom / Xverse / Xaman /
  *      TronLink …).
- *   3. Every other registry wallet, ALPHABETICAL — installed ones
+ *   3. Every other SOFTWARE registry wallet, ALPHABETICAL — installed ones
  *      highlighted IN PLACE, not-installed ones shown with an install link.
- *   4. Announced providers outside the registry, appended (never hidden).
+ *      ⚠️ rows stay in this group (they are never hidden) and carry their
+ *      `status` through for the modal's verify badge.
+ *   4. Hardware wallets (Ledger / Trezor), alphabetical — after software.
+ *   5. The deposit-address row — ALWAYS the final row (BTC/LTC/DOGE/XRP),
+ *      never removed, never connectable.
+ *   6. Announced providers outside the registry, appended (never hidden).
  *
  * Every registry entry for the family appears exactly once. Starport's
  * pinned row is matched against discovery too: if a real Starport wallet
@@ -192,15 +210,25 @@ export function buildFamilyWalletRows({ family, discovered = [], registry = WALL
       installed: match !== null,
       installUrl: entry.installUrl ?? null,
       discovered: match,
+      status: entry.status,
+      hardware: isHardwareEntry(entry),
+      depositAddress: isDepositAddressEntry(entry),
+      todo: entry.todo,
     };
   }
 
   const pinned = entries.filter((e) => e.pinned).map(toRow);
   const reference = entries.filter((e) => !e.pinned && e.reference).map(toRow);
-  const rest = entries
-    .filter((e) => !e.pinned && !e.reference)
+  const software = entries
+    .filter((e) => !e.pinned && !e.reference && !isHardwareEntry(e) && !isDepositAddressEntry(e))
     .map(toRow)
     .sort((a, b) => a.name.localeCompare(b.name));
+  const hardware = entries
+    .filter((e) => !e.pinned && !e.reference && isHardwareEntry(e))
+    .map(toRow)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const depositAddress = entries.filter((e) => isDepositAddressEntry(e)).map(toRow);
+  const rest = [...software, ...hardware, ...depositAddress];
 
   // Announced providers outside the registry get their own entry, appended
   // after the fixed list — installed, never hidden (docs/BRIEF.md).
@@ -216,6 +244,7 @@ export function buildFamilyWalletRows({ family, discovered = [], registry = WALL
     installed: true,
     installUrl: null,
     discovered: d,
+    status: undefined,
   }));
 
   return [...pinned, ...reference, ...rest, ...extraRows];

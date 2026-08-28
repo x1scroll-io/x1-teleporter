@@ -68,6 +68,11 @@ export function walletReducer(state, action) {
           status: CONNECTED,
           address: action.address,
           provider: action.provider,
+          // Optional: the Bitcoin session carries the payment-address
+          // balance (sats) read at connect time. Omitted for other
+          // families (and for mock providers) so existing sessions stay
+          // shape-stable.
+          ...(action.balance !== undefined ? { balance: action.balance } : {}),
           error: undefined,
         },
       };

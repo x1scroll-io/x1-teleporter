@@ -186,17 +186,20 @@ test("stop() detaches subscribers; snapshots stay readable", async () => {
     });
     discovery.subscribe(() => { notifications += 1; });
     discovery.start();
-    // One notification per sub-discovery's initial snapshot (evm + solana).
-    assert.equal(notifications, 2, "start notifies subscribers");
+    // One notification per sub-discovery's initial snapshot (evm + solana + bitcoin).
+    assert.equal(notifications, 3, "start notifies subscribers");
     await flush();
     discovery.stop();
 
     wallet.announce();
     await flush();
-    assert.equal(notifications, 2, "no subscriber notification after stop");
+    assert.equal(notifications, 3, "no subscriber notification after stop");
 
     const snap = discovery.getDiscovered();
-    assert.ok(Array.isArray(snap.evm) && Array.isArray(snap.solana), "snapshot still readable");
+    assert.ok(
+      Array.isArray(snap.evm) && Array.isArray(snap.solana) && Array.isArray(snap.bitcoin),
+      "snapshot still readable",
+    );
   } finally {
     wallet.stop();
   }
@@ -204,12 +207,14 @@ test("stop() detaches subscribers; snapshots stay readable", async () => {
 
 test("default handle (no injected config/registry) degrades to fallback-only discovery", () => {
   // Pure browser-less default: EVM surfaces only the static injected()
-  // fallback connector; Solana has nothing registered.
+  // fallback connector; Solana and Bitcoin have nothing registered.
   const discovery = createWalletDiscovery();
   discovery.start();
   const snap = discovery.getDiscovered();
   assert.equal(snap.evm.length, 1);
   assert.equal(snap.evm[0].rdns, "injected");
   assert.deepEqual(snap.solana, []);
+  assert.deepEqual(snap.bitcoin, [], "no bitcoin globals/registrations in the default env");
   assert.equal(discovery.getProvider("evm", "io.metamask"), null);
+  assert.equal(discovery.getProvider("bitcoin", "Xverse"), null);
 });
