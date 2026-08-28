@@ -29,8 +29,6 @@ export async function lifiGet(pathAndQuery) {
   } finally { clearTimeout(t); }
 }
 
-// tiny CORS helper (same-origin in prod, but harmless and helps local dev)
-export function cors(res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
-}
+// CORS moved to api/_cors.js — an allowlist (production + preview origins
+// only, explicit 403 for everything else). Import `cors` from "../_cors.js".
+// See api/_cors.js for the allowlist + rejection decisions (Step 1.3B).

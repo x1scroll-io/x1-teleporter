@@ -4,10 +4,11 @@
 // LI.Fi actually lists for the source chain (Step 1.1 audit gate). Server-side
 // so the API key never reaches the browser; cached because the tool list is
 // effectively static.
-import { lifiGet, cors } from "../_lifi.js";
+import { lifiGet } from "../_lifi.js";
+import { cors } from "../_cors.js";
 
 export default async function handler(req, res) {
-  cors(res);
+  if (!cors(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
   try {
     const params = new URLSearchParams(req.query);

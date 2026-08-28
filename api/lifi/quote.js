@@ -1,9 +1,10 @@
 // api/lifi/quote.js — the money path. Forces integrator + fee onto every quote
 // so it can't be stripped or tampered from the browser.
-import { lifiGet, cors, INTEGRATOR, INTEGRATOR_FEE } from "../_lifi.js";
+import { lifiGet, INTEGRATOR, INTEGRATOR_FEE } from "../_lifi.js";
+import { cors } from "../_cors.js";
 
 export default async function handler(req, res) {
-  cors(res);
+  if (!cors(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
   try {
     const params = new URLSearchParams(req.query);
