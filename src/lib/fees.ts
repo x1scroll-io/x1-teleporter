@@ -1,15 +1,34 @@
 /**
- * fees.ts — Step 1.3C: THE single source of truth for every Teleporter fee.
+ * fees.ts — THE single source of truth for every Teleporter fee.
  *
- * Every fee across the app hangs off this module:
- *   - the X1-hop 1% pre-bridge skim (the source-side SPL transfer),
- *   - the Warp bridge's own flat $1 (collected by the Warp program, not us),
- *   - the LiFi integrator fee (1%, collected by LiFi to our integrator account),
- *   - the runbook's two spec'd-but-NOT-yet-applied classes:
- *       same-chain 0.5%  (any-swap phase — see PR #7 notes)
- *       Escape Hatch 5%  (no escape-hatch path exists in code yet)
- *   - two future lanes with no rate yet (thorchain-leg, non-x1-bridge) THROW a
- *     descriptive FeeNotImplementedError instead of guessing a number.
+ * FEE POLICY (Mr. Esters, 2026-08-28 — SUPERSEDES the runbook's Step 1.3C
+ * spec rates wherever they disagree):
+ *   "Teleporter's fee is exactly 1% of the route total, charged once per
+ *    journey, regardless of hop count."
+ *
+ * Concretely, per class:
+ *   - x1-hop (sol_x1, x1, x1_reverse, x1_onward — every journey that touches
+ *     the Warp bridge): the ONLY Teleporter fee is the 1% pre-bridge skim
+ *     (warp-skim). The LiFi integrator fee is REMOVED from this class —
+ *     integrator param is forced to 0 (see api/lifi/quote.js + the
+ *     lifiIntegratorFeeFor() helper) so the stage-2 on-chain skim is the only
+ *     Teleporter fee. Warp's flat $1 (warp-flat) is a THIRD-PARTY
+ *     pass-through collected by the Warp program — it is carried as a
+ *     separate component labeled "Warp bridge fee", never as a Teleporter fee.
+ *   - same-chain (every non-X1 LiFi route): the 1% LiFi integrator fee IS the
+ *     once-per-journey Teleporter fee. The runbook's 0.5% same-chain headline
+ *     is SUPERSEDED — the charged rate and the policy rate now agree at
+ *     exactly 1%, once.
+ *   - escape-hatch: rate capped at 1% (the policy's "no route class may
+ *     exceed 1% Teleporter take" applies to every class). The runbook's 5%
+ *     spec is superseded. No escape-hatch path exists in code yet.
+ *   - thorchain-leg + non-x1-bridge (future lanes): no rate yet — they THROW
+ *     a descriptive FeeNotImplementedError instead of guessing a number.
+ *
+ * INVARIANT (tested): for EVERY route class, the sum of Teleporter-owned
+ * components (teleporterFeeUsd) is exactly 1% of the journey total — never
+ * more. Third-party pass-throughs (warp-flat today, THORChain/provider costs
+ * later) are labeled and summed separately.
  *
  * PURE MODULE: no DOM, no fetch, no wallet, no chain imports. Runnable under
  * `node --test` (type stripping) exactly like routes.ts / flags.ts.
@@ -18,36 +37,36 @@
  *   This is a Vite project — there is no root-level lib/. The established
  *   pattern is src/lib/ (flags.ts, routes.ts, lifiApproval.js, simulateTx.js),
  *   so computeFee lives at src/lib/fees.ts.
- *
- * GROUND RULE FOR THIS PR: NO FEE AMOUNT CHANGES. `headlineRate` on a class is
- * the runbook's spec rate; the `components` carry the rates ACTUALLY charged
- * today. Where the two differ (same-chain), the class is deliberately NOT wired
- * into the live quote path yet — wiring it would change what users pay.
  */
 import { determineRoute, type RouteType } from "./routes.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RATES — runbook Step 1.3C spec + the rates actually charged today.
+// RATES — the fee policy rates (all classes capped at exactly 1%, once).
 // ─────────────────────────────────────────────────────────────────────────────
 export const FEE_RATES = {
   /** 1% — the X1-hop pre-bridge skim. Applied TODAY, source side, as a
-   *  pre-bridge SPL transfer (warpBridge buildStage2 / runReverse prepend). */
+   *  pre-bridge SPL transfer (warpBridge buildStage2 / runReverse prepend).
+   *  For x1-class routes this is THE Teleporter fee — the only one. */
   X1_HOP_SKIM: 0.01,
   /** $1 flat — the Warp bridge's OWN fee. Collected by the Warp program's fee
-   *  account (not ours); we pass it through in quotes as bridgeFee. */
+   *  account (not ours); we pass it through in quotes as a third-party
+   *  component labeled "Warp bridge fee". NOT a Teleporter fee. */
   WARP_FLAT_USD: 1,
-  /** 1% — the LiFi integrator fee charged on every LiFi leg today. Collected by
-   *  LiFi to our integrator account; the server forces it on every quote
-   *  (api/lifi/quote.js) so the browser can't strip it. */
+  /** 1% — the LiFi integrator fee. For same-chain (non-X1) routes this IS the
+   *  once-per-journey Teleporter fee (collected by LiFi to our integrator
+   *  account; the server forces it on every non-X1 quote — api/lifi/quote.js —
+   *  so the browser can't strip it). For x1-class routes it is 0 (policy). */
   LIFI_INTEGRATOR: 0.01,
-  /** 0.5% — runbook spec for the same-chain class. NOT YET APPLIED: today's
-   *  direct/LiFi routes charge LIFI_INTEGRATOR (1%). The 0.5% goes live in the
-   *  any-swap phase; this PR keeps charges identical. */
-  SAME_CHAIN: 0.005,
-  /** 5% — runbook spec for the Escape Hatch class. NOT YET APPLIED: no
-   *  escape-hatch path exists in code. The rate is defined here so the phase
-   *  that builds it has one number to read. */
-  ESCAPE_HATCH: 0.05,
+  /** 1% — same-chain class rate (policy, 2026-08-28). SUPERSEDES the runbook's
+   *  0.5% spec: the policy sets Teleporter's fee at exactly 1% once per
+   *  journey, so the class's charged rate (the LiFi integrator) and the policy
+   *  rate now agree at 1%. */
+  SAME_CHAIN: 0.01,
+  /** 1% — escape-hatch class rate (policy, 2026-08-28). SUPERSEDES the
+   *  runbook's 5% spec: "no route class may exceed 1% Teleporter take", and
+   *  the escape-hatch skim collects to OUR wallet, so it is a Teleporter fee
+   *  and must obey the cap. NOT YET APPLIED — no escape-hatch path exists. */
+  ESCAPE_HATCH: 0.01,
 } as const;
 
 // ── FEE WALLETS — where OUR skims land (same addresses as the runbook) ──
@@ -65,17 +84,23 @@ export const LIFI_INTEGRATOR_ACCOUNT = "x1-teleporter-labs";
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 export type FeeClass =
-  | "same-chain"      // 0.5% (runbook spec — NOT yet applied; see PR #7)
-  | "x1-hop"          // 1% pre-bridge skim — applied today
-  | "escape-hatch"    // 5% (runbook spec — NOT yet applied)
+  | "same-chain"      // 1% LiFi integrator = the once-per-journey Teleporter fee (policy)
+  | "x1-hop"          // 1% pre-bridge skim = the once-per-journey Teleporter fee (policy)
+  | "escape-hatch"    // 1% (policy cap) — NOT yet applied; no path exists
   | "thorchain-leg"   // future lane — no rate yet, throws
   | "non-x1-bridge";  // future lane — no rate yet, throws
 
 export type FeeComponentId =
-  | "lifi-integrator"    // LiFi's integrator fee on a LiFi leg
-  | "warp-skim"          // our 1% pre-bridge skim
-  | "warp-flat"          // the Warp program's own flat $1 (passthrough)
-  | "escape-hatch-skim"; // the 5% escape-hatch skim (future)
+  | "lifi-integrator"    // LiFi's integrator fee on a LiFi leg — the Teleporter fee on same-chain routes; 0 on x1-class routes
+  | "warp-skim"          // our 1% pre-bridge skim — the Teleporter fee on x1-class routes
+  | "warp-flat"          // the Warp program's own flat $1 (third-party pass-through, labeled "Warp bridge fee")
+  | "escape-hatch-skim"; // the escape-hatch skim (future, rate capped at 1%)
+
+/** Who owns the money: "teleporter" = collected to OUR wallets/integrator
+ *  account (counts toward the 1% once-per-journey take); "third-party" =
+ *  pass-through collected by someone else (Warp's $1 today, THORChain /
+ *  provider costs later) — shown separately, never labeled a Teleporter fee. */
+export type FeeParty = "teleporter" | "third-party";
 
 export type FeeCollector =
   | "lifi-integrator" // LiFi integrator account (LIFI_INTEGRATOR_ACCOUNT)
@@ -120,6 +145,9 @@ export interface FeeComponent {
   rate?: number;
   /** Flat USD when kind === "flat". */
   flatUsd?: number;
+  /** Who owns the money — teleporter (counts toward the 1% take) or
+   *  third-party pass-through (shown separately, never labeled Teleporter). */
+  party: FeeParty;
   /** Which wallet/account collects it. */
   collector: FeeCollector;
   /** Which leg of the journey takes it. */
@@ -136,9 +164,8 @@ export interface FeeStructure {
   /** Exactly ONE class per route — a route is never charged by two classes. */
   class: FeeClass;
   label: string;
-  /** The class's headline rate (runbook spec): x1-hop 1%, same-chain 0.5%,
-   *  escape-hatch 5%. This is the CLASS rate — see components for what is
-   *  actually charged today. */
+  /** The class's headline rate (policy): every class is exactly 1%, once.
+   *  x1-hop 1% (skim), same-chain 1% (integrator), escape-hatch 1% (cap). */
   headlineRate: number | null;
   components: FeeComponent[];
   /** Human summary of when/where the fee is applied. */
@@ -146,14 +173,33 @@ export interface FeeStructure {
   /** Look up a component by id — throws if this class doesn't have it. */
   component: (id: FeeComponentId) => FeeComponent;
   hasComponent: (id: FeeComponentId) => boolean;
-  /** Total fee taken off the SOURCE amount: source-based rate components +
-   *  all flats. Components taken on a LATER leg's delivered amount (the
-   *  stage-2 skim on x1 routes, the leg-2 integrator on x1_onward) are NOT
-   *  included — compute those with component(id).amountUsd(deliveredAmount).
-   *  For pure-Warp routes this equals what the quote box shows today. */
+  /** POLICY NUMBER: the total Teleporter take for a journey total of `amount`
+   *  — the sum of ONLY the Teleporter-owned components (party === "teleporter"),
+   *  each computed against the passed amount. For every class this must be
+   *  exactly 1% of `amount` (never more) — tested. */
+  teleporterFeeUsd: (amount: number) => number;
+  /** The third-party pass-through components (warp-flat today; THORChain /
+   *  provider costs later) — clearly labeled, never counted as Teleporter. */
+  thirdPartyComponents: FeeComponent[];
+  /** Sum of the third-party pass-through components on `amount`. */
+  thirdPartyFeeUsd: (amount: number) => number;
+  /** Total fee off the SOURCE amount: every component computed on the passed
+   *  amount (the quote-box view — what "you receive" is net of). For live-leg
+   *  math (e.g. the stage-2 skim on what LiFi actually delivered) use
+   *  component(id).amountUsd(deliveredAmount) instead. */
   feeUsd: (amount: number) => number;
   /** amount - feeUsd(amount). */
   netUsd: (amount: number) => number;
+}
+
+/** One display line for the quote box — every line renders from computeFee,
+ *  never a hardcoded fee string. Future THORChain/provider costs appear here
+ *  automatically once their components land in their class's structure. */
+export interface FeeLine {
+  id: FeeComponentId;
+  label: string;
+  amountUsd: number;
+  party: FeeParty;
 }
 
 export class FeeNotImplementedError extends Error {
@@ -193,6 +239,20 @@ export function classifyRoute(route: FeeRoute): FeeClass {
   return "same-chain";
 }
 
+/** POLICY: is this routeType an x1-class route (touches the Warp bridge)?
+ *  sol_x1, x1, x1_reverse, x1_onward — the classes where the stage-2 skim is
+ *  the ONLY Teleporter fee and the LiFi integrator fee must be 0. */
+export function isX1ClassRoute(routeType: RouteType): boolean {
+  return routeType === "sol_x1" || routeType === "x1" || routeType === "x1_reverse" || routeType === "x1_onward";
+}
+
+/** POLICY: the LiFi integrator fee param for a routeType — 0 on x1-class
+ *  routes (the stage-2 skim is the only Teleporter fee), 1% on non-X1 routes
+ *  (the integrator IS the once-per-journey Teleporter fee). */
+export function lifiIntegratorFeeFor(routeType: RouteType): number {
+  return isX1ClassRoute(routeType) ? 0 : FEE_RATES.LIFI_INTEGRATOR;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPONENT FACTORIES + STRUCTURE BUILDER
 // ─────────────────────────────────────────────────────────────────────────────
@@ -200,13 +260,14 @@ function rateComponent(
   id: FeeComponentId,
   label: string,
   rate: number,
+  party: FeeParty,
   collector: FeeCollector,
   leg: FeeLeg,
   applied: FeeApplicationPoint,
   base: FeeBase,
 ): FeeComponent {
   return {
-    id, label, kind: "rate", rate, collector, leg, applied, base,
+    id, label, kind: "rate", rate, party, collector, leg, applied, base,
     amountUsd: (amount: number) => amount * rate,
   };
 }
@@ -215,12 +276,13 @@ function flatComponent(
   id: FeeComponentId,
   label: string,
   flatUsd: number,
+  party: FeeParty,
   collector: FeeCollector,
   leg: FeeLeg,
   applied: FeeApplicationPoint,
 ): FeeComponent {
   return {
-    id, label, kind: "flat", flatUsd, collector, leg, applied, base: "source",
+    id, label, kind: "flat", flatUsd, party, collector, leg, applied, base: "source",
     amountUsd: () => flatUsd,
   };
 }
@@ -233,11 +295,10 @@ function makeStructure(
   applied: string,
 ): FeeStructure {
   const byId = new Map(components.map((c) => [c.id, c]));
-  const feeUsd = (amount: number) =>
-    components.reduce((sum, c) => {
-      if (c.kind === "flat") return sum + (c.flatUsd ?? 0);
-      return c.base === "source" ? sum + c.amountUsd(amount) : sum;
-    }, 0);
+  const sum = (list: FeeComponent[], amount: number) =>
+    list.reduce((s, c) => s + c.amountUsd(amount), 0);
+  const teleporter = components.filter((c) => c.party === "teleporter");
+  const thirdParty = components.filter((c) => c.party === "third-party");
   return {
     class: cls,
     label,
@@ -252,8 +313,11 @@ function makeStructure(
       return c;
     },
     hasComponent: (id) => byId.has(id),
-    feeUsd,
-    netUsd: (amount: number) => Math.max(0, amount - feeUsd(amount)),
+    teleporterFeeUsd: (amount: number) => sum(teleporter, amount),
+    thirdPartyComponents: thirdParty,
+    thirdPartyFeeUsd: (amount: number) => sum(thirdParty, amount),
+    feeUsd: (amount: number) => sum(components, amount),
+    netUsd: (amount: number) => Math.max(0, amount - sum(components, amount)),
   };
 }
 
@@ -264,20 +328,9 @@ function x1HopFee(route: FeeRoute): FeeStructure {
   const rt = route.routeType ?? determineRoute(route.from, route.to);
   const components: FeeComponent[] = [];
 
-  // LiFi legs carry the integrator fee (collected by LiFi, not us):
-  //   x1 (EVM→X1)        → leg 1 is LiFi, fee on the source input.
-  //   x1_onward (X1→EVM) → leg 2 is LiFi, fee on the leg-1 net that arrives.
-  if (rt === "x1" || rt === "x1_onward") {
-    components.push(rateComponent(
-      "lifi-integrator",
-      "LiFi integrator fee",
-      FEE_RATES.LIFI_INTEGRATOR,
-      "lifi-integrator",
-      "lifi-leg",
-      "lifi-fee",
-      rt === "x1" ? "source" : "leg-2-delivered",
-    ));
-  }
+  // POLICY: x1-class routes carry NO LiFi integrator fee — the integrator
+  // param is forced to 0 (api/lifi/quote.js + lifiIntegratorFeeFor()) so the
+  // stage-2 skim below is the ONLY Teleporter fee on the journey.
 
   // Our 1% pre-bridge skim — source side, SPL transfer to OUR fee wallet.
   // Reverse routes (X1→…) collect on the X1 wallet; forward routes on SVM.
@@ -285,8 +338,9 @@ function x1HopFee(route: FeeRoute): FeeStructure {
     rt === "x1_reverse" || rt === "x1_onward" ? "fee-wallet-x1" : "fee-wallet-svm";
   components.push(rateComponent(
     "warp-skim",
-    "Teleporter 1% pre-bridge skim",
+    "Teleporter fee (1%)",
     FEE_RATES.X1_HOP_SKIM,
+    "teleporter",
     skimWallet,
     "pre-bridge",
     "pre-bridge-transfer",
@@ -295,11 +349,13 @@ function x1HopFee(route: FeeRoute): FeeStructure {
   ));
 
   // The Warp bridge's own flat $1 — collected by the Warp program (not us),
-  // deducted inside BridgeOut on-chain. Passthrough in every quote.
+  // deducted inside BridgeOut on-chain. THIRD-PARTY pass-through, labeled
+  // "Warp bridge fee" (never "Teleporter fee"). Passthrough in every quote.
   components.push(flatComponent(
     "warp-flat",
-    "Warp bridge flat fee",
+    "Warp bridge fee",
     FEE_RATES.WARP_FLAT_USD,
+    "third-party",
     "warp-program",
     "bridge",
     "on-chain",
@@ -307,56 +363,61 @@ function x1HopFee(route: FeeRoute): FeeStructure {
 
   return makeStructure(
     "x1-hop",
-    "X1 hop — 1% pre-bridge skim + Warp's $1",
+    "X1 hop — 1% Teleporter skim (once) + Warp's $1 (third-party)",
     FEE_RATES.X1_HOP_SKIM,
     components,
-    "1% skim is taken on the source side as a pre-bridge SPL transfer to our fee wallet; "
-      + "the Warp program then takes its own flat $1 inside BridgeOut. LiFi legs also carry "
-      + "the integrator fee (1%, collected by LiFi).",
+    "Teleporter's fee is the 1% pre-bridge skim, taken on the source side as an "
+      + "SPL transfer to our fee wallet — charged once per journey (LiFi integrator "
+      + "fee is 0 on x1-class routes by policy). The Warp program then takes its own "
+      + "flat $1 inside BridgeOut — a third-party pass-through, not a Teleporter fee.",
   );
 }
 
 function sameChainFee(_route: FeeRoute): FeeStructure {
   return makeStructure(
     "same-chain",
-    "Same-chain / non-X1 LiFi lane — 0.5% (runbook spec, NOT yet applied)",
+    "Same-chain / non-X1 LiFi lane — 1% Teleporter fee, once per journey",
     FEE_RATES.SAME_CHAIN,
     [
       rateComponent(
         "lifi-integrator",
-        "LiFi integrator fee",
+        "Teleporter fee (1%)",
         FEE_RATES.LIFI_INTEGRATOR,
+        "teleporter",
         "lifi-integrator",
         "lifi-leg",
         "lifi-fee",
         "source",
       ),
     ],
-    "Collected by LiFi on the quote (fee param, server-forced at api/lifi/quote.js). "
-      + "The 0.5% same-chain rate is the runbook spec for the any-swap phase — it is NOT "
-      + "wired yet; direct routes still charge the 1% integrator fee today (see PR #7).",
+    "The 1% LiFi integrator fee IS the once-per-journey Teleporter fee on non-X1 "
+      + "routes (policy, 2026-08-28 — supersedes the runbook's 0.5% same-chain "
+      + "spec). Collected by LiFi to our integrator account; the server forces it "
+      + "on every non-X1 quote (api/lifi/quote.js) so the browser can't strip it.",
   );
 }
 
 function escapeHatchFee(_route: FeeRoute): FeeStructure {
   return makeStructure(
     "escape-hatch",
-    "Escape Hatch — 5% (runbook spec, NOT yet applied)",
+    "Escape Hatch — 1% (policy cap; NOT yet applied)",
     FEE_RATES.ESCAPE_HATCH,
     [
       rateComponent(
         "escape-hatch-skim",
         "Escape Hatch skim",
         FEE_RATES.ESCAPE_HATCH,
+        "teleporter",
         "fee-wallet-x1",
         "source",
         "pre-bridge-transfer",
         "source",
       ),
     ],
-    "Emergency escape path (future) — NOT yet applied. No escape-hatch path exists in code yet; "
-      + "this rate is defined so the phase that builds it has one number to read. Collector wallet is "
-      + "a placeholder (FEE_WALLETS.X1) pending that phase's design.",
+    "Emergency escape path (future) — NOT yet applied. No escape-hatch path exists "
+      + "in code yet; the rate is the policy cap (1%, exactly once — the runbook's 5% "
+      + "spec is superseded, since no route class may exceed 1% Teleporter take). "
+      + "Collector wallet is a placeholder (FEE_WALLETS.X1) pending that phase's design.",
   );
 }
 
@@ -384,4 +445,44 @@ export function computeFee(route: FeeRoute): FeeStructure {
           + "Do not charge a guessed rate on this lane.",
       );
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// QUOTE-BOX HELPERS — the render feeds on these, never on hardcoded strings.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface FeeQuote {
+  /** One line per fee component — the quote box renders exactly these. */
+  feeLines: FeeLine[];
+  /** Sum of the Teleporter-owned lines (the 1% once-per-journey take). */
+  teleporterFeeUsd: number;
+  /** Sum of the third-party pass-through lines (Warp's $1, later providers). */
+  thirdPartyFeeUsd: number;
+  /** teleporterFeeUsd + thirdPartyFeeUsd. */
+  totalFeeUsd: number;
+  /** amount minus ALL components — what "you receive" reflects. */
+  netUsd: number;
+}
+
+/** Build the full quote-box fee picture for a journey of `amount`: every
+ *  component as a display line, the Teleporter-only total, the third-party
+ *  total, and the net after ALL of them. `exclude` drops components (e.g.
+ *  warp-flat in Warp-handoff mode, where Warp charges their $1 on their side).
+ *  Pure + exported so the quote rendering is unit-testable without React. */
+export function quoteFees(route: FeeRoute, amount: number, exclude: FeeComponentId[] = []): FeeQuote {
+  const fee = computeFee(route);
+  const feeLines: FeeLine[] = fee.components
+    .filter((c) => !exclude.includes(c.id))
+    .map((c) => ({ id: c.id, label: c.label, amountUsd: c.amountUsd(amount), party: c.party }));
+  const sum = (party: FeeParty) =>
+    feeLines.filter((l) => l.party === party).reduce((s, l) => s + l.amountUsd, 0);
+  const teleporterFeeUsd = sum("teleporter");
+  const thirdPartyFeeUsd = sum("third-party");
+  return {
+    feeLines,
+    teleporterFeeUsd,
+    thirdPartyFeeUsd,
+    totalFeeUsd: teleporterFeeUsd + thirdPartyFeeUsd,
+    netUsd: Math.max(0, amount - teleporterFeeUsd - thirdPartyFeeUsd),
+  };
 }

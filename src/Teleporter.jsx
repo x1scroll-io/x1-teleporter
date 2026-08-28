@@ -3,7 +3,7 @@ import { validateLiFiApproval, buildApprovalData, LiFiApprovalValidationError } 
 import { guardedSendEvmTx, simulateSolanaTx, SimulationError } from "./lib/simulateTx.js";
 import { REVERSE_ENABLED } from "./lib/flags.ts";
 import { determineRoute } from "./lib/routes.ts";
-import { computeFee, FEE_RATES, FEE_WALLETS } from "./lib/fees.ts"; // Step 1.3C — every fee reads from the unified module
+import { computeFee, quoteFees, lifiIntegratorFeeFor, FEE_RATES, FEE_WALLETS } from "./lib/fees.ts"; // Step 1.3C+D — every fee reads from the unified module (policy: exactly 1%, once per journey)
 
 /**
  * TELEPORTER — any-chain → any-chain stablecoin aggregator + X1 on-ramp
@@ -116,7 +116,9 @@ const API_BASE = "";
 // under $10. We skim our 1% BEFORE the bridge, so the post-skim amount must
 // still clear Warp's $10 floor. Hence a $25 minimum into X1 (after 1% = $24.75,
 // safely above $10 even if the LiFi leg lands a little short).
-const WARP_FLAT_FEE = FEE_RATES.WARP_FLAT_USD; // $1 USDC, charged by the Warp bridge itself — sourced from src/lib/fees.ts (Step 1.3C)
+// Warp's flat $1 is a THIRD-PARTY pass-through (policy) — it lives in
+// src/lib/fees.ts as the warp-flat component (labeled "Warp bridge fee"),
+// rendered as its own quote line, never as a Teleporter fee.
 const WARP_MIN = 10;         // Warp rejects bridges below this (USDC)
 // Minimum into X1. 25 (post-1%-skim must clear Warp's $10 floor with a buffer
 // for LiFi slippage on the EVM->X1 path). $25 post-skim = $24.75, safely above
@@ -1210,7 +1212,11 @@ export default function Teleporter() {
   }, []);
 
   const buildLifiQuery = useCallback((feeOverride, amountOverride) => {
-    const effectiveFee = feeOverride != null ? feeOverride : INTEGRATOR_FEE;
+    // POLICY (Step 1.3D): the LiFi integrator fee is 0 on x1-class routes (the
+    // stage-2 skim is the only Teleporter fee) and 1% on non-X1 routes (the
+    // integrator IS the once-per-journey Teleporter fee). The server re-forces
+    // the same decision (api/lifi/quote.js) — this just builds the request.
+    const effectiveFee = feeOverride != null ? feeOverride : lifiIntegratorFeeFor(routeType);
     const amt = amountOverride != null ? amountOverride : parseFloat(amount);
     // NO PLACEHOLDERS. Quotes use ONLY the real connected wallet addresses.
     // If the wallet for a VM this route touches isn't connected, we return null
@@ -1268,9 +1274,12 @@ export default function Teleporter() {
       toAddress: toAddr, // explicit — required for cross-VM routes
       slippage: String(slippage / 100),
       integrator: INTEGRATOR,
-      fee: String(effectiveFee), // dev fee, collected by LiFi to your account
+      fee: String(effectiveFee), // policy: "0" on x1-class legs, "0.01" on non-X1
       order: "CHEAPEST",
     };
+    // x1-class marker — the server validates it (the leg must touch Solana)
+    // and forces fee=0 for x1-class journeys; see api/lifi/quote.js.
+    if (routeType === "x1" || routeType === "x1_onward") qsObj.x1Class = "1";
     if (crossVm) {
       // Prevent LiFi from building a fragile multi-hop that detours through a
       // THIRD chain (e.g. BNB→Ethereum→Solana via Relay, which was reverting on
@@ -1332,13 +1341,14 @@ export default function Teleporter() {
     // their own flat $1 there, so we don't deduct it on our side).
     if (routeType === "sol_x1") {
       await new Promise((r) => setTimeout(r, 400));
-      const fee = computeFee({ from, to, routeType, amount: amt }); // Step 1.3C: single source of truth
-      const ourFee = fee.component("warp-skim").amountUsd(amt);     // our 1%, skimmed first
-      const afterSkim = amt - ourFee;               // amount that reaches the user on Solana
+      // POLICY: x1-class Teleporter fee = the 1% skim only (integrator 0); Warp's
+      // $1 is a third-party pass-through line. In HANDOFF mode Warp charges their
+      // own $1 on their side, so it's excluded here (not shown, not deducted).
       if (!AUTO_X1_HOP) {
+        const qf = quoteFees({ from, to, routeType, amount: amt }, amt, ["warp-flat"]);
         setQuote({
-          amount: amt, feeUsd: ourFee, bridgeFee: 0,
-          net: Math.max(0, afterSkim),
+          amount: amt, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+          feeLines: qf.feeLines, net: qf.netUsd,
           recvToken: "USDC", recvChain: "Solana",
           note: "Land on Solana → finish on Warp Bridge",
           warpHandoff: true,
@@ -1347,9 +1357,10 @@ export default function Teleporter() {
         setPhase("quoted");
         return;
       }
-      const net = Math.max(0, afterSkim - WARP_FLAT_FEE); // Warp takes flat $1
+      const qf = quoteFees({ from, to, routeType, amount: amt }, amt);
       setQuote({
-        amount: amt, feeUsd: ourFee, bridgeFee: WARP_FLAT_FEE, net,
+        amount: amt, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+        feeLines: qf.feeLines, net: qf.netUsd,
         recvToken: "USDC.x", recvChain: "X1",
         note: "Solana → X1 via Warp Bridge",
         steps: hops.map((h) => ({ name: h.name, tool: "Warp Bridge" })),
@@ -1362,10 +1373,10 @@ export default function Teleporter() {
     // flat 1 USDC.x token fee (deducted inside bridge_out on mainnet).
     if (routeType === "x1_reverse") {
       await new Promise((r) => setTimeout(r, 300));
-      const ourFee = computeFee({ from, to, routeType, amount: amt }).component("warp-skim").amountUsd(amt); // Step 1.3C: 1% pre-bridge skim
-      const net = Math.max(0, amt - ourFee - WARP_FLAT_FEE); // Warp burns net after its $1 fee
+      const qf = quoteFees({ from, to, routeType, amount: amt }, amt);
       setQuote({
-        amount: amt, feeUsd: ourFee, bridgeFee: WARP_FLAT_FEE, net,
+        amount: amt, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+        feeLines: qf.feeLines, net: qf.netUsd,
         recvToken: "USDC", recvChain: "Solana",
         note: "X1 → Solana via Warp Bridge (burn → release)",
         steps: [{ name: "X1", tool: "Warp Bridge" }, { name: "Solana", tool: "Warp Bridge" }],
@@ -1379,12 +1390,12 @@ export default function Teleporter() {
     // fee/slippage is quoted live when leg 2 fires.
     if (routeType === "x1_onward") {
       await new Promise((r) => setTimeout(r, 300));
-      const ourFee = computeFee({ from, to, routeType, amount: amt }).component("warp-skim").amountUsd(amt); // Step 1.3C: 1% pre-bridge skim
-      const afterLeg1 = Math.max(0, amt - ourFee - WARP_FLAT_FEE);
+      const qf = quoteFees({ from, to, routeType, amount: amt }, amt);
       setQuote({
-        amount: amt, feeUsd: ourFee, bridgeFee: WARP_FLAT_FEE, net: afterLeg1,
+        amount: amt, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+        feeLines: qf.feeLines, net: qf.netUsd,
         recvToken: toToken, recvChain: CHAINS[to]?.name || to,
-        note: `X1 → Solana (Warp) → ${CHAINS[to]?.name || to} (LiFi)`,
+        note: `X1 → Solana (Warp) → ${CHAINS[to]?.name || to} (LiFi) — leg-2 LiFi runs with integrator fee 0 (policy); slippage is quoted live when leg 2 fires`,
         twoLeg: true,
         steps: [
           { name: "X1", tool: "Warp Bridge" },
@@ -1396,17 +1407,17 @@ export default function Teleporter() {
       return;
     }
 
-    // DEMO MODE — simulate, no backend needed
+    // DEMO MODE — simulate, no backend needed. Fee lines come from the same
+    // quoteFees() the live paths use, so the demo shows the policy picture
+    // (x1-class: 1% skim + Warp's $1 third-party line; non-X1: 1% once).
     if (DEMO_MODE) {
       await new Promise((r) => setTimeout(r, 650));
-      const feeUsd = amt * INTEGRATOR_FEE;
-      // x1 on-ramp ends in a Warp hop, so it also eats Warp's flat $1.
-      const bridgeFee = routeType === "x1" ? WARP_FLAT_FEE : 0;
-      const net = Math.max(0, amt - feeUsd - bridgeFee);
+      const qf = quoteFees({ from, to, routeType, amount: amt }, amt);
       const recvToken = routeType === "x1" ? "USDC.x" : toToken;
       const recvChain = routeType === "x1" ? "X1" : CHAINS[to].name;
       setQuote({
-        amount: amt, feeUsd, bridgeFee, net, recvToken, recvChain, demo: true,
+        amount: amt, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+        feeLines: qf.feeLines, net: qf.netUsd, recvToken, recvChain, demo: true,
         steps: hops.map((h, i) => ({
           name: h.name,
           tool: h.name === "X1" ? "Warp Bridge" : (routeType === "sol_x1" ? "Warp Bridge" : "LiFi"),
@@ -1419,10 +1430,12 @@ export default function Teleporter() {
     // LIVE MODE — real LiFi call through your proxy.
     // Fee-cap resilience: some integrator tiers cap the fee (e.g. 0.5%). If a
     // quote is rejected in a way that looks fee-related, retry at lower fees so
-    // a cap can never silently break the bridge. We surface which fee actually
-    // worked so you know if you need to request a raise in the LiFi portal.
+    // a cap can never silently break the bridge. POLICY (Step 1.3D): x1-class
+    // routes run with integrator fee 0 — the stage-2 skim is the only Teleporter
+    // fee — so their ladder is just [0]; no integrator fee is ever charged on them.
+    const x1ClassLive = routeType === "x1" || routeType === "x1_onward"; // the only x1-class routes with a LiFi leg
     try {
-      const feeLadder = [INTEGRATOR_FEE, 0.005, 0.0025, 0]; // 1% → 0.5% → 0.25% → 0
+      const feeLadder = x1ClassLive ? [0] : [INTEGRATOR_FEE, 0.005, 0.0025, 0]; // 1% → 0.5% → 0.25% → 0 (non-X1 only)
       let data = null, usedFee = INTEGRATOR_FEE, lastErr = null;
       for (const f of feeLadder) {
         const built = buildLifiQuery(f);
@@ -1446,20 +1459,34 @@ export default function Teleporter() {
         // else loop to the next-lower fee
       }
       if (!data) { flash(lastErr || "Quote failed", "err"); setPhase("idle"); return; }
-      if (usedFee < INTEGRATOR_FEE) {
+      if (!x1ClassLive && usedFee < INTEGRATOR_FEE) {
         flash(`Fee capped at ${(usedFee*100).toFixed(2)}% by LiFi — request a raise in the portal to collect ${(INTEGRATOR_FEE*100).toFixed(0)}%`, "info");
       }
       const outDecimals = routeType === "x1"
         ? TOKENS.sol.USDC.decimals
         : (routeType === "x1_reverse" ? TOKENS[to][toToken].decimals : TOKENS[to][toToken].decimals);
       const out = parseFloat(data.estimate.toAmount) / 10 ** outDecimals;
-      const feeUsd = amt * usedFee; // reflect the fee that actually applied
-      const bridgeFee = routeType === "x1" ? WARP_FLAT_FEE : 0;
       const recvToken = routeType === "x1" ? "USDC.x" : toToken;
       const recvChain = routeType === "x1" ? "X1" : CHAINS[to].name;
 
+      // POLICY quote: every fee line comes from computeFee via quoteFees — no
+      // hardcoded fee math in the quote box. x1-class: LiFi out is pre-skim
+      // (integrator 0), so the stage-2 skim is quoted on what LiFi actually
+      // delivers and "you receive" is honest. Non-X1: LiFi's own estimate
+      // already nets the integrator fee + slippage, so net = out.
+      const route = { from, to, routeType, amount: amt };
+      const qf = x1ClassLive ? quoteFees(route, out) : quoteFees(route, amt);
+      // Non-X1: reflect the fee that actually applied after the cap ladder.
+      const feeLines = qf.feeLines.map((l) =>
+        l.id === "lifi-integrator" && usedFee !== FEE_RATES.LIFI_INTEGRATOR
+          ? { ...l, amountUsd: amt * usedFee } : l);
+      const teleporterFeeUsd = feeLines.filter((l) => l.party === "teleporter").reduce((s, l) => s + l.amountUsd, 0);
+      const thirdPartyFeeUsd = feeLines.filter((l) => l.party === "third-party").reduce((s, l) => s + l.amountUsd, 0);
+      const net = x1ClassLive ? qf.netUsd : Math.max(0, out - thirdPartyFeeUsd);
+
       setQuote({
-        amount: amt, feeUsd, bridgeFee, net: Math.max(0, out - bridgeFee), recvToken, recvChain, lifiData: data, feeUsed: usedFee,
+        amount: amt, feeUsd: teleporterFeeUsd, bridgeFee: thirdPartyFeeUsd, feeLines,
+        net, recvToken, recvChain, lifiData: data, feeUsed: usedFee,
         solanaAmount: out, // what LiFi delivers on Solana — Stage 2 Warp bridges THIS, not the original
         steps: hops.map((h) => ({
           name: h.name,
@@ -1900,9 +1927,14 @@ export default function Teleporter() {
     setFrom(pending.from); setTo(pending.to);
     setToken(pending.token); setToToken(pending.toToken);
     setAmount(String(pending.amount || ""));
+    // POLICY: rebuild the fee picture from computeFee for the PENDING route
+    // (not the current form state, which hasn't been set yet).
+    const rt = determineRoute(pending.from, pending.to);
+    const amt = pending.amount || 0;
+    const qf = quoteFees({ from: pending.from, to: pending.to, routeType: rt, amount: amt }, amt);
     setQuote({
-      amount: pending.amount, feeUsd: (pending.amount || 0) * INTEGRATOR_FEE,
-      net: (pending.amount || 0) * (1 - INTEGRATOR_FEE),
+      amount: pending.amount, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+      feeLines: qf.feeLines, net: qf.netUsd,
       recvToken: pending.recvToken, recvChain: pending.recvChain,
       steps: [], resumed: true,
     });
@@ -2064,11 +2096,13 @@ export default function Teleporter() {
                 inputMode="decimal" style={S.slipInput} />
             </div>
 
-            <div style={S.fieldLabel}>Bridge fee</div>
+            <div style={S.fieldLabel}>Fees</div>
             <div style={{ fontSize: 13, color: "#9aa6bb", lineHeight: 1.5 }}>
-              A {(INTEGRATOR_FEE * 100).toFixed(0)}% fee is included in every quote, collected by LiFi
-              on routes through an EVM chain, and at mint on the Solana↔X1 hop.
-              The quote's "you receive" already reflects it — no hidden charges.
+              Teleporter's fee is exactly 1%, charged once per journey. On X1
+              routes it's the pre-bridge skim (the LiFi integrator fee is 0); on
+              non-X1 routes it's the LiFi integrator fee. Warp's flat $1 bridge
+              fee is a third-party pass-through. The quote shows every line, and
+              "you receive" reflects them all.
             </div>
           </div>
         )}
@@ -2146,14 +2180,17 @@ export default function Teleporter() {
             <RouteVisualizer hops={hops} active={active} progress={progress} />
           </div>
 
-          {/* quote panel */}
+          {/* quote panel — every fee line renders from computeFee (via
+              quote.feeLines), never a hardcoded fee string: the Teleporter fee,
+              the "Warp bridge fee" third-party line, and any future
+              THORChain/provider costs appear automatically once their
+              components land in src/lib/fees.ts. */}
           {quote && (
             <div style={S.quoteBox}>
               <Row k="You send" v={`${quote.amount} ${token} on ${CHAINS[from].name}`} />
-              <Row k={quote.feeUsd > 0 ? "Teleporter fee (1%)" : "Fee"} v={`$${(quote.feeUsd || 0).toFixed(2)}`} dim />
-              {quote.bridgeFee > 0 && (
-                <Row k="X1 bridge fee" v={`$${quote.bridgeFee.toFixed(2)}`} dim />
-              )}
+              {(quote.feeLines || []).map((l) => (
+                <Row key={l.id} k={l.label} v={`$${l.amountUsd.toFixed(2)}`} dim />
+              ))}
               <Row k="You receive" v={`≈ ${quote.net.toFixed(2)} ${quote.recvToken} on ${quote.recvChain}`} hi />
               {quote.note && <div style={{ fontSize: 11, color: "#7d8aa0", marginTop: 4 }}>{quote.note}</div>}
               {warpLimits?.ok && (warpLimits.sol.outflow > 0 || warpLimits.x1.outflow > 0) && (
