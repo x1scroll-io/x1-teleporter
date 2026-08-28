@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "verify": "node verify-accounts.mjs",
-    "test": "node --test src/lib/flags.test.ts src/lib/routes.test.ts src/lib/fees.test.ts src/lib/lifiQuote.test.js src/lib/lifiApproval.test.js src/lib/simulateTx.test.js src/lib/cors.test.js src/warpBridge.test.js",
+    "test": "node --import ./tools/jsx-loader.mjs --test src/lib/flags.test.ts src/lib/routes.test.ts src/lib/fees.test.ts src/lib/lifiQuote.test.js src/lib/lifiApproval.test.js src/lib/simulateTx.test.js src/lib/cors.test.js src/warpBridge.test.js src/lib/wallet/walletReducer.test.js src/lib/wallet/WalletContext.test.jsx",
     "prebuild": "node verify-accounts.mjs"
   },
   "dependencies": {
