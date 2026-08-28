@@ -16,8 +16,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Transaction, PublicKey, SystemProgram } from "@solana/web3.js";
-import { simulateStage2, sendStage2ViaPhantom } from "./warpBridge.js";
+import { simulateStage2, sendStage2ViaPhantom, SKIM_BPS } from "./warpBridge.js";
 import { SimulationError } from "./lib/simulateTx.js";
+import { FEE_RATES } from "./lib/fees.ts";
 
 function makeLegacyTx() {
   const tx = new Transaction();
@@ -161,4 +162,12 @@ test("sendStage2ViaPhantom fallback path (signTransaction + sendRawTransaction) 
   );
   assert.ok(!wallet.calls.some((c) => c.method === "signTransaction"));
   assert.ok(!conn.calls.includes("sendRawTransaction"));
+});
+
+// ── Step 1.3C fee-unification guard ──
+// The on-chain skim must stay sourced from the unified fee module. If someone
+// hardcodes SKIM_BPS again (or drifts the rate in fees.ts), this fails.
+test("SKIM_BPS is sourced from the unified X1-hop skim rate (Step 1.3C)", () => {
+  assert.equal(SKIM_BPS, BigInt(Math.round(FEE_RATES.X1_HOP_SKIM * 10_000)));
+  assert.equal(SKIM_BPS, 100n); // 1.00% — the rate actually charged today
 });

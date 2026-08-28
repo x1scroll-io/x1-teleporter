@@ -3,6 +3,7 @@ import { validateLiFiApproval, buildApprovalData, LiFiApprovalValidationError } 
 import { guardedSendEvmTx, simulateSolanaTx, SimulationError } from "./lib/simulateTx.js";
 import { REVERSE_ENABLED } from "./lib/flags.ts";
 import { determineRoute } from "./lib/routes.ts";
+import { computeFee, FEE_RATES, FEE_WALLETS } from "./lib/fees.ts"; // Step 1.3C — every fee reads from the unified module
 
 /**
  * TELEPORTER — any-chain → any-chain stablecoin aggregator + X1 on-ramp
@@ -100,14 +101,12 @@ const store = {
 const HISTORY_KEY = "teleporter.history";
 const PENDING_KEY = "teleporter.pending";
 
-const FEE = { flat: 1, pct: 0.01, threshold: 100 }; // legacy display model (unused once LiFi fee is live)
-
 // ── LiFi integrator config ──
 // IMPORTANT: INTEGRATOR must be your registered LiFi integrator string for fees
 // to actually collect to your account. INTEGRATOR_FEE is a float: 0.01 = 1%.
 // Fees are withdrawn later via /v1/integrators/{INTEGRATOR}/withdraw/{chainId}.
 const INTEGRATOR = "x1-teleporter-labs"; // registered LiFi integrator string
-const INTEGRATOR_FEE = 0.01;     // 1% — LiFi max is 10% (0.10)
+const INTEGRATOR_FEE = FEE_RATES.LIFI_INTEGRATOR; // 1% — LiFi max is 10% (0.10) — sourced from src/lib/fees.ts (Step 1.3C)
 // Proxy base — Vercel serves /api/* as serverless functions on the same origin.
 const API_BASE = "";
 
@@ -117,7 +116,7 @@ const API_BASE = "";
 // under $10. We skim our 1% BEFORE the bridge, so the post-skim amount must
 // still clear Warp's $10 floor. Hence a $25 minimum into X1 (after 1% = $24.75,
 // safely above $10 even if the LiFi leg lands a little short).
-const WARP_FLAT_FEE = 1;     // USDC, charged by the Warp bridge itself
+const WARP_FLAT_FEE = FEE_RATES.WARP_FLAT_USD; // $1 USDC, charged by the Warp bridge itself — sourced from src/lib/fees.ts (Step 1.3C)
 const WARP_MIN = 10;         // Warp rejects bridges below this (USDC)
 // Minimum into X1. 25 (post-1%-skim must clear Warp's $10 floor with a buffer
 // for LiFi slippage on the EVM->X1 path). $25 post-skim = $24.75, safely above
@@ -159,16 +158,10 @@ const X1_RPC =
 // Your SVM fee wallet — where the Warp X1-hop 1% skim lands. (LiFi-collected
 // fees go to the wallets you registered in the LiFi portal; this address is
 // used ONLY for the pure Warp Solana→X1 skim that LiFi doesn't touch.)
-const FEE_WALLET_SVM = "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu"; // "tip" vanity SVM wallet
+const FEE_WALLET_SVM = FEE_WALLETS.SVM; // "tip" vanity SVM wallet — sourced from src/lib/fees.ts (Step 1.3C)
 
-// X1 fee wallet for reverse (X1→Solana) bridge fee collection
-const FEE_WALLET_X1 = "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu";
-
-function calcFee(amountUsd) {
-  const n = parseFloat(amountUsd);
-  if (isNaN(n) || n <= 0) return 0;
-  return n < FEE.threshold ? FEE.flat : n * FEE.pct;
-}
+// X1 fee wallet for reverse (X1→Solana) bridge fee collection — sourced from src/lib/fees.ts (Step 1.3C)
+const FEE_WALLET_X1 = FEE_WALLETS.X1;
 
 // route type from a (from,to) pair — the core routing brain, mirrored in
 // src/lib/routes.ts (REVERSE_ENABLED gates all X1-source routes there).
@@ -1339,7 +1332,8 @@ export default function Teleporter() {
     // their own flat $1 there, so we don't deduct it on our side).
     if (routeType === "sol_x1") {
       await new Promise((r) => setTimeout(r, 400));
-      const ourFee = amt * INTEGRATOR_FEE;          // our 1%, skimmed first
+      const fee = computeFee({ from, to, routeType, amount: amt }); // Step 1.3C: single source of truth
+      const ourFee = fee.component("warp-skim").amountUsd(amt);     // our 1%, skimmed first
       const afterSkim = amt - ourFee;               // amount that reaches the user on Solana
       if (!AUTO_X1_HOP) {
         setQuote({
@@ -1368,7 +1362,7 @@ export default function Teleporter() {
     // flat 1 USDC.x token fee (deducted inside bridge_out on mainnet).
     if (routeType === "x1_reverse") {
       await new Promise((r) => setTimeout(r, 300));
-      const ourFee = amt * INTEGRATOR_FEE;
+      const ourFee = computeFee({ from, to, routeType, amount: amt }).component("warp-skim").amountUsd(amt); // Step 1.3C: 1% pre-bridge skim
       const net = Math.max(0, amt - ourFee - WARP_FLAT_FEE); // Warp burns net after its $1 fee
       setQuote({
         amount: amt, feeUsd: ourFee, bridgeFee: WARP_FLAT_FEE, net,
@@ -1385,7 +1379,7 @@ export default function Teleporter() {
     // fee/slippage is quoted live when leg 2 fires.
     if (routeType === "x1_onward") {
       await new Promise((r) => setTimeout(r, 300));
-      const ourFee = amt * INTEGRATOR_FEE;
+      const ourFee = computeFee({ from, to, routeType, amount: amt }).component("warp-skim").amountUsd(amt); // Step 1.3C: 1% pre-bridge skim
       const afterLeg1 = Math.max(0, amt - ourFee - WARP_FLAT_FEE);
       setQuote({
         amount: amt, feeUsd: ourFee, bridgeFee: WARP_FLAT_FEE, net: afterLeg1,
@@ -1627,7 +1621,7 @@ export default function Teleporter() {
       // or LiFi would quote/attempt more USDC than the wallet holds.
       const original = parseFloat(amount);
       const netOnSolana = quote?.net != null ? quote.net
-        : Math.max(0, original - original * INTEGRATOR_FEE - WARP_FLAT_FEE);
+        : Math.max(0, original - original * FEE_RATES.X1_HOP_SKIM - FEE_RATES.WARP_FLAT_USD);
       console.log("[Onward leg2] original:", original, "net on Solana:", netOnSolana);
       const built = buildLifiQuery(null, netOnSolana);
       if (!built) { flash("Couldn't build the onward route — is your EVM wallet connected?", "err"); setPhase("step2"); return; }
@@ -1747,7 +1741,9 @@ export default function Teleporter() {
           let amountHuman = quote?.amount ?? pending?.amount;
           // Deduct Teleporter 1% fee before burning (fee charged on Warp bridge_out).
           // The UI already showed the net amount to receive, so we skim it here.
-          const teleporterFee = quote?.feeUsd ? (amountHuman * 0.01) : 0;
+          const teleporterFee = quote?.feeUsd
+            ? computeFee({ from, to, routeType, amount: amountHuman }).component("warp-skim").amountUsd(amountHuman)
+            : 0;
           amountHuman = amountHuman - teleporterFee;
           console.log("[Reverse] starting runReverse amount:", amountHuman, "teleporter fee skimmed:", teleporterFee, "onward:", isOnward);
           const res = await runReverse({
