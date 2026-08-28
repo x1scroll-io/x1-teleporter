@@ -19,12 +19,32 @@ import {
   normalizeEvmDiscovered,
   normalizeSolanaDiscovered,
   normalizeBitcoinDiscovered,
+  normalizeLitecoinDiscovered,
+  normalizeDogecoinDiscovered,
+  normalizeXrpDiscovered,
+  normalizeTronDiscovered,
 } from "./modalLogic.js";
 import {
   BITCOIN_WALLETS,
   BITCOIN_WALLET_IDS as IDS,
   DEPOSIT_ADDRESS_ID,
 } from "./bitcoinRegistry.js";
+import {
+  LITECOIN_WALLETS,
+  LITECOIN_WALLET_IDS as LTC_IDS,
+} from "./litecoinRegistry.js";
+import {
+  DOGECOIN_WALLETS,
+  DOGECOIN_WALLET_IDS as DOGE_IDS,
+} from "./dogecoinRegistry.js";
+import {
+  XRP_WALLETS,
+  XRP_WALLET_IDS as XRP_IDS,
+} from "./xrpRegistry.js";
+import {
+  TRON_WALLETS,
+  TRON_WALLET_IDS as TRON_IDS,
+} from "./tronRegistry.js";
 
 /** Every family in the registry must have entries — the modal has no empty families. */
 test("registry covers every family with the pinned Starport row + a reference wallet", () => {
@@ -290,4 +310,188 @@ test("bitcoin: a discovered Starport announcement flips the pinned row to instal
   const rows = buildFamilyWalletRows({ family: "bitcoin", discovered: [{ key: "Starport" }] });
   assert.equal(rows[0].id, STARPORT_ID);
   assert.equal(rows[0].installed, true, "Starport highlighted when it announces Bitcoin");
+});
+
+/* ————————————— Step 2.4 families: LTC / DOGE / XRP / Tron ————————————— */
+
+/**
+ * Expected modal order for a canonical-table family, including the Step
+ * 2.4 groups: pinned → reference → software-alpha → hardware →
+ * walletConnect → unmaintained → deposit. Mirrors buildFamilyWalletRows.
+ */
+function expectedCanonicalOrder(wallets) {
+  const byId = new Map(wallets.map((e) => [e.id, e]));
+  const byName = (a, b) => byId.get(a).name.localeCompare(byId.get(b).name);
+  const pinned = wallets.filter((e) => e.pinned).map((e) => e.id);
+  const reference = wallets.filter((e) => e.reference).map((e) => e.id);
+  const software = wallets
+    .filter((e) => !e.pinned && !e.reference && !e.hardware && e.walletConnect !== true && e.unmaintained !== true && !e.depositAddress)
+    .map((e) => e.id)
+    .sort(byName);
+  const hardware = wallets.filter((e) => e.hardware).map((e) => e.id).sort(byName);
+  const walletConnect = wallets.filter((e) => e.walletConnect === true).map((e) => e.id).sort(byName);
+  const unmaintained = wallets.filter((e) => e.unmaintained === true).map((e) => e.id).sort(byName);
+  const deposit = wallets.filter((e) => e.depositAddress).map((e) => e.id);
+  return [...pinned, ...reference, ...software, ...hardware, ...walletConnect, ...unmaintained, ...deposit];
+}
+
+function assertFamilyOrder(family, wallets) {
+  const rows = buildFamilyWalletRows({ family, discovered: [] });
+  assert.deepEqual(
+    rows.map((r) => r.id),
+    expectedCanonicalOrder(wallets),
+    `${family} renders the full canonical table in fixed modal order`,
+  );
+  assert.equal(rows[0].id, STARPORT_ID, `${family}: Starport pinned first`);
+  assert.equal(rows[rows.length - 1].depositAddress, true, `${family}: deposit-address row is ALWAYS last`);
+  return rows;
+}
+
+test("litecoin: full canonical table — Ctrl reference second, deposit last, ⚠️ rows in the alpha group", () => {
+  const rows = assertFamilyOrder("litecoin", LITECOIN_WALLETS);
+  assert.equal(rows[1].id, LTC_IDS.CTRL, "Ctrl (ex-XDEFI) is the reference wallet");
+  assert.equal(rows[1].reference, true);
+
+  const software = rows.filter((r) => !r.pinned && !r.reference && !r.hardware && !r.depositAddress);
+  assert.deepEqual(
+    software.map((r) => r.name),
+    [...software.map((r) => r.name)].sort((a, b) => a.localeCompare(b)),
+  );
+  const verifyRows = software.filter((r) => r.status === "verify");
+  assert.deepEqual(verifyRows.map((r) => r.id).sort(), [LTC_IDS.ENKRYPT, LTC_IDS.OKX, LTC_IDS.TRUST].sort());
+  for (const row of verifyRows) {
+    assert.ok(typeof row.todo === "string" && row.todo.length > 0, `${row.id} carries a verification TODO`);
+  }
+  // Litescribe: status ok per the canonical table, but connect-gated
+  // (API + memo unverified) — the row still carries its connectTodo.
+  const litescribe = rows.find((r) => r.id === LTC_IDS.LITESCRIBE);
+  assert.equal(litescribe.status, "ok");
+  assert.ok(litescribe.connectTodo, "Litescribe connect is TODO-gated (memo/API unverified)");
+  // Memo rule metadata flows through to the rows.
+  assert.equal(rows.find((r) => r.id === LTC_IDS.CTRL).memoSupport, "op_return");
+  assert.equal(litescribe.memoSupport, "verify");
+  assert.equal(rows.find((r) => r.id === LTC_IDS.DEPOSIT_ADDRESS).memoSupport, "op_return");
+});
+
+test("dogecoin: full canonical table — Ctrl reference second, deposit last, MyDoge ⚠️ in the alpha group", () => {
+  const rows = assertFamilyOrder("dogecoin", DOGECOIN_WALLETS);
+  assert.equal(rows[1].id, DOGE_IDS.CTRL, "Ctrl (ex-XDEFI) is the reference wallet");
+  assert.equal(rows[1].reference, true);
+
+  const software = rows.filter((r) => !r.pinned && !r.reference && !r.hardware && !r.depositAddress);
+  assert.deepEqual(
+    software.map((r) => r.name),
+    [...software.map((r) => r.name)].sort((a, b) => a.localeCompare(b)),
+  );
+  const verifyRows = software.filter((r) => r.status === "verify");
+  assert.deepEqual(
+    verifyRows.map((r) => r.id).sort(),
+    [DOGE_IDS.BITGET, DOGE_IDS.DOGELABS, DOGE_IDS.ENKRYPT, DOGE_IDS.MYDOGE, DOGE_IDS.OKX, DOGE_IDS.TRUST].sort(),
+  );
+  assert.ok(
+    rows.find((r) => r.id === DOGE_IDS.MYDOGE).memoSupport === "verify",
+    "MyDoge memo is ⚠️ (balance-only + deposit-address until verified)",
+  );
+  assert.equal(rows.find((r) => r.id === DOGE_IDS.CTRL).memoSupport, "op_return");
+});
+
+test("xrp: Xaman reference second; Crossmark/GemWallet badged unmaintained ranked after hardware, before deposit", () => {
+  const rows = assertFamilyOrder("xrp", XRP_WALLETS);
+  assert.equal(rows[1].id, XRP_IDS.XAMAN, "Xaman (ex-XUMM) is the reference wallet (registry PRIMARY)");
+  assert.equal(rows[1].reference, true);
+
+  const ids = rows.map((r) => r.id);
+  const hardwareIdx = [XRP_IDS.LEDGER, XRP_IDS.TREZOR].map((id) => ids.indexOf(id));
+  const unmaintainedIdx = [XRP_IDS.CROSSMARK, XRP_IDS.GEMWALLET].map((id) => ids.indexOf(id));
+  const depositIdx = ids.indexOf(XRP_IDS.DEPOSIT_ADDRESS);
+  assert.ok(
+    Math.max(...hardwareIdx) < Math.min(...unmaintainedIdx),
+    "❌ rows rank AFTER hardware",
+  );
+  assert.ok(
+    Math.max(...unmaintainedIdx) < depositIdx,
+    "❌ rows rank BEFORE the deposit-address row (which is final)",
+  );
+  for (const id of [XRP_IDS.CROSSMARK, XRP_IDS.GEMWALLET]) {
+    const row = rows.find((r) => r.id === id);
+    assert.equal(row.unmaintained, true, `${id} flagged unmaintained`);
+    assert.equal(row.status, "unmaintained");
+  }
+  // Tangem: deposit-only info row in the software group, never connectable.
+  const tangem = rows.find((r) => r.id === XRP_IDS.TANGEM);
+  assert.equal(tangem.depositOnly, true);
+  assert.equal(tangem.installed, false);
+  assert.ok(
+    ids.indexOf(XRP_IDS.TANGEM) < Math.min(...hardwareIdx),
+    "Tangem sits in the software group (alphabetical), before hardware",
+  );
+  // Xaman memoSupport: the XRPL Memos field.
+  assert.equal(rows.find((r) => r.id === XRP_IDS.XAMAN).memoSupport, "memos");
+  assert.equal(rows.find((r) => r.id === XRP_IDS.DEPOSIT_ADDRESS).memoSupport, "memos");
+});
+
+test("tron: TronLink reference second; WalletConnect sorts after hardware; NO deposit row", () => {
+  const rows = buildFamilyWalletRows({ family: "tron", discovered: [] });
+  assert.deepEqual(
+    rows.map((r) => r.id),
+    expectedCanonicalOrder(TRON_WALLETS),
+    "Tron renders the full canonical table in fixed modal order",
+  );
+  assert.equal(rows[0].id, STARPORT_ID, "Starport pinned first");
+  assert.equal(rows[1].id, TRON_IDS.TRONLINK, "TronLink is the reference wallet");
+  assert.equal(rows[1].reference, true);
+
+  const ids = rows.map((r) => r.id);
+  const ledgerIdx = ids.indexOf(TRON_IDS.LEDGER);
+  const wcIdx = ids.indexOf(TRON_IDS.WALLETCONNECT);
+  assert.ok(ledgerIdx < wcIdx, "WalletConnect (mobile) sorts after hardware");
+  assert.equal(rows.find((r) => r.id === TRON_IDS.WALLETCONNECT).walletConnect, true);
+  assert.ok(
+    !rows.some((r) => r.depositAddress),
+    "Tron has NO deposit-address row (the registry's deposit row is BTC/LTC/DOGE/XRP only)",
+  );
+
+  const verifyRows = rows.filter((r) => r.status === "verify");
+  assert.deepEqual(verifyRows.map((r) => r.id).sort(), [TRON_IDS.BINANCE, TRON_IDS.TRUST].sort());
+  for (const row of verifyRows) {
+    assert.ok(row.todo.includes("WalletConnect"), `${row.id} TODO names the WalletConnect path`);
+  }
+  // Adapter rows carry their adapterName for the discovery match.
+  assert.equal(rows.find((r) => r.id === TRON_IDS.TRONLINK).adapterName, "TronLink");
+  assert.equal(rows.find((r) => r.id === TRON_IDS.BITGET).adapterName, "Bitget Wallet");
+});
+
+test("Step 2.4 normalizers map discovery entries to {key, name}", () => {
+  const cases = [
+    [normalizeLitecoinDiscovered, [{ key: LTC_IDS.CTRL, name: "Ctrl (ex-XDEFI)" }]],
+    [normalizeDogecoinDiscovered, [{ key: DOGE_IDS.CTRL, name: "Ctrl (ex-XDEFI)" }]],
+    [normalizeXrpDiscovered, [{ key: XRP_IDS.CROSSMARK, name: "Crossmark" }]],
+    [normalizeTronDiscovered, [{ key: TRON_IDS.TRONLINK, name: "TronLink" }]],
+  ];
+  for (const [normalize, input] of cases) {
+    const out = normalize(input);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].key, input[0].key);
+    assert.equal(out[0].name, input[0].name);
+    assert.deepEqual(normalize(undefined), []);
+  }
+});
+
+test("Step 2.4 installed highlighting works in place (fixed order, not detected-first)", () => {
+  // LTC: Ctrl installed → highlighted where it sits (reference slot).
+  const ltc = buildFamilyWalletRows({
+    family: "litecoin",
+    discovered: normalizeLitecoinDiscovered([{ key: LTC_IDS.CTRL, name: "Ctrl (ex-XDEFI)" }]),
+  });
+  assert.deepEqual(ltc.map((r) => r.id), expectedCanonicalOrder(LITECOIN_WALLETS));
+  assert.equal(ltc.find((r) => r.id === LTC_IDS.CTRL).installed, true);
+  assert.equal(ltc.find((r) => r.id === LTC_IDS.LITESCRIBE).installed, false);
+
+  // Tron: TronLink installed via an adapter discovery entry.
+  const tron = buildFamilyWalletRows({
+    family: "tron",
+    discovered: normalizeTronDiscovered([{ key: TRON_IDS.TRONLINK, name: "TronLink" }]),
+  });
+  assert.equal(tron.find((r) => r.id === TRON_IDS.TRONLINK).installed, true);
+  assert.equal(tron.find((r) => r.id === TRON_IDS.OKX).installed, false);
 });
