@@ -4,7 +4,9 @@
  * Proves the FEE POLICY (Mr. Esters, 2026-08-28):
  *   - Teleporter's fee is EXACTLY 1% of the route total, charged ONCE per
  *     journey, regardless of hop count — no route class exceeds 1% Teleporter
- *     take (tested by iterating EVERY class),
+ *     take (tested by iterating EVERY class), with ONE named exception:
+ *     escape-hatch at 5% (the separate rescue product — Mr. Esters, fee
+ *     policy),
  *   - x1-class routes: the ONLY Teleporter fee is the 1% stage-2/source skim
  *     (integrator fee 0 — the lifi-integrator component is REMOVED from the
  *     class); Warp's $1 is a SEPARATE third-party component labeled
@@ -12,8 +14,12 @@
  *   - same-chain routes: the 1% LiFi integrator IS the once-per-journey
  *     Teleporter fee (the runbook's 0.5% headline is SUPERSEDED by the policy
  *     — charged rate and policy rate agree at 1%, once),
- *   - escape-hatch: rate capped at 1% (policy supersedes the runbook's 5% —
- *     the cap applies to every class; no path exists yet),
+ *   - escape-hatch: 5% — NAMED EXCEPTION to the 1%-once rule (Mr. Esters,
+ *     fee policy): the escape hatch is a rescue service for chains nothing
+ *     else serves — a separate rescue product at 5%, deliberately, labeled as
+ *     such in the quote. Carve-out: "Teleporter fee is 1% once per journey;
+ *     the PulseChain escape hatch is a separate rescue product at 5%, labeled
+ *     as such in the quote." (No path exists yet),
  *   - the quote box feeds on computeFee via quoteFees() — every fee line is a
  *     component line, never a hardcoded string,
  *   - the two future lanes (thorchain-leg, non-x1-bridge) throw descriptive
@@ -92,7 +98,8 @@ test("NO ROUTE IS CHARGED TWICE: exactly one class, one headline rate, no stacke
     );
     // The escape-hatch component never appears on a live class.
     assert.ok(!fee.hasComponent("escape-hatch-skim"));
-    // POLICY: every rate component on every class is ≤ 1% (the cap).
+    // POLICY: every rate component on every class here is ≤ 1% (the cap;
+    // escape-hatch is the named exception at 5% — asserted separately).
     for (const c of fee.components) {
       if (c.kind === "rate") assert.ok(c.rate <= 0.01, `${fee.class} rate ${c.rate} exceeds the 1% cap`);
     }
@@ -169,14 +176,17 @@ test("POLICY: x1-class total Teleporter take is EXACTLY 1% with integrator at 0,
   }
 });
 
-test("POLICY: NO route class exceeds 1% Teleporter fee — iterate every class", () => {
+test("POLICY: NO route class exceeds 1% Teleporter fee — iterate every class (escape-hatch EXCLUDED: it is the named 5% exception)", () => {
+  // escape-hatch is a named exception to the 1%-once rule — a separate rescue
+  // product at 5% (Mr. Esters, fee policy). It is deliberately EXCLUDED from
+  // this 1% sweep so no future cleanup "fixes" it back to 1%; its 5% rate is
+  // asserted separately in the escape-hatch class test above.
   const everyClass = [
     { from: "eth", to: "bsc" },                                   // same-chain
     { from: "sol", to: "x1", routeType: "sol_x1" },               // x1-hop
     { from: "eth", to: "x1", routeType: "x1" },                   // x1-hop (LiFi leg 1)
     { from: "x1", to: "sol", routeType: "x1_reverse" },           // x1-hop (reverse)
     { from: "x1", to: "eth", routeType: "x1_onward" },            // x1-hop (onward, LiFi leg 2)
-    { from: "x1", to: "sol", routeType: "x1_reverse", escapeHatch: true }, // escape-hatch (policy-capped)
   ];
   for (const r of everyClass) {
     const fee = computeFee(r);
@@ -273,18 +283,26 @@ test("x1 (EVM→X1): quote math is skim 1% + $1; stage-2 skim is on the delivere
   closeTo(skim.amountUsd(990), 9.9); // skim on the delivered amount
 });
 
-test("escape-hatch class: 1% policy cap, marked NOT yet applied, never stacks the x1-hop skim", () => {
+test("escape-hatch class: 5% — the named exception to the 1%-once rule, labeled as a rescue product, never stacks the x1-hop skim", () => {
+  // escape-hatch is a named exception to the 1%-once rule — a separate rescue
+  // product at 5% (Mr. Esters, fee policy). The 1%-once rule is about
+  // bridging; the escape hatch is a rescue service for chains nothing else
+  // serves — a different product, premium price, deliberately, labeled as
+  // such in the quote. Carve-out: "Teleporter fee is 1% once per journey; the
+  // PulseChain escape hatch is a separate rescue product at 5%, labeled as
+  // such in the quote."
   const fee = computeFee({ from: "x1", to: "sol", routeType: "x1_reverse", escapeHatch: true });
   assert.equal(fee.class, "escape-hatch");
-  assert.equal(fee.headlineRate, FEE_RATES.ESCAPE_HATCH); // 0.01 — policy cap (supersedes runbook 5%)
+  assert.equal(fee.headlineRate, FEE_RATES.ESCAPE_HATCH); // 0.05 — the named exception (rescue product)
   const skim = fee.component("escape-hatch-skim");
-  assert.equal(skim.rate, 0.01);
+  assert.equal(skim.rate, 0.05);
   assert.equal(skim.party, "teleporter");
-  assert.equal(skim.amountUsd(1000), 10);
-  assert.equal(fee.netUsd(1000), 990);
-  assert.equal(fee.teleporterFeeUsd(1000), 10);
+  assert.equal(skim.amountUsd(1000), 50);
+  assert.equal(fee.netUsd(1000), 950);
+  assert.equal(fee.teleporterFeeUsd(1000), 50);
   assert.match(fee.applied, /NOT yet applied/i);
-  assert.match(fee.applied, /superseded/i);
+  assert.match(fee.applied, /NAMED EXCEPTION/i);
+  assert.match(skim.label, /rescue/i); // labeled as the rescue product in the quote
   assert.ok(!fee.hasComponent("warp-skim"), "escape hatch must not stack the x1-hop 1% skim");
 });
 
@@ -353,17 +371,19 @@ test("quote box data: Warp-handoff mode excludes the warp-flat line (Warp charge
 // ─────────────────────────────────────────────────────────────────────────────
 // INTEGRATOR FEE PARAM — the money-touching propagation
 // ─────────────────────────────────────────────────────────────────────────────
-test("POLICY: LiFi integrator fee param is 0 on every x1-class routeType, 1% on non-X1", () => {
+test("POLICY: the LiFi fee param is OMITTED (null) on every x1-class routeType, 1% on non-X1", () => {
   assert.equal(isX1ClassRoute("sol_x1"), true);
   assert.equal(isX1ClassRoute("x1"), true);
   assert.equal(isX1ClassRoute("x1_reverse"), true);
   assert.equal(isX1ClassRoute("x1_onward"), true);
   assert.equal(isX1ClassRoute("direct"), false);
-  // The param the client builds (and the server re-forces): 0 vs 0.01.
-  assert.equal(lifiIntegratorFeeFor("x1"), 0);
-  assert.equal(lifiIntegratorFeeFor("x1_onward"), 0);
-  assert.equal(lifiIntegratorFeeFor("sol_x1"), 0);
-  assert.equal(lifiIntegratorFeeFor("x1_reverse"), 0);
+  // The param the client builds (and the server re-forces): x1-class OMITS
+  // the fee key entirely (absent means absent — never fee=0), non-X1 carries
+  // fee=0.01.
+  assert.equal(lifiIntegratorFeeFor("x1"), null);
+  assert.equal(lifiIntegratorFeeFor("x1_onward"), null);
+  assert.equal(lifiIntegratorFeeFor("sol_x1"), null);
+  assert.equal(lifiIntegratorFeeFor("x1_reverse"), null);
   assert.equal(lifiIntegratorFeeFor("direct"), FEE_RATES.LIFI_INTEGRATOR); // 0.01
 });
 
@@ -374,12 +394,17 @@ test("old→new mapping: every fee charged today is represented in FEE_RATES", (
   assert.equal(FEE_RATES.X1_HOP_SKIM, 0.01);      // old: SKIM_BPS=100 / 1% skim
   assert.equal(FEE_RATES.LIFI_INTEGRATOR, 0.01);  // old: INTEGRATOR_FEE on every LiFi quote (now: non-X1 only)
   assert.equal(FEE_RATES.WARP_FLAT_USD, 1);       // old: WARP_FLAT_FEE $1 (now: third-party pass-through)
-  // POLICY (2026-08-28): both spec rates were superseded — the policy sets the
-  // fee at exactly 1% once per journey and caps EVERY class at 1% Teleporter
-  // take. The runbook's 0.5% same-chain and 5% escape-hatch headlines no
-  // longer apply (no escape-hatch path exists, so no money moved).
+  // POLICY (2026-08-28): the runbook's 0.5% same-chain headline is superseded
+  // — the policy sets the fee at exactly 1% once per journey. escape-hatch is
+  // the ONE named exception: 5%, the separate rescue product (restored from
+  // the 1% the "no class exceeds 1%" rule was wrongly applied to it).
   assert.equal(FEE_RATES.SAME_CHAIN, 0.01);       // policy: 1% once (supersedes runbook 0.5%)
-  assert.equal(FEE_RATES.ESCAPE_HATCH, 0.01);     // policy: 1% cap (supersedes runbook 5%)
+  // escape-hatch: 5% — NAMED EXCEPTION to the 1%-once rule (Mr. Esters, fee
+  // policy): the escape hatch is a separate rescue product at 5%, deliberately,
+  // labeled as such in the quote. Carve-out: "Teleporter fee is 1% once per
+  // journey; the PulseChain escape hatch is a separate rescue product at 5%,
+  // labeled as such in the quote."
+  assert.equal(FEE_RATES.ESCAPE_HATCH, 0.05);     // 5% — named exception (rescue product)
 });
 
 test("fee wallets match the runbook addresses", () => {

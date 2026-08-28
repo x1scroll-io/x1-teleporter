@@ -19,16 +19,21 @@
  *     once-per-journey Teleporter fee. The runbook's 0.5% same-chain headline
  *     is SUPERSEDED — the charged rate and the policy rate now agree at
  *     exactly 1%, once.
- *   - escape-hatch: rate capped at 1% (the policy's "no route class may
- *     exceed 1% Teleporter take" applies to every class). The runbook's 5%
- *     spec is superseded. No escape-hatch path exists in code yet.
+ *   - escape-hatch: 5% — a NAMED EXCEPTION to the 1%-once rule (Mr. Esters,
+ *     fee policy). The 1%-once rule is about bridging; the escape hatch is a
+ *     rescue service for chains nothing else serves — a different product at
+ *     a premium price, deliberately, labeled as such in the quote. Carve-out
+ *     (verbatim): "Teleporter fee is 1% once per journey; the PulseChain
+ *     escape hatch is a separate rescue product at 5%, labeled as such in the
+ *     quote." No escape-hatch path exists in code yet.
  *   - thorchain-leg + non-x1-bridge (future lanes): no rate yet — they THROW
  *     a descriptive FeeNotImplementedError instead of guessing a number.
  *
- * INVARIANT (tested): for EVERY route class, the sum of Teleporter-owned
- * components (teleporterFeeUsd) is exactly 1% of the journey total — never
- * more. Third-party pass-throughs (warp-flat today, THORChain/provider costs
- * later) are labeled and summed separately.
+ * INVARIANT (tested): for EVERY route class EXCEPT escape-hatch (the named
+ * 5% rescue product), the sum of Teleporter-owned components
+ * (teleporterFeeUsd) is exactly 1% of the journey total — never more.
+ * Third-party pass-throughs (warp-flat today, THORChain/provider costs later)
+ * are labeled and summed separately.
  *
  * PURE MODULE: no DOM, no fetch, no wallet, no chain imports. Runnable under
  * `node --test` (type stripping) exactly like routes.ts / flags.ts.
@@ -41,7 +46,8 @@
 import { determineRoute, type RouteType } from "./routes.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RATES — the fee policy rates (all classes capped at exactly 1%, once).
+// RATES — the fee policy rates (all classes exactly 1% once — with ONE named
+// exception: escape-hatch at 5%, the separate rescue product).
 // ─────────────────────────────────────────────────────────────────────────────
 export const FEE_RATES = {
   /** 1% — the X1-hop pre-bridge skim. Applied TODAY, source side, as a
@@ -55,18 +61,22 @@ export const FEE_RATES = {
   /** 1% — the LiFi integrator fee. For same-chain (non-X1) routes this IS the
    *  once-per-journey Teleporter fee (collected by LiFi to our integrator
    *  account; the server forces it on every non-X1 quote — api/lifi/quote.js —
-   *  so the browser can't strip it). For x1-class routes it is 0 (policy). */
+   *  so the browser can't strip it). For x1-class routes it is ABSENT (policy
+   *  — the fee key is omitted from the query entirely, never fee=0). */
   LIFI_INTEGRATOR: 0.01,
   /** 1% — same-chain class rate (policy, 2026-08-28). SUPERSEDES the runbook's
    *  0.5% spec: the policy sets Teleporter's fee at exactly 1% once per
    *  journey, so the class's charged rate (the LiFi integrator) and the policy
    *  rate now agree at 1%. */
   SAME_CHAIN: 0.01,
-  /** 1% — escape-hatch class rate (policy, 2026-08-28). SUPERSEDES the
-   *  runbook's 5% spec: "no route class may exceed 1% Teleporter take", and
-   *  the escape-hatch skim collects to OUR wallet, so it is a Teleporter fee
-   *  and must obey the cap. NOT YET APPLIED — no escape-hatch path exists. */
-  ESCAPE_HATCH: 0.01,
+  /** 5% — escape-hatch class rate — NAMED EXCEPTION to the 1%-once rule
+   *  (Mr. Esters, fee policy): the 1%-once rule is about bridging; the escape
+   *  hatch is a rescue service for chains nothing else serves — a separate
+   *  rescue product at a premium price, deliberately, labeled as such in the
+   *  quote. Carve-out (verbatim): "Teleporter fee is 1% once per journey; the
+   *  PulseChain escape hatch is a separate rescue product at 5%, labeled as
+   *  such in the quote." NOT YET APPLIED — no escape-hatch path exists. */
+  ESCAPE_HATCH: 0.05,
 } as const;
 
 // ── FEE WALLETS — where OUR skims land (same addresses as the runbook) ──
@@ -86,7 +96,7 @@ export const LIFI_INTEGRATOR_ACCOUNT = "x1-teleporter-labs";
 export type FeeClass =
   | "same-chain"      // 1% LiFi integrator = the once-per-journey Teleporter fee (policy)
   | "x1-hop"          // 1% pre-bridge skim = the once-per-journey Teleporter fee (policy)
-  | "escape-hatch"    // 1% (policy cap) — NOT yet applied; no path exists
+  | "escape-hatch"    // 5% — NAMED EXCEPTION to the 1%-once rule (separate rescue product); NOT yet applied
   | "thorchain-leg"   // future lane — no rate yet, throws
   | "non-x1-bridge";  // future lane — no rate yet, throws
 
@@ -94,7 +104,7 @@ export type FeeComponentId =
   | "lifi-integrator"    // LiFi's integrator fee on a LiFi leg — the Teleporter fee on same-chain routes; 0 on x1-class routes
   | "warp-skim"          // our 1% pre-bridge skim — the Teleporter fee on x1-class routes
   | "warp-flat"          // the Warp program's own flat $1 (third-party pass-through, labeled "Warp bridge fee")
-  | "escape-hatch-skim"; // the escape-hatch skim (future, rate capped at 1%)
+  | "escape-hatch-skim"; // the escape-hatch skim (future, 5% — named exception, rescue product)
 
 /** Who owns the money: "teleporter" = collected to OUR wallets/integrator
  *  account (counts toward the 1% once-per-journey take); "third-party" =
@@ -164,8 +174,9 @@ export interface FeeStructure {
   /** Exactly ONE class per route — a route is never charged by two classes. */
   class: FeeClass;
   label: string;
-  /** The class's headline rate (policy): every class is exactly 1%, once.
-   *  x1-hop 1% (skim), same-chain 1% (integrator), escape-hatch 1% (cap). */
+  /** The class's headline rate (policy): every class is exactly 1%, once —
+   *  with ONE named exception: escape-hatch 5% (the separate rescue product).
+   *  x1-hop 1% (skim), same-chain 1% (integrator), escape-hatch 5% (exception). */
   headlineRate: number | null;
   components: FeeComponent[];
   /** Human summary of when/where the fee is applied. */
@@ -176,7 +187,8 @@ export interface FeeStructure {
   /** POLICY NUMBER: the total Teleporter take for a journey total of `amount`
    *  — the sum of ONLY the Teleporter-owned components (party === "teleporter"),
    *  each computed against the passed amount. For every class this must be
-   *  exactly 1% of `amount` (never more) — tested. */
+   *  exactly 1% of `amount` (never more) — tested — EXCEPT escape-hatch,
+   *  which is the named 5% rescue product (Mr. Esters, fee policy). */
   teleporterFeeUsd: (amount: number) => number;
   /** The third-party pass-through components (warp-flat today; THORChain /
    *  provider costs later) — clearly labeled, never counted as Teleporter. */
@@ -241,16 +253,18 @@ export function classifyRoute(route: FeeRoute): FeeClass {
 
 /** POLICY: is this routeType an x1-class route (touches the Warp bridge)?
  *  sol_x1, x1, x1_reverse, x1_onward — the classes where the stage-2 skim is
- *  the ONLY Teleporter fee and the LiFi integrator fee must be 0. */
+ *  the ONLY Teleporter fee and the LiFi fee param is OMITTED entirely. */
 export function isX1ClassRoute(routeType: RouteType): boolean {
   return routeType === "sol_x1" || routeType === "x1" || routeType === "x1_reverse" || routeType === "x1_onward";
 }
 
-/** POLICY: the LiFi integrator fee param for a routeType — 0 on x1-class
- *  routes (the stage-2 skim is the only Teleporter fee), 1% on non-X1 routes
- *  (the integrator IS the once-per-journey Teleporter fee). */
-export function lifiIntegratorFeeFor(routeType: RouteType): number {
-  return isX1ClassRoute(routeType) ? 0 : FEE_RATES.LIFI_INTEGRATOR;
+/** POLICY: the LiFi integrator fee param for a routeType — ABSENT (null) on
+ *  x1-class routes (the stage-2 skim is the only Teleporter fee; the fee key
+ *  is OMITTED from the LI.Fi query entirely — absent means absent, never
+ *  fee=0), 1% on non-X1 routes (the integrator IS the once-per-journey
+ *  Teleporter fee). */
+export function lifiIntegratorFeeFor(routeType: RouteType): number | null {
+  return isX1ClassRoute(routeType) ? null : FEE_RATES.LIFI_INTEGRATOR;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -328,9 +342,10 @@ function x1HopFee(route: FeeRoute): FeeStructure {
   const rt = route.routeType ?? determineRoute(route.from, route.to);
   const components: FeeComponent[] = [];
 
-  // POLICY: x1-class routes carry NO LiFi integrator fee — the integrator
-  // param is forced to 0 (api/lifi/quote.js + lifiIntegratorFeeFor()) so the
-  // stage-2 skim below is the ONLY Teleporter fee on the journey.
+  // POLICY: x1-class routes carry NO LiFi integrator fee — the fee param is
+  // OMITTED from the LI.Fi query entirely (absent means absent — never fee=0;
+  // api/lifi/quote.js + lifiIntegratorFeeFor()) so the stage-2 skim below is
+  // the ONLY Teleporter fee on the journey.
 
   // Our 1% pre-bridge skim — source side, SPL transfer to OUR fee wallet.
   // Reverse routes (X1→…) collect on the X1 wallet; forward routes on SVM.
@@ -368,7 +383,7 @@ function x1HopFee(route: FeeRoute): FeeStructure {
     components,
     "Teleporter's fee is the 1% pre-bridge skim, taken on the source side as an "
       + "SPL transfer to our fee wallet — charged once per journey (LiFi integrator "
-      + "fee is 0 on x1-class routes by policy). The Warp program then takes its own "
+      + "fee is omitted on x1-class routes by policy). The Warp program then takes its own "
       + "flat $1 inside BridgeOut — a third-party pass-through, not a Teleporter fee.",
   );
 }
@@ -400,12 +415,12 @@ function sameChainFee(_route: FeeRoute): FeeStructure {
 function escapeHatchFee(_route: FeeRoute): FeeStructure {
   return makeStructure(
     "escape-hatch",
-    "Escape Hatch — 1% (policy cap; NOT yet applied)",
+    "Escape hatch (rescue) — 5% (named exception to the 1%-once rule; NOT yet applied)",
     FEE_RATES.ESCAPE_HATCH,
     [
       rateComponent(
         "escape-hatch-skim",
-        "Escape Hatch skim",
+        "Escape hatch (rescue) 5%",
         FEE_RATES.ESCAPE_HATCH,
         "teleporter",
         "fee-wallet-x1",
@@ -414,10 +429,14 @@ function escapeHatchFee(_route: FeeRoute): FeeStructure {
         "source",
       ),
     ],
-    "Emergency escape path (future) — NOT yet applied. No escape-hatch path exists "
-      + "in code yet; the rate is the policy cap (1%, exactly once — the runbook's 5% "
-      + "spec is superseded, since no route class may exceed 1% Teleporter take). "
-      + "Collector wallet is a placeholder (FEE_WALLETS.X1) pending that phase's design.",
+    "Emergency escape path (future) — NOT yet applied. NAMED EXCEPTION to the "
+      + "1%-once rule (Mr. Esters, fee policy): the 1%-once rule is about bridging; "
+      + "the escape hatch is a rescue service for chains nothing else serves — a "
+      + "separate rescue product at a premium price, deliberately, labeled as such "
+      + "in the quote. Carve-out (verbatim): \"Teleporter fee is 1% once per journey; "
+      + "the PulseChain escape hatch is a separate rescue product at 5%, labeled as "
+      + "such in the quote.\" Collector wallet is a placeholder (FEE_WALLETS.X1) "
+      + "pending that phase's design.",
   );
 }
 

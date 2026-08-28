@@ -1212,10 +1212,12 @@ export default function Teleporter() {
   }, []);
 
   const buildLifiQuery = useCallback((feeOverride, amountOverride) => {
-    // POLICY (Step 1.3D): the LiFi integrator fee is 0 on x1-class routes (the
-    // stage-2 skim is the only Teleporter fee) and 1% on non-X1 routes (the
-    // integrator IS the once-per-journey Teleporter fee). The server re-forces
-    // the same decision (api/lifi/quote.js) — this just builds the request.
+    // POLICY (Step 1.3D): x1-class legs OMIT the LiFi fee param entirely —
+    // absent means absent, no fee=0, no API-interpretation ambiguity (the
+    // stage-2 skim is the only Teleporter fee on the journey). Non-X1 legs
+    // carry fee=0.01 (the integrator IS the once-per-journey Teleporter fee).
+    // The server re-forces the same decision (api/lifi/quote.js).
+    const isX1Leg = routeType === "x1" || routeType === "x1_onward"; // the only x1-class routes with a LiFi leg
     const effectiveFee = feeOverride != null ? feeOverride : lifiIntegratorFeeFor(routeType);
     const amt = amountOverride != null ? amountOverride : parseFloat(amount);
     // NO PLACEHOLDERS. Quotes use ONLY the real connected wallet addresses.
@@ -1274,12 +1276,15 @@ export default function Teleporter() {
       toAddress: toAddr, // explicit — required for cross-VM routes
       slippage: String(slippage / 100),
       integrator: INTEGRATOR,
-      fee: String(effectiveFee), // policy: "0" on x1-class legs, "0.01" on non-X1
       order: "CHEAPEST",
     };
+    // POLICY: x1-class legs OMIT the fee key entirely (absent means absent —
+    // never fee=0); non-X1 legs carry fee=0.01. The server re-forces the same
+    // decision (api/lifi/quote.js).
+    if (!isX1Leg) qsObj.fee = String(effectiveFee); // "0.01" on non-X1 legs
     // x1-class marker — the server validates it (the leg must touch Solana)
-    // and forces fee=0 for x1-class journeys; see api/lifi/quote.js.
-    if (routeType === "x1" || routeType === "x1_onward") qsObj.x1Class = "1";
+    // and strips any fee param for x1-class journeys; see api/lifi/quote.js.
+    if (isX1Leg) qsObj.x1Class = "1";
     if (crossVm) {
       // Prevent LiFi from building a fragile multi-hop that detours through a
       // THIRD chain (e.g. BNB→Ethereum→Solana via Relay, which was reverting on
@@ -1431,11 +1436,12 @@ export default function Teleporter() {
     // Fee-cap resilience: some integrator tiers cap the fee (e.g. 0.5%). If a
     // quote is rejected in a way that looks fee-related, retry at lower fees so
     // a cap can never silently break the bridge. POLICY (Step 1.3D): x1-class
-    // routes run with integrator fee 0 — the stage-2 skim is the only Teleporter
-    // fee — so their ladder is just [0]; no integrator fee is ever charged on them.
+    // routes OMIT the fee param entirely — the stage-2 skim is the only
+    // Teleporter fee — so their ladder is just [null] (no fee param at all);
+    // no integrator fee is ever sent for them.
     const x1ClassLive = routeType === "x1" || routeType === "x1_onward"; // the only x1-class routes with a LiFi leg
     try {
-      const feeLadder = x1ClassLive ? [0] : [INTEGRATOR_FEE, 0.005, 0.0025, 0]; // 1% → 0.5% → 0.25% → 0 (non-X1 only)
+      const feeLadder = x1ClassLive ? [null] : [INTEGRATOR_FEE, 0.005, 0.0025, 0]; // 1% → 0.5% → 0.25% → 0 (non-X1 only)
       let data = null, usedFee = INTEGRATOR_FEE, lastErr = null;
       for (const f of feeLadder) {
         const built = buildLifiQuery(f);

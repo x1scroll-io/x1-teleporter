@@ -3,8 +3,9 @@
  *
  * Proves the money-touching core of the policy:
  *   - an x1-class quote request (x1Class=1 + a Solana-ended LiFi leg — the
- *     x1 on-ramp leg 1 EVM→Solana and the x1_onward leg 2 Solana→EVM) is
- *     FORCED to carry fee=0 — the stage-2 skim is the only Teleporter fee,
+ *     x1 on-ramp leg 1 EVM→Solana and the x1_onward leg 2 Solana→EVM) has the
+ *     fee param OMITTED entirely (absent means absent — never fee=0): the
+ *     stage-2 skim is the only Teleporter fee,
  *   - a same-chain quote request is FORCED to carry fee=0.01 — the 1%
  *     integrator IS the once-per-journey Teleporter fee on non-X1 routes,
  *   - the client's fee param is ALWAYS overwritten: the browser can neither
@@ -27,17 +28,17 @@ const params = (obj) => new URLSearchParams(obj);
 
 // ── resolveForcedFee: the pure fee decision ─────────────────────────────────
 
-test("resolveForcedFee: x1-class request (x1 on-ramp leg 1, EVM→Solana) → fee 0", () => {
+test("resolveForcedFee: x1-class request (x1 on-ramp leg 1, EVM→Solana) → null (OMIT the fee key entirely)", () => {
   assert.equal(
     resolveForcedFee(params({ fromChain: "eth", toChain: "SOL", x1Class: "1" })),
-    "0",
+    null,
   );
 });
 
-test("resolveForcedFee: x1-class request (x1_onward leg 2, Solana→EVM) → fee 0", () => {
+test("resolveForcedFee: x1-class request (x1_onward leg 2, Solana→EVM) → null (OMIT the fee key entirely)", () => {
   assert.equal(
     resolveForcedFee(params({ fromChain: "SOL", toChain: "eth", x1Class: "1" })),
-    "0",
+    null,
   );
 });
 
@@ -69,16 +70,16 @@ test("resolveForcedFee: x1Class=0 is treated as same-chain → fee 0.01", () => 
   );
 });
 
-test("resolveForcedFee: the client's fee param is never consulted — the server always overwrites it", () => {
+test("resolveForcedFee: the client's fee param is never consulted — the server always decides it", () => {
   // A same-chain request that tries to strip the fee (fee=0) still gets 0.01.
   assert.equal(
     resolveForcedFee(params({ fromChain: "eth", toChain: "SOL", fee: "0" })),
     "0.01",
   );
-  // An x1-class request that tries to add the integrator fee still gets 0.
+  // An x1-class request that tries to add the integrator fee is OMITTED (null).
   assert.equal(
     resolveForcedFee(params({ fromChain: "eth", toChain: "SOL", x1Class: "1", fee: "0.01" })),
-    "0",
+    null,
   );
 });
 
@@ -118,18 +119,18 @@ async function runHandler(query) {
   }
 }
 
-test("handler: an x1-class quote request is forwarded to LI.Fi with fee=0 (and integrator forced)", async () => {
+test("handler: an x1-class quote request is forwarded to LI.Fi with NO fee param at all (and integrator forced)", async () => {
   const { capturedUrl, res } = await runHandler({
     fromChain: "eth", toChain: "SOL", fromToken: "0xUSDC", toToken: "EPjF...",
-    fromAmount: "1000000", fee: "0.5", // browser tried to set its own fee — ignored
+    fromAmount: "1000000", fee: "0.5", // browser tried to set its own fee — stripped
     x1Class: "1",
   });
   assert.equal(res.statusCode, 200);
   assert.equal(res.body.ok, true);
   const url = new URL(capturedUrl);
-  assert.equal(url.searchParams.get("fee"), "0", "x1-class quote must carry fee=0");
+  assert.equal(url.searchParams.has("fee"), false, "x1-class quote must OMIT the fee param entirely — absent means absent");
   assert.equal(url.searchParams.get("integrator"), INTEGRATOR, "integrator is server-forced");
-  assert.equal(url.searchParams.get("fee"), "0", "client's fee=0.5 attempt was overwritten");
+  assert.equal(url.searchParams.has("fee"), false, "client's fee=0.5 attempt was stripped, not zeroed");
 });
 
 test("handler: a same-chain quote request is forwarded to LI.Fi with fee=0.01", async () => {
