@@ -31,6 +31,7 @@ import {
   TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
 import { simulateSolanaTx, guardedSendSolanaTx } from "./lib/simulateTx.js";
+import { FEE_RATES } from "./lib/fees.ts";
 
 // ── CONSTANTS ──
 export const WARP_PROGRAM_ID = new PublicKey(
@@ -62,7 +63,10 @@ export const WARP_ACCOUNTS = {
 
 const USDC_DECIMALS = 6;
 export const ONE_USDC = 1_000_000n;
-export const SKIM_BPS = 100n; // 1.00% = 100 basis points
+// 1.00% = 100 basis points. Sourced from src/lib/fees.ts (Step 1.3C) so the
+// on-chain skim and every other fee read the SAME constant — if the rate ever
+// changes there, this follows automatically and cannot drift.
+export const SKIM_BPS = BigInt(Math.round(FEE_RATES.X1_HOP_SKIM * 10_000));
 
 // ── PDA DERIVATION ──
 // From the Warp IDL — verified against live on-chain accounts.
