@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { validateLiFiApproval, buildApprovalData, LiFiApprovalValidationError } from "./lib/lifiApproval.js";
+import { guardedSendEvmTx, simulateSolanaTx, SimulationError } from "./lib/simulateTx.js";
 import { REVERSE_ENABLED } from "./lib/flags.ts";
 import { determineRoute } from "./lib/routes.ts";
 
@@ -868,8 +869,33 @@ export default function Teleporter() {
     const { VersionedTransaction, Connection } = await import("@solana/web3.js");
     const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const vtx = VersionedTransaction.deserialize(raw);
-    console.log("[Onward leg2] deserialized Solana tx, signing…");
+    console.log("[Onward leg2] deserialized Solana tx, simulating…");
 
+    // ── MANDATORY PRE-SEND SIMULATION (Step 1.3A, fail-closed) ──
+    // Simulate the EXACT tx LiFi built before signing/broadcasting. If it
+    // would fail — or the sim RPC is unreachable — we BLOCK and surface the
+    // reason; the wallet is never prompted to sign a doomed tx.
+    const conn = new Connection(SOLANA_RPC, "confirmed");
+    const sim = await simulateSolanaTx(conn, vtx);
+    if (!sim.ok) {
+      if (sim.simUnavailable) {
+        throw new SimulationError(
+          `Simulation couldn't run (RPC: ${sim.rpcError || "unknown"}) — send blocked. Retry when the RPC is reachable.`,
+          { code: "sim-unavailable", reason: sim.rpcError || "simulation RPC unavailable", raw: sim },
+        );
+      }
+      const errText = typeof sim.err === "string" ? sim.err : JSON.stringify(sim.err);
+      const keyLogs = (sim.logs || [])
+        .filter((l) => /error|failed|assert|seq|insufficient|invalid|constraint/i.test(l))
+        .slice(-2)
+        .join(" | ");
+      throw new SimulationError(
+        `Simulation failed: ${errText}${keyLogs ? ` — ${keyLogs}` : ""}`,
+        { code: "solana-sim-failed", reason: errText, raw: sim },
+      );
+    }
+
+    console.log("[Onward leg2] simulation passed, signing…");
     if (typeof sol.signAndSendTransaction === "function") {
       const res = await sol.signAndSendTransaction(vtx);
       const sig = res?.signature || res;
@@ -877,7 +903,6 @@ export default function Teleporter() {
       return sig;
     }
     const signed = await sol.signTransaction(vtx);
-    const conn = new Connection(SOLANA_RPC, "confirmed");
     const sig = await conn.sendRawTransaction(signed.serialize(), { maxRetries: 3 });
     console.log("[Onward leg2] sent via RPC, sig:", sig);
     return sig;
@@ -966,11 +991,13 @@ export default function Teleporter() {
         const current = BigInt(allowanceHex && allowanceHex !== "0x" ? allowanceHex : "0x0");
         if (current < need) {
           flash("Approve token spend first (1 of 2)…", "info");
-          // approve(spender, amount) — EXACT amount, never MaxUint256
+          // approve(spender, amount) — EXACT amount, never MaxUint256.
+          // Simulation-gated (Step 1.3A): the approval is simulated with
+          // eth_call before eth_sendTransaction; a revert blocks the send
+          // and surfaces the actual reason.
           const approveData = buildApprovalData({ spender, amount: need });
-          const approveHash = await w.provider.request({
-            method: "eth_sendTransaction",
-            params: [{ from: w.addr, to: tokenAddr, data: approveData, value: "0x0" }],
+          const approveHash = await guardedSendEvmTx(w.provider, {
+            from: w.addr, to: tokenAddr, data: approveData, value: "0x0",
           });
           // wait for the approval to confirm before bridging
           flash("Approval sent — waiting for confirmation…", "info");
@@ -980,8 +1007,10 @@ export default function Teleporter() {
       }
     } catch (e) {
       // Spender-validation aborts carry a user-facing message; pass them
-      // through untouched. Everything else is an approval failure.
-      if (e instanceof LiFiApprovalValidationError) throw e;
+      // through untouched. Simulation rejections (Step 1.3A) also carry the
+      // surfaced revert reason — pass those through too. Everything else is
+      // an approval failure.
+      if (e instanceof LiFiApprovalValidationError || e instanceof SimulationError) throw e;
       throw new Error("Token approval failed: " + (e?.message || e));
     }
 
@@ -993,7 +1022,11 @@ export default function Teleporter() {
       value: txReq.value || "0x0",
       ...(txReq.gasLimit ? { gas: typeof txReq.gasLimit === "string" ? txReq.gasLimit : "0x" + BigInt(txReq.gasLimit).toString(16) } : {}),
     }];
-    const txHash = await w.provider.request({ method: "eth_sendTransaction", params });
+    // Simulation-gated send (Step 1.3A): eth_call (+ gas estimate) with the
+    // EXACT params first. If the bridge would revert, eth_sendTransaction is
+    // NEVER called — the SimulationError (with the surfaced revert reason)
+    // propagates to the caller and is flashed to the user.
+    const txHash = await guardedSendEvmTx(w.provider, params[0]);
     return txHash;
   }, [evmWallet, solWallet]);
 
@@ -1474,6 +1507,13 @@ export default function Teleporter() {
           provider: sol, // the actual connected wallet (Backpack/Phantom/X1) — broadcasts via its own RPC
         });
         if (!res.success) {
+          // Step 1.3A fail-closed: a failed simulation (or a simulation we
+          // couldn't run because the RPC was unreachable) BLOCKS the send.
+          if (res.sim?.simUnavailable) {
+            flash(`Bridge sim couldn't run (RPC: ${res.sim?.rpcError || "unknown"}) — send blocked. Retry when the RPC is reachable.`, "err");
+            setPhase("quoted");
+            return;
+          }
           const logs = res.sim?.logs || [];
           // Full program logs to the console (reachable in-browser). These name
           // the EXACT failing assertion — seq mismatch, account/seed, privilege,
@@ -1817,6 +1857,12 @@ export default function Teleporter() {
         console.groupEnd();
         updateHistory(histId, { status: "failed" });
         setPhase("quoted");
+        // Step 1.3A: a SimulationError already carries the surfaced revert /
+        // program reason — flash it verbatim (no generic "transaction failed").
+        if (e instanceof SimulationError) {
+          flash(e.message, "err");
+          return;
+        }
         const isReject = e?.message?.includes("reject") || e?.code === 4001 || e?.message?.includes("User rejected");
         const msg = isReject ? "Transaction rejected by wallet" : (e?.message || "Send failed");
         flash(`${msg}. Check console for full error.`, "err");

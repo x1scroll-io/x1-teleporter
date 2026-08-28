@@ -30,6 +30,7 @@ import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
+import { simulateSolanaTx, guardedSendSolanaTx } from "./lib/simulateTx.js";
 
 // ── CONSTANTS ──
 export const WARP_PROGRAM_ID = new PublicKey(
@@ -291,21 +292,12 @@ export async function buildStage2({
   return { transaction: tx, skimBase, bridgeBase, seq: theSeq, outgoing_msg: outgoingMsgPda };
 }
 
+// Simulation gate for Stage 2 (Step 1.3A). Delegates to src/lib/simulateTx.js
+// (same behavior, DI-friendly, unit-tested). FAIL-CLOSED: a program rejection
+// blocks the send, and an RPC-level simulation failure ALSO blocks — if we
+// cannot prove the tx would succeed, we do not broadcast it.
 export async function simulateStage2(connection, transaction) {
-  try {
-    const sim = await connection.simulateTransaction(transaction);
-    return {
-      ok: sim.value.err === null,
-      err: sim.value.err,
-      logs: sim.value.logs,
-      unitsConsumed: sim.value.unitsConsumed,
-    };
-  } catch (e) {
-    // RPC-level failure (couldn't reach the node) — NOT a program rejection.
-    // Don't block the send on this; the wallet will broadcast via its own RPC
-    // and surface any real on-chain error at send time.
-    return { ok: true, skippedSim: true, rpcError: e.message };
-  }
+  return simulateSolanaTx(connection, transaction);
 }
 
 export async function sendStage2ViaPhantom(connection, transaction, provider) {
@@ -329,20 +321,27 @@ export async function sendStage2ViaPhantom(connection, transaction, provider) {
     if (transaction.signatures) transaction.signatures = [];
   } catch { /* wallet will supply one */ }
 
-  if (typeof p.signAndSendTransaction === "function") {
-    const res = await p.signAndSendTransaction(transaction);
-    return res?.signature || res;
-  }
+  // ── MANDATORY PRE-SEND SIMULATION (Step 1.3A, fail-closed) ──
+  // Simulate the EXACT transaction we are about to broadcast (fresh blockhash
+  // already applied above). If it would fail — or if we cannot prove it would
+  // succeed because the simulation RPC is down — the send is BLOCKED and the
+  // surfaced reason propagates. No wallet prompt, no broadcast, no wasted gas.
+  return guardedSendSolanaTx(connection, transaction, async () => {
+    if (typeof p.signAndSendTransaction === "function") {
+      const res = await p.signAndSendTransaction(transaction);
+      return res?.signature || res;
+    }
 
-  // Manual fallback: WE broadcast through the same connection the blockhash
-  // came from, so they match.
-  if (typeof p.signTransaction === "function") {
-    const signed = await p.signTransaction(transaction);
-    const sig = await connection.sendRawTransaction(signed.serialize(), { maxRetries: 3 });
-    await connection.confirmTransaction(sig, "confirmed");
-    return sig;
-  }
-  throw new Error("Connected wallet can't sign transactions");
+    // Manual fallback: WE broadcast through the same connection the blockhash
+    // came from, so they match.
+    if (typeof p.signTransaction === "function") {
+      const signed = await p.signTransaction(transaction);
+      const sig = await connection.sendRawTransaction(signed.serialize(), { maxRetries: 3 });
+      await connection.confirmTransaction(sig, "confirmed");
+      return sig;
+    }
+    throw new Error("Connected wallet can't sign transactions");
+  });
 }
 
 // Full guarded flow: build, simulate, and optionally send
