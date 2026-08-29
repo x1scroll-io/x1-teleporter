@@ -1,16 +1,18 @@
 /**
- * quote.test.js — THORChain aggregator quote + size-cap (Step 3.3).
- *
- * The quote endpoint is MOCKED in every test (the REAL THORCHAIN_API_KEY is
- * a parked item — Mr. Esters owns it; see docs/BRIEF.md open items). Proves:
- *   - the key comes from the ENV at call time (readApiKey — runbook name
- *     plus the VITE_/NEXT_PUBLIC_ client-exposed names), never hardcoded,
- *   - with NO key the fetcher FAILS CLOSED (reason "no-api-key") — a quote
- *     is never fetched without the aggregator key,
- *   - the URL is the THORChain aggregator quote endpoint with the documented
- *     query params (amounts in 1e8 base units; affiliate pair omitted while
- *     the THORName placeholder is empty),
- *   - the key travels in the documented x-client-id header,
+ * quote.test.js — THORChain aggregator quote + size-cap (Step 3.3),
+ * SECURITY-FIXED (PR #20): the quote is fetched through OUR serverless proxy
+ * (/api/thorchain/quote), NOT THORNode directly, and the client NEVER holds
+ * the aggregator key (it lives only in the server env; the proxy adds it).
+ * The key-holding env names are BANNED from the client bundle — enforced by
+ * apiKeyLeak.test.js. Proves:
+ *   - the client calls OUR proxy with the documented query params (amounts
+ *     in 1e8 base units; affiliate pair omitted while the THORName
+ *     placeholder is empty) and NO key header,
+ *   - the proxy is MOCKED in every test (the real key is a parked item —
+ *     Mr. Esters owns it; the proxy's own behavior is covered by
+ *     quoteProxy.test.js),
+ *   - a proxy that is unreachable or returns an error body → reason "error"
+ *     (fail-closed client: the address is never shown without a fresh quote),
  *   - defensive parsing: happy path, error bodies, non-2xx, malformed,
  *     halted chains, affiliateBps echo,
  *   - the size cap: config-driven (0.05 BTC-equivalent default), over-cap
@@ -23,7 +25,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  readApiKey,
   toThorchainBaseUnits,
   fromThorchainBaseUnits,
   quoteUrl,
@@ -31,8 +32,7 @@ import {
   createQuoteFetcher,
   swapCapInSourceUnits,
   assertWithinSwapCap,
-  THORCHAIN_QUOTE_PATH,
-  THORCHAIN_API_KEY_HEADER,
+  THORCHAIN_QUOTE_PROXY_PATH,
 } from "./quote.js";
 import { THORCHAIN_AFFILIATE_NAME, THORCHAIN_AFFILIATE_BPS, THORCHAIN_MAX_SWAP_BTC_EQUIVALENT } from "./config.js";
 
@@ -44,46 +44,30 @@ function jsonResponse(body, status = 200) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// API KEY — env at call time, never hardcoded
+// PROXY ROUTING — the client calls OUR proxy, never THORNode, never a key
 // ─────────────────────────────────────────────────────────────────────────────
-test("readApiKey: resolves the runbook name THORCHAIN_API_KEY from env", () => {
-  assert.equal(readApiKey({ THORCHAIN_API_KEY: "k-123" }), "k-123");
+test("the client routes quotes to OUR proxy path (same-origin; the server holds the key)", () => {
+  assert.equal(THORCHAIN_QUOTE_PROXY_PATH, "/api/thorchain/quote");
+  const url = quoteUrl(undefined, {
+    fromAsset: "BTC.BTC",
+    toAsset: "SOL.SOL",
+    amountInBaseUnits: "5000000",
+    destination: SOL_DEST,
+  });
+  assert.ok(url.startsWith(THORCHAIN_QUOTE_PROXY_PATH + "?"), url);
+  assert.ok(!url.includes("liquify.thorchain.org"), "client no longer targets THORNode directly");
+  assert.ok(!url.includes("thornode"), "client no longer targets THORNode directly");
 });
 
-test("readApiKey: falls back to the VITE_ and NEXT_PUBLIC_ client-exposed names", () => {
-  assert.equal(readApiKey({ VITE_THORCHAIN_API_KEY: "v-k" }), "v-k");
-  assert.equal(readApiKey({ NEXT_PUBLIC_THORCHAIN_API_KEY: "np-k" }), "np-k");
-  // Runbook name wins when multiple are present.
-  assert.equal(readApiKey({ THORCHAIN_API_KEY: "k-1", VITE_THORCHAIN_API_KEY: "v-1" }), "k-1");
-});
-
-test("readApiKey: empty when unset — the fetcher fails closed, never guesses", () => {
-  assert.equal(readApiKey({}), "");
-  assert.equal(readApiKey({ THORCHAIN_API_KEY: "   " }), "");
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AMOUNT CONVERSION — THORChain's 1e8 base-unit convention
-// ─────────────────────────────────────────────────────────────────────────────
-test("base-unit conversion: 1e8 convention for every asset (even SOL)", () => {
-  assert.equal(toThorchainBaseUnits(0.05), "5000000");
-  assert.equal(toThorchainBaseUnits(1), "100000000");
-  assert.equal(fromThorchainBaseUnits("5000000"), 0.05);
-  assert.equal(fromThorchainBaseUnits(100000000), 1);
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// URL BUILDING
-// ─────────────────────────────────────────────────────────────────────────────
-test("quoteUrl: THORChain aggregator quote endpoint with the documented params", () => {
-  const url = quoteUrl("https://liquify.thorchain.org", {
+test("quoteUrl: our proxy endpoint with the documented params", () => {
+  const url = quoteUrl("https://teleporter.example/api/thorchain/quote", {
     fromAsset: "BTC.BTC",
     toAsset: "SOL.SOL",
     amountInBaseUnits: "5000000",
     destination: SOL_DEST,
     refundAddress: "bc1qrefund",
   });
-  assert.ok(url.startsWith("https://liquify.thorchain.org" + THORCHAIN_QUOTE_PATH + "?"), url);
+  assert.ok(url.startsWith("https://teleporter.example/api/thorchain/quote?"), url);
   assert.ok(url.includes("from_asset=BTC.BTC"));
   assert.ok(url.includes("to_asset=SOL.SOL"));
   assert.ok(url.includes("amount=5000000"));
@@ -105,6 +89,16 @@ test("quoteUrl: affiliate pair included only when a THORName is configured", () 
   });
   assert.ok(url.includes("affiliate=teleporter"));
   assert.ok(url.includes("affiliate_bps=100"));
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AMOUNT CONVERSION — THORChain's 1e8 base-unit convention
+// ─────────────────────────────────────────────────────────────────────────────
+test("base-unit conversion: 1e8 convention for every asset (even SOL)", () => {
+  assert.equal(toThorchainBaseUnits(0.05), "5000000");
+  assert.equal(toThorchainBaseUnits(1), "100000000");
+  assert.equal(fromThorchainBaseUnits("5000000"), 0.05);
+  assert.equal(fromThorchainBaseUnits(100000000), 1);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,6 +130,15 @@ test("parseQuoteResponse: THORNode error bodies and non-2xx are surfaced, not th
   assert.match(parseQuoteResponse({ expected_amount_out: "1" }, { status: 500 }).message, /HTTP 500/);
 });
 
+test("parseQuoteResponse: proxy fail-closed bodies surface like any error body", () => {
+  // The proxy's own 502 no_api_key body (server key missing — parked item)
+  // is parsed by the client as a normal error: reason "error".
+  const parsed = parseQuoteResponse({ error: "no_api_key" }, { status: 502 });
+  assert.equal(parsed.ok, false);
+  assert.equal(parsed.reason, "error");
+  assert.equal(parsed.message, "no_api_key");
+});
+
 test("parseQuoteResponse: malformed bodies are rejected defensively", () => {
   assert.equal(parseQuoteResponse(null).reason, "malformed");
   assert.equal(parseQuoteResponse([]).reason, "malformed");
@@ -156,13 +159,11 @@ test("parseQuoteResponse: wrapped { quote: {...} } shape is accepted", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FETCHER — mocked endpoint, key from env at call time
+// FETCHER — the proxy is MOCKED; the client sends params, never a key
 // ─────────────────────────────────────────────────────────────────────────────
-test("createQuoteFetcher: fetches the quote endpoint with the key in the x-client-id header", async () => {
+test("createQuoteFetcher: fetches OUR proxy with the quote params and NO key header", async () => {
   const calls = [];
   const fetcher = createQuoteFetcher({
-    apiKey: "k-env",
-    baseUrl: "https://liquify.thorchain.org",
     fetchImpl: async (url, init) => {
       calls.push({ url, init });
       return jsonResponse({ expected_amount_out: "4560000", slippage_bps: 38 });
@@ -179,30 +180,27 @@ test("createQuoteFetcher: fetches the quote endpoint with the key in the x-clien
   assert.equal(res.quote.expectedAmountOut, 0.0456);
   assert.equal(res.quote.affiliateBps, 100);
   assert.equal(calls.length, 1);
+  assert.ok(calls[0].url.startsWith(THORCHAIN_QUOTE_PROXY_PATH + "?"), calls[0].url);
   assert.ok(calls[0].url.includes("amount=5000000"), "amount converted to base units");
-  assert.equal(calls[0].init.headers[THORCHAIN_API_KEY_HEADER], "k-env", "key travels in x-client-id");
-  assert.equal(THORCHAIN_API_KEY_HEADER, "x-client-id");
+  // SECURITY: the client never sends the aggregator key — no header at all.
+  assert.equal(calls[0].init, undefined, "no request init (no key header) from the client");
 });
 
-test("createQuoteFetcher: NO KEY → FAIL CLOSED with reason no-api-key (nothing is fetched)", async () => {
-  let fetched = false;
+test("createQuoteFetcher: a DI baseUrl routes to that proxy base (same-origin default)", async () => {
+  const calls = [];
   const fetcher = createQuoteFetcher({
-    apiKey: "", // empty — as when THORCHAIN_API_KEY is unset
-    fetchImpl: async () => {
-      fetched = true;
+    baseUrl: "https://x1teleporter.com/api/thorchain/quote",
+    fetchImpl: async (url) => {
+      calls.push(url);
       return jsonResponse({ expected_amount_out: "1" });
     },
   });
-  const res = await fetcher.fetchQuote({ fromAsset: "BTC.BTC", toAsset: "SOL.SOL", amount: 0.01, destination: SOL_DEST });
-  assert.equal(res.ok, false);
-  assert.equal(res.reason, "no-api-key");
-  assert.match(res.message, /THORCHAIN_API_KEY/);
-  assert.equal(fetched, false, "no network call without a key");
+  await fetcher.fetchQuote({ fromAsset: "BTC.BTC", toAsset: "SOL.SOL", amount: 0.01, destination: SOL_DEST });
+  assert.ok(calls[0].startsWith("https://x1teleporter.com/api/thorchain/quote?"), calls[0]);
 });
 
-test("createQuoteFetcher: network errors surface as reason error", async () => {
+test("createQuoteFetcher: PROXY UNREACHABLE → reason error (fail-closed client: no quote, no address)", async () => {
   const fetcher = createQuoteFetcher({
-    apiKey: "k",
     fetchImpl: async () => {
       throw new Error("DNS");
     },
@@ -213,9 +211,20 @@ test("createQuoteFetcher: network errors surface as reason error", async () => {
   assert.match(res.message, /DNS/);
 });
 
+test("createQuoteFetcher: proxy error bodies surface the server message (fail-closed server)", async () => {
+  // The proxy fails closed when the SERVER key is missing (502 no_api_key) —
+  // the client surfaces it, never guesses a quote.
+  const fetcher = createQuoteFetcher({
+    fetchImpl: async () => jsonResponse({ error: "no_api_key" }, 502),
+  });
+  const res = await fetcher.fetchQuote({ fromAsset: "BTC.BTC", toAsset: "SOL.SOL", amount: 0.01, destination: SOL_DEST });
+  assert.equal(res.ok, false);
+  assert.equal(res.reason, "error");
+  assert.match(res.message, /no_api_key/);
+});
+
 test("createQuoteFetcher: endpoint error bodies surface the THORNode message", async () => {
   const fetcher = createQuoteFetcher({
-    apiKey: "k",
     fetchImpl: async () => jsonResponse({ error: "chain halted" }, 400),
   });
   const res = await fetcher.fetchQuote({ fromAsset: "BTC.BTC", toAsset: "SOL.SOL", amount: 0.01, destination: SOL_DEST });

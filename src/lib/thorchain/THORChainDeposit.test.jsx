@@ -4,8 +4,9 @@
  *
  * jsdom + React 18 act, same harness as THORChainTab.test.jsx. Everything is
  * injected: a fake inbound-address refresher drives the vault/halted data,
- * a MOCK quote fetcher drives the quote gate (the REAL THORCHAIN_API_KEY is
- * a parked item — never touched in tests), a stub QR factory returns fixed
+ * a MOCK quote fetcher drives the quote gate (the real aggregator key is a
+ * parked item, held server-side only — never touched in tests), a stub QR
+ * factory returns fixed
  * SVG, the clipboard is stubbed, and the submit hook captures the emitted
  * payload. No timers, no network, no wallet globals.
  *

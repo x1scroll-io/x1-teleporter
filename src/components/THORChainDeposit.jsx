@@ -18,7 +18,8 @@
  *
  * QUOTE GATE (Step 3.3 — the "get quote" moment BEFORE the address appears):
  *   Per docs/BRIEF.md: "Quote via THORChain's free aggregator API (key from
- *   `integrate-thorchain` Discord; env `THORCHAIN_API_KEY`)... Re-fetch quote
+ *   `integrate-thorchain` Discord; held SERVER-side by our proxy —
+ *   api/thorchain/quote.js, see PR #20)... Re-fetch quote
  *   before the user copies the address; quotes expire." The deposit address
  *   is shown ONLY after a fresh quote lands:
  *     - the user enters the amount and clicks "Get fresh quote" (the
@@ -204,7 +205,8 @@ function feeLinesFor(sourceChain) {
  * @param {number} [props.refreshIntervalMs] refresh cadence (default 60s)
  * @param {Function} [props.qrFactory] async (text) => svg string (DI)
  * @param {Function} [props.fetchQuote] DI quote fetcher — default builds the
- *   real one (createQuoteFetcher; key from env at call time — parked item)
+ *   real one (createQuoteFetcher; routes to our proxy /api/thorchain/quote,
+ *   which holds the key server-side — parked item)
  * @param {number} [props.maxSwapBtcEquivalent] DI size cap (default config
  *   0.05 BTC-equivalent)
  * @param {object} [props.btcEquivalentRates] DI per-asset BTC-equivalent
@@ -244,8 +246,8 @@ export default function THORChainDeposit({
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
 
-  // The quote fetcher — DI'd in tests; the real one reads THORCHAIN_API_KEY
-  // from the env at call time (parked item; never hardcoded).
+  // The quote fetcher — DI'd in tests; the real one routes to OUR proxy
+  // (/api/thorchain/quote — the key lives server-side, never in the client).
   const quoteFetcherRef = useRef(null);
   if (!quoteFetcherRef.current) {
     quoteFetcherRef.current = fetchQuote ?? createQuoteFetcher().fetchQuote;

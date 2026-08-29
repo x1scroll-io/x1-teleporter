@@ -13,10 +13,10 @@
  *     affiliate params and memos carry no affiliate segment — nothing
  *     invented ever goes on-chain. When Franky registers the Teleporter
  *     THORName, set it here (and only here).
- *   - The REAL THORChain aggregator API key is parked. THORCHAIN_API_KEY
- *     (env, never this file) is a placeholder in Preview scope. The quote
- *     module reads the key from the environment at call time — see
- *     quote.js readApiKey().
+ *   - The REAL THORChain aggregator API key is parked. It lives ONLY in the
+ *     SERVER env (api/thorchain/quote.js reads it at call time — never this
+ *     file, never a VITE_/NEXT_PUBLIC_ var: those compile into the browser
+ *     bundle). The proxy fails closed until the key lands.
  *   - The BTC-equivalent rates for the size cap (DOGE/LTC/XRP) need the live
  *     quote integration to derive (or Franky supplies them) — they are null
  *     with a TODO until then, and the cap check SKIPS unknown assets with an

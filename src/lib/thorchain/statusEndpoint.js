@@ -10,9 +10,9 @@
  * DNS cannot reach the live hosts, so the exact wire shape is defensive —
  * see the "could not test" note in the PR):
  *   GET {baseUrl}/thorchain/tx/status/{inboundTxid}
- *   - No API key required for STATUS (the THORCHAIN_API_KEY env var belongs
- *     to the Step 3.2 aggregator QUOTE endpoint, not this one — TODO: wire
- *     it when the deposit flow lands).
+ *   - No API key required for STATUS (the aggregator key belongs to the
+ *     Step 3.3 QUOTE endpoint and lives server-side only — see
+ *     api/thorchain/quote.js).
  *   - Public hosts: `https://liquify.thorchain.org` (Liquify gateway, per the
  *     brief) and `https://thornode.thorchain.info` (public THORNode). Override
  *     via VITE_THORCHAIN_STATUS_URL.

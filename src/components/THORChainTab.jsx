@@ -13,8 +13,9 @@
  * THIS STEP (3.3) builds the QUOTE stage logic + fee wiring:
  *   - The quote state is the QUOTE GATE at the top of the deposit stage
  *     (THORChainDeposit): the user enters the amount, fetches a FRESH quote
- *     (THORChain aggregator API via THORCHAIN_API_KEY — env-only, parked
- *     item), and the deposit address appears ONLY after the quote lands
+ *     (THORChain aggregator API via OUR proxy /api/thorchain/quote — the
+ *     key lives server-side only, parked item), and the deposit address
+ *     appears ONLY after the quote lands
  *     (re-fetch immediately before the address is shown — runbook; failure
  *     blocks the address with a retry). The three fees (THORChain affiliate
  *     protocol fee + our 1% skim + Warp's $1) render from computeFee's

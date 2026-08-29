@@ -3,29 +3,33 @@
  * (Step 3.3 — fees + quote + caps).
  *
  * docs/BRIEF.md (Workstream A — Panel 1): "Quote via THORChain's free
- * aggregator API (key from `integrate-thorchain` Discord; env
- * `THORCHAIN_API_KEY`). Show `expected_amount_out` and slippage bps from the
+ * aggregator API ... Show `expected_amount_out` and slippage bps from the
  * quote. Re-fetch quote before the user copies the address; quotes expire."
  *
- * ENDPOINT (THORChain's free aggregator quote endpoint — the same Liquify
- * gateway the status/inbound modules use):
- *   GET {baseUrl}/thorchain/quote/swap?from_asset=...&to_asset=...&amount=...
- *      &destination=...&refund_address=...&affiliate=...&affiliate_bps=...
- *   Header: `x-client-id: <THORCHAIN_API_KEY>` when a key is configured
- *   (the documented aggregator-key mechanism from the integrate-thorchain
- *   program). Amounts are in THORChain base units (1e8 convention — even for
- *   SOL; THORChain uses 1e8 for every asset).
+ * ENDPOINT (SECURITY FIX, PR #20): the quote is fetched through OUR
+ * serverless proxy `/api/thorchain/quote` (api/thorchain/quote.js) — the
+ * client NEVER calls THORNode directly and NEVER holds the aggregator key.
+ * The key lives only in the SERVER env (server-side name only — no VITE_ or
+ * NEXT_PUBLIC_ prefix; a VITE_ var would compile into the browser bundle and
+ * leak the key to every visitor). The proxy attaches it as the documented
+ * `x-client-id` header, forwards to THORNode /thorchain/quote/swap, and
+ * passes the THORNode body back verbatim. Client-bundle leakage of the key
+ * is impossible by construction — enforced by apiKeyLeak.test.js (zero key
+ * references in src/ + dist/).
  *
- * KEY HANDLING (parked item): the REAL key is Mr. Esters' parked item. The
- * key is read from the ENVIRONMENT at call time via readApiKey() — it is
- * NEVER hardcoded in this file or any component. Accepted env names:
- *   - `THORCHAIN_API_KEY`           (the runbook's name — Vercel env var)
- *   - `VITE_THORCHAIN_API_KEY`      (Vite-exposed client name — works today)
- *   - `NEXT_PUBLIC_THORCHAIN_API_KEY` (legacy Next.js name, still exposed)
- * With NO key configured the fetcher FAILS CLOSED with reason "no-api-key"
- * (a quote without the aggregator key would silently skip affiliate
- * attribution — never do that silently). The live wiring happens when Franky
- * supplies the real key.
+ * PROXY CONTRACT (params the proxy whitelists — quoteUrl builds exactly
+ * these):
+ *   GET {THORCHAIN_QUOTE_PROXY_PATH}?from_asset=...&to_asset=...&amount=...
+ *      &destination=...&refund_address=...&affiliate=...&affiliate_bps=...
+ *   Amounts are in THORChain base units (1e8 convention — even for SOL;
+ *   THORChain uses 1e8 for every asset).
+ *
+ * FAIL-CLOSED SEMANTICS (changed with the proxy move): the client has no key
+ * and never needs one, so the client's only failure modes are proxy
+ * unreachable / proxy error — surfaced as reason "error". The proxy itself
+ * is fail-closed when the SERVER key is missing (502 no_api_key — a quote
+ * without the aggregator key would silently skip affiliate attribution;
+ * never do that silently).
  *
  * RE-FETCH SEMANTICS (decided + documented): the quote is ALWAYS re-fetched
  * immediately before the deposit address is shown — the deposit stage
@@ -41,12 +45,10 @@
  * rate (DOGE/LTC/XRP until the live wiring) are skipped with capKnown:false
  * — the UI shows a note instead of guessing a price.
  *
- * PURE + DI: `fetchImpl` and `apiKey` are injected (tests mock the endpoint;
- * the component wires the real fetch). No DOM, no wallet. Runnable under
- * `node --test`.
+ * PURE + DI: `fetchImpl` is injected (tests mock the proxy; the component
+ * wires the real fetch). No DOM, no wallet. Runnable under `node --test`.
  */
 
-import { THORCHAIN_STATUS_BASE_URL } from "./statusEndpoint.js";
 import {
   THORCHAIN_AFFILIATE_NAME,
   THORCHAIN_AFFILIATE_BPS,
@@ -54,39 +56,12 @@ import {
   THORCHAIN_BTC_EQUIVALENT_RATES,
 } from "./config.js";
 
-/** The THORChain aggregator quote path (THORNode). */
-export const THORCHAIN_QUOTE_PATH = "/thorchain/quote/swap";
-
-/** The documented aggregator-key header (integrate-thorchain program). */
-export const THORCHAIN_API_KEY_HEADER = "x-client-id";
+/** Our serverless quote proxy (same-origin — API_BASE is "" in production).
+ *  Server-side implementation: api/thorchain/quote.js. */
+export const THORCHAIN_QUOTE_PROXY_PATH = "/api/thorchain/quote";
 
 /** THORChain base-unit convention: 1e8 for every asset (even SOL). */
 export const THORCHAIN_BASE_UNITS = 1e8;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ENV — the API key, read at call time, never hardcoded
-// ─────────────────────────────────────────────────────────────────────────────
-function readEnv() {
-  const meta = import.meta;
-  if (typeof meta === "undefined") return {};
-  const env = meta.env;
-  return env && typeof env === "object" ? env : {};
-}
-
-/**
- * Resolve the THORChain aggregator API key from an env object. The runbook's
- * name is `THORCHAIN_API_KEY`; the VITE_/NEXT_PUBLIC_ names are the ones a
- * Vite client bundle can actually see (vite.config.js envPrefix exposes both
- * prefixes). Exported for tests — production resolves once per fetch via
- * createQuoteFetcher()'s default.
- */
-export function readApiKey(env = readEnv()) {
-  for (const name of ["THORCHAIN_API_KEY", "VITE_THORCHAIN_API_KEY", "NEXT_PUBLIC_THORCHAIN_API_KEY"]) {
-    const raw = env[name];
-    if (typeof raw === "string" && raw.trim() !== "") return raw.trim();
-  }
-  return "";
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AMOUNT CONVERSION — THORChain quotes in 1e8 base units for every asset
@@ -115,10 +90,12 @@ function qs(params) {
 }
 
 /**
- * Build the quote URL for a base URL + params (from_asset / to_asset /
+ * Build the PROXY quote URL for a base URL + params (from_asset / to_asset /
  * amount in base units / destination / optional refund + affiliate). The
  * affiliate pair is OMITTED while THORCHAIN_AFFILIATE_NAME is empty (no
- * placeholder name is ever sent).
+ * placeholder name is ever sent). The proxy whitelists exactly these params
+ * (see api/thorchain/quote.js FORWARD_PARAMS) — the client passes them; the
+ * proxy adds the key.
  *
  * @param {object} args
  * @param {string} args.fromAsset e.g. "BTC.BTC"
@@ -130,7 +107,7 @@ function qs(params) {
  * @param {string|number} [args.affiliateBps] affiliate bps (config)
  */
 export function quoteUrl(baseUrl, args) {
-  const base = String(baseUrl || THORCHAIN_STATUS_BASE_URL).replace(/\/+$/, "");
+  const base = String(baseUrl || THORCHAIN_QUOTE_PROXY_PATH).replace(/\/+$/, "");
   const params = {
     from_asset: args.fromAsset,
     to_asset: args.toAsset,
@@ -144,13 +121,15 @@ export function quoteUrl(baseUrl, args) {
     params.affiliate = args.affiliate;
     params.affiliate_bps = args.affiliateBps ?? THORCHAIN_AFFILIATE_BPS;
   }
-  return `${base}${THORCHAIN_QUOTE_PATH}?${qs(params)}`;
+  return `${base}${qs(params) ? `?${qs(params)}` : ""}`;
 }
 
 /**
  * Parse a raw `/thorchain/quote/swap` body into a canonical quote. Defensive:
  * unknown shapes yield `{ ok:false, reason }` instead of throwing (same
- * pattern as parseInboundAddresses / parseTxStatusResponse).
+ * pattern as parseInboundAddresses / parseTxStatusResponse). The proxy passes
+ * the THORNode body through verbatim, so this parses the same shapes as
+ * before the proxy move.
  *
  * @param {unknown} json parsed JSON body
  * @param {object} [meta]
@@ -166,7 +145,9 @@ export function parseQuoteResponse(json, meta = {}) {
   if (!json || typeof json !== "object" || Array.isArray(json)) {
     return { ok: false, reason: "malformed", message: "empty or non-object quote response" };
   }
-  // Body-level error (THORNode quote errors come back as `{ error: "..." }`).
+  // Body-level error (THORNode quote errors come back as `{ error: "..." }`;
+  // the proxy's own failures — no_api_key, thorchain_quote_failed — use the
+  // same shape).
   const errText = typeof json.error === "string" ? json.error : "";
   if (errText) {
     return { ok: false, reason: "error", message: errText };
@@ -199,7 +180,7 @@ export function parseQuoteResponse(json, meta = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FETCHER — pure + DI (tests mock the endpoint; the component wires fetch)
+// FETCHER — pure + DI (tests mock the proxy; the component wires fetch)
 // ─────────────────────────────────────────────────────────────────────────────
 /** Default timer/fetch seams — the browser fetch (tests inject mocks). */
 function defaultFetch(url, init) {
@@ -207,15 +188,15 @@ function defaultFetch(url, init) {
 }
 
 /**
- * Create the quote fetcher.
+ * Create the quote fetcher. The client sends ONLY the quote params to OUR
+ * proxy — it never holds, reads, or sends the aggregator key (the proxy
+ * adds it server-side). There is deliberately NO apiKey option here.
  *
  * @param {object} [deps]
  * @param {Function} [deps.fetchImpl] async (url, init) => Response-like
  *   ({ ok, status, json() }) — default: browser fetch
- * @param {string} [deps.apiKey] the aggregator key — resolved from the env
- *   at call time when omitted (readApiKey()); NEVER hardcoded
- * @param {string} [deps.baseUrl] THORChain API base URL (default: the 3.1
- *   status module's Liquify gateway default)
+ * @param {string} [deps.baseUrl] the proxy base URL (default:
+ *   THORCHAIN_QUOTE_PROXY_PATH — same-origin, API_BASE = "")
  * @returns {{fetchQuote: Function}}
  *   fetchQuote(args) → { ok:true, quote } | { ok:false, reason, message }
  *   args: { fromAsset, toAsset, amount (decimal), destination, refundAddress?,
@@ -223,19 +204,9 @@ function defaultFetch(url, init) {
  */
 export function createQuoteFetcher(deps = {}) {
   const fetchImpl = deps.fetchImpl ?? defaultFetch;
-  const apiKey = deps.apiKey !== undefined ? deps.apiKey : readApiKey();
   const baseUrl = deps.baseUrl;
 
   async function fetchQuote(args) {
-    // FAIL CLOSED: no key, no quote. A quote fetched without the aggregator
-    // key would silently skip affiliate attribution — never do that silently.
-    if (apiKey === "") {
-      return {
-        ok: false,
-        reason: "no-api-key",
-        message: "THORChain quote unavailable — THORCHAIN_API_KEY is not configured (parked item).",
-      };
-    }
     const url = quoteUrl(baseUrl, {
       fromAsset: args.fromAsset,
       toAsset: args.toAsset,
@@ -246,9 +217,10 @@ export function createQuoteFetcher(deps = {}) {
       affiliateBps: args.affiliateBps,
     });
     try {
-      const res = await fetchImpl(url, {
-        headers: { [THORCHAIN_API_KEY_HEADER]: apiKey },
-      });
+      // No key header — the proxy adds the key. A proxy error body (e.g.
+      // the server-side fail-closed 502 no_api_key) is parsed below like any
+      // THORNode error body.
+      const res = await fetchImpl(url);
       const body = res && typeof res.json === "function" ? await res.json() : res;
       const parsed = parseQuoteResponse(body, {
         status: typeof res?.status === "number" ? res.status : undefined,
