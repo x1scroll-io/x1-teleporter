@@ -90,10 +90,11 @@ export function depositRowSubtitle(family) {
 }
 
 /**
- * The deposit-address row's memo TODO text, per family — documents the
- * THORChain memo transport rule for each chain. The deposit address + memo
- * themselves arrive with the THORChain quote flow (Step 3.3); nothing is
- * guessed here.
+ * The deposit-address row's memo note, per family — documents the THORChain
+ * memo transport rule for each chain. The deposit address + memo themselves
+ * now render in the THORChain tab's DEPOSIT stage (Step 3.2 — the address
+ * comes from /thorchain/inbound_addresses, the memo from memo.js); the
+ * wallet-layer row points there instead of duplicating it.
  *
  * @param {string} family
  * @returns {string}
@@ -102,10 +103,10 @@ export function depositMemoNote(family) {
   switch (family) {
     case "litecoin":
     case "dogecoin":
-      return "⚠️ TODO: deposit address + memo arrive with the THORChain quote flow (Step 3.3) — THORChain needs the memo as an OP_RETURN.";
+      return "THORChain needs the memo as an OP_RETURN — copy address + memo from the THORChain tab's deposit stage.";
     case "xrp":
-      return "⚠️ TODO: deposit address + memo arrive with the THORChain quote flow (Step 3.3) — the memo goes in the XRPL Memos field, NOT a destination tag.";
+      return "THORChain needs the memo in the XRPL Memos field (NOT a destination tag) — copy address + memo from the THORChain tab's deposit stage.";
     default:
-      return "⚠️ TODO: deposit address + memo arrive with the THORChain quote flow (Step 3.3) — not guessed here.";
+      return "Copy the deposit address + memo from the THORChain tab's deposit stage — not guessed here.";
   }
 }

@@ -650,7 +650,7 @@ test("xrp: Xaman reference; Crossmark/GemWallet badged Unmaintained and ranked b
     assert.equal(tangem.querySelector(".connect-btn"), null, "Tangem is never connectable");
 
     const deposit = allRows[allRows.length - 1];
-    assert.match(deposit.el.querySelector(".deposit-memo-todo").textContent, /XRPL Memos field, NOT a destination tag/);
+    assert.match(deposit.el.querySelector(".deposit-memo-todo").textContent, /XRPL Memos field \(NOT a destination tag\)/);
   } finally {
     unmount();
   }
