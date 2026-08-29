@@ -1,19 +1,21 @@
 /**
  * THORChainTab.test.jsx — flag-gated rendering of the THORChain lane inside
- * the one card (Steps 3.1 + 3.2).
+ * the one card (Steps 3.1 + 3.2 + 3.3).
  *
  * docs/BRIEF.md: the whole THORChain flow is ONE card with sequential states
  * inside the THORChain tab (quote → deposit address → progress → done), and
  * everything renders only when flags.THORCHAIN is true. These tests prove:
  *   - flag OFF → the THORChain tab shows the generic placeholder (the lane is
  *     never mounted unconditionally).
- *   - flag ON → the tab mounts THORChainTab (quote placeholder — Step 3.3
- *     builds it; the deposit + progress states are Steps 3.2 / 3.1).
+ *   - flag ON → the tab mounts THORChainTab: the DEPOSIT stage (with its
+ *     Step 3.3 quote gate — the quote state) renders by default, and the
+ *     progress/done states are Step 3.1's.
  *   - a hook payload (initialHop) drops the tab straight into the progress
  *     state, and a pending persisted hop resumes into progress on mount.
- *   - Step 3.2: the deposit stage renders inside the tab, blocks without a
- *     Solana wallet, greys out halted chains, and its submit hook emits the
- *     payload → advances to progress + persists the hop (closed-tab resume).
+ *   - Step 3.2: the deposit stage blocks without a Solana wallet, greys out
+ *     halted chains, and its submit hook emits the payload (with
+ *     expectedAmountOut from the fresh quote) → advances to progress +
+ *     persists the hop (closed-tab resume).
  */
 
 /**
@@ -113,14 +115,20 @@ test("flag OFF: the THORChain tab renders the generic placeholder — the lane i
   }
 });
 
-test("flag ON: the THORChain tab mounts THORChainTab (quote state placeholder — Step 3.3)", () => {
-  const { container, unmount } = render(React.createElement(BridgeCard, { flags: { THORCHAIN: true } }));
+test("flag ON: the THORChain tab mounts THORChainTab — the deposit stage with its Step 3.3 quote gate renders by default", () => {
+  const { container, unmount } = render(
+    React.createElement(BridgeCard, { flags: { THORCHAIN: true } }),
+    { initialState: initialStateWithSolana() },
+  );
   try {
     click(container.querySelector('[data-tab="thorchain"]'));
-    const placeholder = container.querySelector('[data-testid="thorchain-placeholder"]');
-    assert.ok(placeholder, "THORChainTab mounted");
-    assert.match(placeholder.textContent, /THORChain lane — quote/);
-    assert.match(placeholder.textContent, /Step 3\.3/, "quote state is a clearly-marked placeholder");
+    const deposit = container.querySelector('[data-testid="tc-deposit"]');
+    assert.ok(deposit, "THORChainTab mounted — deposit stage rendered");
+    // The quote state (Step 3.3) is the quote gate at the top of the deposit
+    // stage: the get-quote moment is present, the address is not shown yet.
+    assert.ok(container.querySelector('[data-testid="tc-get-quote"]'), "quote gate present");
+    assert.equal(container.querySelector('[data-testid="tc-deposit-card"]'), null, "address waits for a fresh quote");
+    assert.equal(container.querySelector('[data-testid="thorchain-progress"]'), null);
   } finally {
     unmount();
   }
@@ -158,20 +166,22 @@ test("flag ON + pending persisted hop: the tab resumes into progress on mount", 
   }
 });
 
-test("flag ON, no hop: the quote placeholder renders (fresh visit, nothing persisted)", () => {
+test("flag ON, no hop: the deposit stage (with quote gate) renders on a fresh visit", () => {
   const storage = createThorchainStorage(memBackend());
-  const { container, unmount } = render(React.createElement(THORChainTab, { storage }));
+  const { container, unmount } = render(
+    React.createElement(THORChainTab, { storage }),
+    { initialState: initialStateWithSolana() },
+  );
   try {
-    const placeholder = container.querySelector('[data-testid="thorchain-placeholder"]');
-    assert.ok(placeholder);
-    assert.match(placeholder.textContent, /THORChain lane — quote/);
+    assert.ok(container.querySelector('[data-testid="tc-deposit"]'), "deposit stage rendered");
+    assert.ok(container.querySelector('[data-testid="tc-get-quote"]'), "quote gate rendered");
     assert.equal(container.querySelector('[data-testid="thorchain-progress"]'), null);
   } finally {
     unmount();
   }
 });
 
-// ── STEP 3.2: the deposit-address stage inside the tab ──
+// ── STEP 3.2/3.3: the deposit-address stage inside the tab ──
 
 /** Fake inbound refresher factory for the tab-level deposit tests. */
 function fakeRefresherFactory() {
@@ -201,6 +211,28 @@ const INBOUND = [
 ];
 
 const STUB_QR = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>';
+
+/** The quote fixture the MOCK fetcher returns (never a real endpoint). */
+const QUOTE_FIXTURE = {
+  expectedAmountOut: 0.0456,
+  expectedAmountOutRaw: 4560000,
+  affiliateBps: 100,
+  slippageBps: 38,
+  memo: null,
+  halted: false,
+  raw: {},
+};
+
+/** Mock quote fetcher (DI'd through the tab into the deposit stage). */
+function mockQuoteFetcher() {
+  const calls = [];
+  const fetcher = async (args) => {
+    calls.push(args);
+    return { ok: true, quote: { ...QUOTE_FIXTURE } };
+  };
+  fetcher.calls = calls;
+  return fetcher;
+}
 
 /** Fake status poller factory (mirrors fakeRefresherFactory): the progress
  *  stage's poll loop is driven by the test, never by the network. */
@@ -239,17 +271,47 @@ const setInput = (el, value) => act(() => {
   el.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
 });
 
-test("3.2: the quote placeholder links into the DEPOSIT stage", () => {
+/** Complete the quote gate inside the tab's deposit stage. */
+async function getQuote(container, amount = "0.01") {
+  setInput(container.querySelector('[data-testid="tc-amount-input"]'), amount);
+  click(container.querySelector('[data-testid="tc-get-quote"]'));
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+test("3.3: the deposit stage renders inside the tab and the quote gate gates the address", async () => {
   const storage = createThorchainStorage(memBackend());
   const refresher = fakeRefresherFactory();
+  const quoteFetcher = mockQuoteFetcher();
   const { container, unmount } = render(
-    React.createElement(THORChainTab, { storage, createInboundRefresher: refresher }),
+    React.createElement(THORChainTab, {
+      storage,
+      createInboundRefresher: refresher,
+      fetchQuote: quoteFetcher,
+      qrFactory: async () => STUB_QR,
+    }),
+    { initialState: initialStateWithSolana() },
   );
   try {
-    click(container.querySelector('[data-testid="tc-continue-deposit"]'));
     const deposit = container.querySelector('[data-testid="tc-deposit"]');
-    assert.ok(deposit, "deposit stage renders from the quote placeholder");
+    assert.ok(deposit, "deposit stage renders directly (no placeholder screen)");
     assert.match(deposit.textContent, /Deposit address/);
+
+    act(() => refresher.instances[0].pushEntries(INBOUND));
+    assert.equal(container.querySelector('[data-testid="tc-deposit-card"]'), null, "address gated behind the quote");
+
+    await getQuote(container, "0.01");
+    const addr = container.querySelector('[data-testid="tc-deposit-address"]');
+    assert.ok(addr, "address appears after the fresh quote lands");
+    assert.equal(addr.textContent, "bc1qdepositvault123");
+    // The quote reached the fetcher with the pinned destination.
+    assert.equal(quoteFetcher.calls[0].toAsset, "SOL.SOL");
+    assert.equal(quoteFetcher.calls[0].destination, MOCK_ADDRESSES.solana);
+    // The three fee lines render before sending.
+    assert.equal(container.querySelectorAll('[data-testid="tc-fee-line"]').length, 3);
   } finally {
     unmount();
   }
@@ -262,7 +324,6 @@ test("3.2: no Solana wallet → the deposit stage blocks with 'connect a Solana 
     React.createElement(THORChainTab, { storage, createInboundRefresher: refresher }),
   );
   try {
-    click(container.querySelector('[data-testid="tc-continue-deposit"]'));
     const block = container.querySelector('[data-testid="tc-deposit-no-solana"]');
     assert.ok(block);
     assert.match(block.textContent, /Connect a Solana wallet first/);
@@ -271,25 +332,30 @@ test("3.2: no Solana wallet → the deposit stage blocks with 'connect a Solana 
   }
 });
 
-test("3.2: deposit submit emits the hook payload → the tab advances to PROGRESS and persists the hop", () => {
+test("3.2: deposit submit emits the hook payload (expectedAmountOut from the fresh quote) → the tab advances to PROGRESS and persists the hop", async () => {
   const storage = createThorchainStorage(memBackend());
   const refresher = fakeRefresherFactory();
+  const quoteFetcher = mockQuoteFetcher();
   const { container, unmount } = render(
     React.createElement(THORChainTab, {
       storage,
       createInboundRefresher: refresher,
       createPoller: fakePollerFactory(),
       qrFactory: async () => STUB_QR,
+      fetchQuote: quoteFetcher,
     }),
     { initialState: initialStateWithSolana() },
   );
   try {
-    click(container.querySelector('[data-testid="tc-continue-deposit"]'));
     act(() => refresher.instances[0].pushEntries(INBOUND));
 
     const dest = container.querySelector('[data-testid="tc-destination-input"]');
     assert.equal(dest.value, MOCK_ADDRESSES.solana, "destination = the Solana session's public key");
     assert.equal(dest.readOnly, true);
+
+    // Quote gate: amount + get quote → the address appears.
+    await getQuote(container, "0.01");
+    assert.ok(container.querySelector('[data-testid="tc-deposit-address"]'));
 
     setInput(container.querySelector('[data-testid="tc-txid-input"]'), "tx-deposit-1");
     click(container.querySelector('[data-testid="tc-submit"]'));
@@ -308,6 +374,7 @@ test("3.2: deposit submit emits the hook payload → the tab advances to PROGRES
       inboundTxid: "tx-deposit-1",
       sourceChain: "BTC",
       destination: MOCK_ADDRESSES.solana,
+      expectedAmountOut: 0.0456, // from the FRESH QUOTE (Step 3.3)
     });
   } finally {
     unmount();
@@ -322,7 +389,6 @@ test("3.2: halted chain greys out in the tab's deposit stage", () => {
     { initialState: initialStateWithSolana() },
   );
   try {
-    click(container.querySelector('[data-testid="tc-continue-deposit"]'));
     act(() =>
       refresher.instances[0].pushEntries([
         ...INBOUND,
@@ -333,23 +399,6 @@ test("3.2: halted chain greys out in the tab's deposit stage", () => {
     assert.equal(doge.getAttribute("data-halted"), "true");
     assert.equal(doge.disabled, true);
     assert.match(doge.textContent, /paused/);
-  } finally {
-    unmount();
-  }
-});
-
-test("3.2: back link returns from the deposit stage to the quote placeholder", () => {
-  const storage = createThorchainStorage(memBackend());
-  const refresher = fakeRefresherFactory();
-  const { container, unmount } = render(
-    React.createElement(THORChainTab, { storage, createInboundRefresher: refresher }),
-    { initialState: initialStateWithSolana() },
-  );
-  try {
-    click(container.querySelector('[data-testid="tc-continue-deposit"]'));
-    assert.ok(container.querySelector('[data-testid="tc-deposit"]'));
-    click(container.querySelector('[data-testid="tc-back"]'));
-    assert.ok(container.querySelector('[data-testid="thorchain-placeholder"]'), "back at the quote placeholder");
   } finally {
     unmount();
   }
