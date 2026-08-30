@@ -7,7 +7,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveFlags, THORCHAIN, ANYSWAP, REVERSE_ENABLED } from "./flags.ts";
+import { resolveFlags, THORCHAIN, ANYSWAP, REVERSE_ENABLED, LEGACY_UI, selectRootCard } from "./flags.ts";
 
 test("flags default to false when no env vars are set", () => {
   // Singleton values (resolved from the real environment at module load —
@@ -40,4 +40,35 @@ test("ANYSWAP is independent of THORCHAIN", () => {
   const flags = resolveFlags({ VITE_FLAG_ANYSWAP: "true" });
   assert.equal(flags.ANYSWAP, true);
   assert.equal(flags.THORCHAIN, false);
+});
+
+test("LEGACY_UI defaults to false — the v2 card is the default mount", () => {
+  assert.equal(LEGACY_UI, false);
+  const flags = resolveFlags({});
+  assert.equal(flags.LEGACY_UI, false);
+});
+
+test("LEGACY_UI resolves from both the VITE_ and NEXT_PUBLIC_ names", () => {
+  assert.equal(resolveFlags({ VITE_FLAG_LEGACY_UI: "true" }).LEGACY_UI, true);
+  assert.equal(resolveFlags({ NEXT_PUBLIC_FLAG_LEGACY_UI: "1" }).LEGACY_UI, true);
+});
+
+test("LEGACY_UI: NEXT_PUBLIC_ name takes precedence over VITE_ name", () => {
+  const flags = resolveFlags({
+    NEXT_PUBLIC_FLAG_LEGACY_UI: "true",
+    VITE_FLAG_LEGACY_UI: "false",
+  });
+  assert.equal(flags.LEGACY_UI, true);
+});
+
+test("selectRootCard defaults to v2 (BridgeCard) when the legacy flag is off", () => {
+  assert.equal(selectRootCard({ LEGACY_UI: false }), "v2");
+  // Missing / undefined flag behaves like off — default is v2.
+  assert.equal(selectRootCard({}), "v2");
+});
+
+test("selectRootCard returns legacy (Teleporter) when the legacy flag is set", () => {
+  assert.equal(selectRootCard({ LEGACY_UI: true }), "legacy");
+  // And it flows through resolveFlags end-to-end.
+  assert.equal(selectRootCard(resolveFlags({ NEXT_PUBLIC_FLAG_LEGACY_UI: "true" })), "legacy");
 });
