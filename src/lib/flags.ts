@@ -23,7 +23,12 @@ function readEnv(): Env {
  * Resolve the flags from a raw env object. Exported for testing — the
  * singleton booleans below are resolved once at module load.
  */
-export function resolveFlags(env: Env): { THORCHAIN: boolean; ANYSWAP: boolean; REVERSE_ENABLED: boolean } {
+export function resolveFlags(env: Env): {
+  THORCHAIN: boolean;
+  ANYSWAP: boolean;
+  REVERSE_ENABLED: boolean;
+  LEGACY_UI: boolean;
+} {
   const on = (names: string[]): boolean => {
     for (const name of names) {
       const raw = env[name];
@@ -38,6 +43,7 @@ export function resolveFlags(env: Env): { THORCHAIN: boolean; ANYSWAP: boolean; 
     THORCHAIN: on(["NEXT_PUBLIC_FLAG_THORCHAIN", "VITE_FLAG_THORCHAIN"]),
     ANYSWAP: on(["NEXT_PUBLIC_FLAG_ANYSWAP", "VITE_FLAG_ANYSWAP"]),
     REVERSE_ENABLED: on(["NEXT_PUBLIC_FLAG_REVERSE_ENABLED", "VITE_FLAG_REVERSE_ENABLED"]),
+    LEGACY_UI: on(["NEXT_PUBLIC_FLAG_LEGACY_UI", "VITE_FLAG_LEGACY_UI"]),
   };
 }
 
@@ -62,3 +68,25 @@ export const ANYSWAP: boolean = flags.ANYSWAP;
  * completion path for X1 burns.
  */
 export const REVERSE_ENABLED: boolean = flags.REVERSE_ENABLED;
+
+/**
+ * Whether the app mounts the legacy v1 Teleporter card instead of the v2
+ * BridgeCard. Default: false (the v2 card is the default mount).
+ *
+ * PREVIEW SAFETY NET ONLY: flip to true if the v2 card breaks on the
+ * preview — the old proven card returns with a rebuild and no code change.
+ * Teleporter.jsx is NOT deleted; it stays as the flag-restorable fallback
+ * until the v2 cutover. This flag does NOT change what production serves
+ * (production stays on v1 Teleporter until the cutover regardless).
+ */
+export const LEGACY_UI: boolean = flags.LEGACY_UI;
+
+/**
+ * Choose which root card main.jsx mounts. Pure — exported for tests.
+ *
+ * @param flags resolved flags (LEGACY_UI)
+ * @returns "legacy" when the legacy-UI flag is on, otherwise "v2" (default)
+ */
+export function selectRootCard(flags: { LEGACY_UI?: boolean }): "v2" | "legacy" {
+  return flags.LEGACY_UI === true ? "legacy" : "v2";
+}

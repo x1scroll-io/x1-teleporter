@@ -79,6 +79,18 @@ holds keys or signs.
 - Transak fiat on-ramp — separate Transak account + keys. Roadmap: +2 weeks
   after Tron.
 
+**Preview render (v2 card, flag-restorable fallback):**
+- `src/main.jsx` mounts the v2 `BridgeCard` (inside `WalletProvider`) by
+  default — this is what the PREVIEW shows. Production is untouched and
+  stays on the v1 Teleporter card until the cutover.
+- Safety net: set `NEXT_PUBLIC_FLAG_LEGACY_UI=true` (or
+  `VITE_FLAG_LEGACY_UI=true`) and the build mounts the old v1 Teleporter
+  card instead. Teleporter.jsx is NOT deleted — it stays as the
+  flag-restorable fallback.
+- `NEXT_PUBLIC_FLAG_THORCHAIN=true` (or `VITE_FLAG_THORCHAIN=true`) shows
+  the THORChain tab in the card. The tab is VISIBILITY only: every send
+  path stays behind the `WARP_LIVE_SEND` gate (false — no live sends).
+
 **Still gated on the Warp capture test:**
 - The pure Solana↔X1 hop execution and its 1% mint-skim. Keep that route in
   demo until the $1 capture test confirms the real Warp program ID,
