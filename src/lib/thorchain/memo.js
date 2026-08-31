@@ -26,10 +26,13 @@
  *     (correct for the v1 deposit-address flow — the user sends from their
  *     own wallet).
  *   - LIMIT is the minimum-out in THORChain base units (1e8 convention) of
- *     the DESTINATION asset. NOT wired this step — the Step 3.3 aggregator
- *     quote supplies it (see the TODO in THORChainDeposit).
- *   - AFFILIATE is a THORName + bps. NOT wired this step — Franky has not
- *     registered the Teleporter THORName yet (brief: open item).
+ *     the DESTINATION asset. NOT wired (Step 3.3 decision, documented): the
+ *     limit's semantics need the live quote response verified (parked item)
+ *     — expectedAmountOut already feeds the UI + landing detection.
+ *   - AFFILIATE is a THORName + bps. WIRED from config (Step 3.3):
+ *     THORCHAIN_AFFILIATE_NAME/BPS — while the THORName placeholder is
+ *     empty (Franky has not registered it yet — brief open item) no
+ *     affiliate segment is emitted, so nothing invented ever goes on-chain.
  *
  * PURE MODULE: no fetch, no DOM, no wallet. Runnable under `node --test`.
  */
@@ -77,9 +80,10 @@ export function isUsableMemoAddress(value) {
  *   Optional: when omitted the memo has no refund segment and THORNode
  *   refunds to the sender.
  * @param {string|number} [args.limit] minimum-out in THORChain base units of
- *   the destination asset. Optional — arrives with the Step 3.3 quote.
- * @param {string} [args.affiliate] Teleporter THORName (optional, unwired —
- *   Franky has not registered it yet).
+ *   the destination asset. Optional — NOT wired (deferred: the limit's
+ *   semantics need the live quote response verified).
+ * @param {string} [args.affiliate] Teleporter THORName (optional — wired
+ *   from config; empty placeholder until Franky registers it).
  * @param {string|number} [args.affiliateBps] affiliate basis points, required
  *   together with `affiliate`.
  * @returns {string} the memo, e.g. `=:SOL.SOL:9xQe.../bc1q...`

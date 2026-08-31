@@ -22,8 +22,14 @@
  *     as such in the quote." (No path exists yet),
  *   - the quote box feeds on computeFee via quoteFees() — every fee line is a
  *     component line, never a hardcoded string,
- *   - the two future lanes (thorchain-leg, non-x1-bridge) throw descriptive
- *     errors instead of guessing a rate,
+ *   - thorchain-leg (Workstream A): THREE fee lines before send — THORChain
+ *     affiliate (PROTOCOL fee to our THORName), our 1% skim (Teleporter), the
+ *     Warp $1 (third-party pass-through). The 1%-once policy is about
+ *     Teleporter's fee; the affiliate is a protocol fee and Warp's $1 is a
+ *     third-party pass-through — neither counts toward Teleporter's 1%
+ *     (Teleporter's take is still exactly 1%: the skim).
+ *   - the one remaining future lane (non-x1-bridge) throws a descriptive
+ *     error instead of guessing a rate,
  *   - every fee charged today is represented (old→new mapping).
  *
  * Runs under Node's built-in test runner (node --test, type stripping).
@@ -306,13 +312,105 @@ test("escape-hatch class: 5% — the named exception to the 1%-once rule, labele
   assert.ok(!fee.hasComponent("warp-skim"), "escape hatch must not stack the x1-hop 1% skim");
 });
 
-test("thorchain-leg + non-x1-bridge are explicit TODOs that throw a descriptive error", () => {
-  assert.throws(() => computeFee({ from: "eth", to: "bsc", thorchain: true }), (e) => {
-    assert.ok(e instanceof FeeNotImplementedError);
-    assert.equal(e.feeClass, "thorchain-leg");
-    assert.match(e.message, /THORChain/);
-    return true;
-  });
+test("thorchain-leg class: THREE fee lines before send — affiliate (protocol) + 1% skim + Warp's $1; Teleporter take still exactly 1%", () => {
+  const fee = computeFee({ from: "btc", to: "sol", thorchain: true });
+  assert.equal(fee.class, "thorchain-leg");
+  assert.equal(fee.headlineRate, FEE_RATES.X1_HOP_SKIM); // 0.01 — Teleporter's take is still 1%
+
+  // Exactly THREE components, in the documented order.
+  assert.deepEqual(
+    fee.components.map((c) => c.id),
+    ["thorchain-affiliate", "warp-skim", "warp-flat"],
+  );
+
+  // 1) THORChain affiliate — a PROTOCOL fee to our THORName, rate from config
+  //    (THORCHAIN_AFFILIATE_BPS, start 100 = 1.00%). NEVER a Teleporter fee.
+  const aff = fee.component("thorchain-affiliate");
+  assert.equal(aff.kind, "rate");
+  assert.equal(aff.rate, 0.01); // 100 bps / 10_000
+  assert.equal(aff.party, "third-party");
+  assert.equal(aff.collector, "thorchain-affiliate");
+  assert.equal(aff.leg, "bridge");
+  assert.equal(aff.applied, "on-chain");
+  assert.match(aff.label, /THORChain affiliate/);
+  assert.match(aff.label, /protocol/i);
+
+  // 2) Our 1% skim — THE Teleporter fee on this lane (exactly 1%, once).
+  const skim = fee.component("warp-skim");
+  assert.equal(skim.party, "teleporter");
+  assert.equal(skim.rate, 0.01);
+  assert.equal(skim.collector, "fee-wallet-svm");
+  assert.equal(skim.leg, "pre-bridge");
+
+  // 3) Warp's $1 — third-party pass-through.
+  const flat = fee.component("warp-flat");
+  assert.equal(flat.party, "third-party");
+  assert.equal(flat.flatUsd, 1);
+  assert.match(flat.label, /Warp bridge fee/);
+
+  // POLICY: the 1%-once rule is about Teleporter's fee. The affiliate is a
+  // PROTOCOL fee, the Warp $1 is a THIRD-PARTY pass-through — neither counts
+  // toward Teleporter's 1%. Teleporter's take is EXACTLY 1% (the skim only).
+  assert.equal(fee.teleporterFeeUsd(1000), 10, "Teleporter take is exactly 1% — never more");
+  // Third-party + protocol lines are summed separately: affiliate 1% + $1.
+  assert.equal(fee.thirdPartyFeeUsd(1000), 11);
+  assert.deepEqual(
+    fee.thirdPartyComponents.map((c) => c.id),
+    ["thorchain-affiliate", "warp-flat"],
+  );
+  assert.equal(fee.feeUsd(1000), 21); // 10 (affiliate) + 10 (skim) + 1 (warp)
+  assert.equal(fee.netUsd(1000), 979);
+
+  // NO double charge: exactly one Teleporter component, no LiFi integrator,
+  // no escape-hatch skim on this lane.
+  const teleporter = fee.components.filter((c) => c.party === "teleporter");
+  assert.equal(teleporter.length, 1);
+  assert.equal(teleporter[0].id, "warp-skim");
+  assert.ok(!fee.hasComponent("lifi-integrator"), "thorchain-leg has no LiFi leg — no integrator fee");
+  assert.ok(!fee.hasComponent("escape-hatch-skim"));
+  // The class doc carries the policy distinction (protocol vs third-party vs
+  // Teleporter's 1%).
+  assert.match(fee.applied, /protocol fee/);
+  assert.match(fee.applied, /third-party pass-through/);
+  assert.match(fee.applied, /counts toward Teleporter/);
+});
+
+test("thorchain-leg: affiliate bps comes from config (default 100) and the route can override it", () => {
+  // Default: config THORCHAIN_AFFILIATE_BPS (start 100 per the runbook).
+  const fee = computeFee({ from: "btc", to: "sol", thorchain: true });
+  assert.equal(fee.component("thorchain-affiliate").rate, 100 / 10_000);
+  assert.equal(fee.thirdPartyFeeUsd(1000), 11); // 1% affiliate + $1
+  // Route override (tests + future config plumbing).
+  const fee200 = computeFee({ from: "btc", to: "sol", thorchain: true, affiliateBps: 200 });
+  assert.equal(fee200.component("thorchain-affiliate").rate, 0.02);
+  assert.equal(fee200.thirdPartyFeeUsd(1000), 21); // 2% affiliate + $1
+  // The override never changes Teleporter's take — still exactly 1%.
+  assert.equal(fee200.teleporterFeeUsd(1000), 10);
+});
+
+test("quote box data: thorchain-leg shows EXACTLY three fee lines before send", () => {
+  const qf = quoteFees({ from: "btc", to: "sol", thorchain: true }, 1000);
+  assert.equal(qf.feeLines.length, 3, "three lines — affiliate + skim + Warp's $1");
+  assert.deepEqual(
+    qf.feeLines.map((l) => l.id),
+    ["thorchain-affiliate", "warp-skim", "warp-flat"],
+  );
+  // The three lines: protocol affiliate (third-party), Teleporter 1% (teleporter),
+  // Warp's $1 (third-party).
+  assert.deepEqual(
+    qf.feeLines.map((l) => l.party),
+    ["third-party", "teleporter", "third-party"],
+  );
+  assert.equal(qf.feeLines[0].amountUsd, 10); // 1% affiliate on $1000
+  assert.equal(qf.feeLines[1].amountUsd, 10); // Teleporter 1% skim
+  assert.equal(qf.feeLines[2].amountUsd, 1);  // Warp's $1
+  assert.equal(qf.teleporterFeeUsd, 10);
+  assert.equal(qf.thirdPartyFeeUsd, 11);
+  assert.equal(qf.totalFeeUsd, 21);
+  assert.equal(qf.netUsd, 979);
+});
+
+test("non-x1-bridge is an explicit TODO that throws a descriptive error", () => {
   assert.throws(() => computeFee({ from: "eth", to: "bsc", nonX1Bridge: true }), (e) => {
     assert.ok(e instanceof FeeNotImplementedError);
     assert.equal(e.feeClass, "non-x1-bridge");

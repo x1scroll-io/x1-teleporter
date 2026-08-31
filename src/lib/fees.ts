@@ -26,14 +26,23 @@
  *     (verbatim): "Teleporter fee is 1% once per journey; the PulseChain
  *     escape hatch is a separate rescue product at 5%, labeled as such in the
  *     quote." No escape-hatch path exists in code yet.
- *   - thorchain-leg + non-x1-bridge (future lanes): no rate yet — they THROW
- *     a descriptive FeeNotImplementedError instead of guessing a number.
+ *   - thorchain-leg (Workstream A — the BTC/DOGE/LTC/XRP → SOL.SOL lane):
+ *     the user sees THREE fee lines before sending — THORChain affiliate
+ *     (protocol fee), our 1% skim (Teleporter), Warp's $1 (third-party). The
+ *     1%-once policy is about TELEPORTER's fee: the THORChain affiliate is a
+ *     PROTOCOL fee (collected by THORChain to our THORName) and the Warp $1
+ *     is a THIRD-PARTY pass-through (collected by the Warp program) — NEITHER
+ *     counts toward Teleporter's 1%. Teleporter's take on this lane is still
+ *     exactly 1%: the warp-skim on the Solana leg. All three are displayed
+ *     before the user sends.
+ *   - non-x1-bridge (future lane): no rate yet — it THROWS a descriptive
+ *     FeeNotImplementedError instead of guessing a number.
  *
  * INVARIANT (tested): for EVERY route class EXCEPT escape-hatch (the named
  * 5% rescue product), the sum of Teleporter-owned components
  * (teleporterFeeUsd) is exactly 1% of the journey total — never more.
- * Third-party pass-throughs (warp-flat today, THORChain/provider costs later)
- * are labeled and summed separately.
+ * Third-party pass-throughs (warp-flat, thorchain-affiliate) and protocol
+ * fees are labeled and summed separately.
  *
  * PURE MODULE: no DOM, no fetch, no wallet, no chain imports. Runnable under
  * `node --test` (type stripping) exactly like routes.ts / flags.ts.
@@ -44,6 +53,7 @@
  *   so computeFee lives at src/lib/fees.ts.
  */
 import { determineRoute, type RouteType } from "./routes.ts";
+import { THORCHAIN_AFFILIATE_BPS } from "./thorchain/config.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RATES — the fee policy rates (all classes exactly 1% once — with ONE named
@@ -97,13 +107,14 @@ export type FeeClass =
   | "same-chain"      // 1% LiFi integrator = the once-per-journey Teleporter fee (policy)
   | "x1-hop"          // 1% pre-bridge skim = the once-per-journey Teleporter fee (policy)
   | "escape-hatch"    // 5% — NAMED EXCEPTION to the 1%-once rule (separate rescue product); NOT yet applied
-  | "thorchain-leg"   // future lane — no rate yet, throws
+  | "thorchain-leg"   // Workstream A — 1% Teleporter skim + THORChain affiliate (protocol) + Warp's $1 (third-party), all shown before send
   | "non-x1-bridge";  // future lane — no rate yet, throws
 
 export type FeeComponentId =
   | "lifi-integrator"    // LiFi's integrator fee on a LiFi leg — the Teleporter fee on same-chain routes; 0 on x1-class routes
   | "warp-skim"          // our 1% pre-bridge skim — the Teleporter fee on x1-class routes
   | "warp-flat"          // the Warp program's own flat $1 (third-party pass-through, labeled "Warp bridge fee")
+  | "thorchain-affiliate" // the THORChain PROTOCOL affiliate fee paid to our THORName (third-party — NEVER a Teleporter fee)
   | "escape-hatch-skim"; // the escape-hatch skim (future, 5% — named exception, rescue product)
 
 /** Who owns the money: "teleporter" = collected to OUR wallets/integrator
@@ -116,7 +127,8 @@ export type FeeCollector =
   | "lifi-integrator" // LiFi integrator account (LIFI_INTEGRATOR_ACCOUNT)
   | "fee-wallet-svm"  // FEE_WALLETS.SVM
   | "fee-wallet-x1"   // FEE_WALLETS.X1
-  | "warp-program";   // the Warp bridge's own fee account (not ours)
+  | "warp-program"    // the Warp bridge's own fee account (not ours)
+  | "thorchain-affiliate"; // our THORName on THORChain — the PROTOCOL affiliate collector (not ours to keep; THORChain pays it to the THORName)
 
 export type FeeLeg = "source" | "pre-bridge" | "bridge" | "lifi-leg";
 
@@ -141,8 +153,14 @@ export interface FeeRoute {
   amount?: number;
   /** Opt-in Escape Hatch path (future). When true, the route is escape-hatch. */
   escapeHatch?: boolean;
-  /** Opt-in THORChain lane (future). When true, computeFee throws. */
+  /** Opt-in THORChain lane (Workstream A). The thorchain-leg class shows
+   *  three fee lines before sending (affiliate + skim + Warp's $1). */
   thorchain?: boolean;
+  /** Opt-in THORChain affiliate bps override — defaults to the config value
+   *  (THORCHAIN_AFFILIATE_BPS, start 100). The affiliate is a THORChain
+   *  PROTOCOL fee paid to our THORName — it never counts toward Teleporter's
+   *  1% (see the class docs). Tests vary this; production reads config. */
+  affiliateBps?: number;
   /** Opt-in non-X1 bridge integration (future). When true, computeFee throws. */
   nonX1Bridge?: boolean;
 }
@@ -440,6 +458,91 @@ function escapeHatchFee(_route: FeeRoute): FeeStructure {
   );
 }
 
+/** The THORChain affiliate bps for a route — the route override wins, the
+ *  config value (THORCHAIN_AFFILIATE_BPS, start 100) is the default. The
+ *  affiliate is a THORChain PROTOCOL fee, not Teleporter's 1% (policy note
+ *  in the thorchain-leg builder). */
+function thorchainAffiliateBps(route: FeeRoute): number {
+  return route.affiliateBps ?? THORCHAIN_AFFILIATE_BPS;
+}
+
+/**
+ * thorchain-leg — the THORChain lane (Workstream A: native BTC/DOGE/LTC/XRP
+ * → SOL.SOL, then the existing Solana→X1 hop).
+ *
+ * THREE fee lines, ALL displayed before the user sends (the brief's Panel 1
+ * fee display, docs/BRIEF.md Workstream A):
+ *   1. thorchain-affiliate — the THORChain PROTOCOL affiliate fee, rate from
+ *      config (affiliateBps, start 100), collected by THORChain to our
+ *      THORName. POLICY: the 1%-once rule is about TELEPORTER's fee; the
+ *      THORChain affiliate is a PROTOCOL fee — it does NOT count toward
+ *      Teleporter's 1%. Rendered as a third-party/protocol line.
+ *   2. warp-skim — our 1% pre-bridge skim on the Solana leg: THE Teleporter
+ *      fee on this lane. Exactly 1%, once.
+ *   3. warp-flat — the Warp program's own flat $1: a THIRD-PARTY pass-through
+ *      (collected by the Warp program, not us), labeled "Warp bridge fee".
+ *      POLICY: it does NOT count toward Teleporter's 1% either.
+ *
+ * The 1%-once invariant holds: teleporterFeeUsd(amount) is exactly 1% — the
+ * affiliate + Warp $1 are third-party/protocol lines summed separately.
+ * NO lifi-integrator component here (the lane has no LiFi leg), and never a
+ * second Teleporter charge — no double charge by construction (tested).
+ */
+function thorchainLegFee(route: FeeRoute): FeeStructure {
+  const affiliateBps = thorchainAffiliateBps(route);
+  return makeStructure(
+    "thorchain-leg",
+    "THORChain lane — 1% Teleporter skim + THORChain affiliate (protocol) + Warp's $1 (third-party)",
+    FEE_RATES.X1_HOP_SKIM,
+    [
+      // 1) THORChain PROTOCOL affiliate fee → our THORName, deducted by
+      //    THORChain inside the swap. NOT a Teleporter fee (policy): the
+      //    1%-once rule is about Teleporter's fee; the affiliate is the
+      //    THORChain protocol's affiliate mechanism. Shown before send.
+      rateComponent(
+        "thorchain-affiliate",
+        "THORChain affiliate (protocol fee)",
+        affiliateBps / 10_000,
+        "third-party",
+        "thorchain-affiliate",
+        "bridge",
+        "on-chain",
+        "source",
+      ),
+      // 2) OUR 1% pre-bridge skim on the Solana leg — THE Teleporter fee on
+      //    this lane (exactly 1%, once per journey; policy).
+      rateComponent(
+        "warp-skim",
+        "Teleporter fee (1%)",
+        FEE_RATES.X1_HOP_SKIM,
+        "teleporter",
+        "fee-wallet-svm",
+        "pre-bridge",
+        "pre-bridge-transfer",
+        "source",
+      ),
+      // 3) Warp's own flat $1 — THIRD-PARTY pass-through (collected by the
+      //    Warp program, not us), labeled "Warp bridge fee". Not a Teleporter
+      //    fee (policy).
+      flatComponent(
+        "warp-flat",
+        "Warp bridge fee",
+        FEE_RATES.WARP_FLAT_USD,
+        "third-party",
+        "warp-program",
+        "bridge",
+        "on-chain",
+      ),
+    ],
+    "Three fees, all shown before the user sends: the THORChain affiliate "
+      + "(protocol fee to our THORName, rate from config affiliateBps), our 1% "
+      + "pre-bridge skim on the Solana leg (THE once-per-journey Teleporter "
+      + "fee — the 1%-once policy covers Teleporter's fee only), and the Warp "
+      + "program's flat $1 (third-party pass-through). Neither the affiliate "
+      + "nor Warp's $1 counts toward Teleporter's 1%.",
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // computeFee — the ONE function every caller reads.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -452,11 +555,7 @@ export function computeFee(route: FeeRoute): FeeStructure {
     case "escape-hatch":
       return escapeHatchFee(route);
     case "thorchain-leg":
-      throw new FeeNotImplementedError(
-        "thorchain-leg",
-        "The THORChain lane lands in its own phase (Step 2.x) — no fee rate is defined yet. "
-          + "Do not charge a guessed rate on this lane.",
-      );
+      return thorchainLegFee(route);
     case "non-x1-bridge":
       throw new FeeNotImplementedError(
         "non-x1-bridge",

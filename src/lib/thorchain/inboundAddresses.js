@@ -11,8 +11,8 @@
  * "paused by THORChain".
  *
  * ENDPOINT (same base-URL pattern as the Step 3.1 status module; NO API key
- * for inbound addresses — the THORCHAIN_API_KEY env var belongs to the
- * Step 3.3 aggregator QUOTE endpoint):
+ * for inbound addresses — the aggregator key belongs to the Step 3.3 QUOTE
+ * endpoint and lives server-side only, see api/thorchain/quote.js):
  *   GET {baseUrl}/thorchain/inbound_addresses
  *   - Public hosts: `https://liquify.thorchain.org` (Liquify gateway, per the
  *     brief) and `https://thornode.thorchain.info` (public THORNode). The
