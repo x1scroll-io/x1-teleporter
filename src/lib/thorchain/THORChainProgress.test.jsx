@@ -42,6 +42,25 @@ const SOL_ADDR = "FakeSolanaAddress11111111111111111111111111111111";
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+/**
+ * Deterministically wait for an element to appear in the container. Used
+ * where REAL async work must settle before an assertion runs — e.g. the
+ * default wiring's lazy dynamic import (autoAdvance.js getLifi()) happens
+ * before the swap step reports the missing quote, and that import can
+ * outlast a couple of macrotasks on a slow CI box. Bounded by a deadline:
+ * if the element never appears we return and the test's own assertion
+ * reports the failure — nothing is loosened, the timing is just made
+ * deterministic.
+ */
+async function waitForBanner(container, selector, { timeoutMs = 5000, intervalMs = 5 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (container.querySelector(selector)) return;
+    if (Date.now() >= deadline) return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 /** In-memory storage backend with getAll (isolated per test). */
 function memBackend() {
   const m = new Map();
@@ -437,8 +456,12 @@ test("default wiring (no advance prop): the real Step 3.1 actions run and report
     });
     await act(async () => {
       createLandingWatcher.instances[0].emitLanded(1.05);
-      await flush();
-      await flush();
+      // The default wiring runs the REAL Step 3.1 actions: the swap step
+      // lazily dynamic-imports the executor modules (autoAdvance.js getLifi())
+      // before it can throw the missing-quote error. That is genuine async
+      // work, so keep flushing until the banner is actually in the DOM
+      // instead of assuming a fixed flush count is enough (CI is slower).
+      await waitForBanner(container, '[data-testid="tc-banner-advance-failed"]');
     });
 
     const banner = container.querySelector('[data-testid="tc-banner-advance-failed"]');

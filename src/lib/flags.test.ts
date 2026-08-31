@@ -72,3 +72,26 @@ test("selectRootCard returns legacy (Teleporter) when the legacy flag is set", (
   // And it flows through resolveFlags end-to-end.
   assert.equal(selectRootCard(resolveFlags({ NEXT_PUBLIC_FLAG_LEGACY_UI: "true" })), "legacy");
 });
+
+test("WARP_LIVE_SEND false => send gate closed (allowLive resolves false)", () => {
+  const flags = resolveFlags({});
+  assert.equal(flags.WARP_LIVE_SEND, false);
+})
+
+test("WARP_LIVE_SEND true via VITE_WARP_LIVE_SEND => send gate armed (allowLive resolves true)", () => {
+  const flags = resolveFlags({ VITE_WARP_LIVE_SEND: "true" });
+  assert.equal(flags.WARP_LIVE_SEND, true);
+})
+
+test("VITE_WARP_LIVE_SEND accepts '1' as true", () => {
+  const flags = resolveFlags({ VITE_WARP_LIVE_SEND: "1" });
+  assert.equal(flags.WARP_LIVE_SEND, true);
+})
+
+test("NEXT_PUBLIC_FLAG_WARP_LIVE_SEND takes precedence over VITE_WARP_LIVE_SEND", () => {
+  const flags = resolveFlags({
+    NEXT_PUBLIC_FLAG_WARP_LIVE_SEND: "true",
+    VITE_WARP_LIVE_SEND: "false",
+  });
+  assert.equal(flags.WARP_LIVE_SEND, true);
+})

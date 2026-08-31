@@ -28,6 +28,7 @@ export function resolveFlags(env: Env): {
   ANYSWAP: boolean;
   REVERSE_ENABLED: boolean;
   LEGACY_UI: boolean;
+  WARP_LIVE_SEND: boolean;
 } {
   const on = (names: string[]): boolean => {
     for (const name of names) {
@@ -43,6 +44,7 @@ export function resolveFlags(env: Env): {
     THORCHAIN: on(["NEXT_PUBLIC_FLAG_THORCHAIN", "VITE_FLAG_THORCHAIN"]),
     ANYSWAP: on(["NEXT_PUBLIC_FLAG_ANYSWAP", "VITE_FLAG_ANYSWAP"]),
     REVERSE_ENABLED: on(["NEXT_PUBLIC_FLAG_REVERSE_ENABLED", "VITE_FLAG_REVERSE_ENABLED"]),
+    WARP_LIVE_SEND: on(["NEXT_PUBLIC_FLAG_WARP_LIVE_SEND", "VITE_WARP_LIVE_SEND"]),
     LEGACY_UI: on(["NEXT_PUBLIC_FLAG_LEGACY_UI", "VITE_FLAG_LEGACY_UI"]),
   };
 }
@@ -68,6 +70,13 @@ export const ANYSWAP: boolean = flags.ANYSWAP;
  * completion path for X1 burns.
  */
 export const REVERSE_ENABLED: boolean = flags.REVERSE_ENABLED;
+
+/**
+ * WARP_LIVE_SEND — env-driven gate for REAL Warp bridge sends (forward + reverse).
+ * MUST NEVER be true without a working completion path (step 1.2). Default: false.
+ * Set VITE_WARP_LIVE_SEND=true in Vercel Preview only when the live hop is ready.
+ */
+export const WARP_LIVE_SEND: boolean = flags.WARP_LIVE_SEND;
 
 /**
  * Whether the app mounts the legacy v1 Teleporter card instead of the v2

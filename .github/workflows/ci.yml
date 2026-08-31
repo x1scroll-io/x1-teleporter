@@ -5,7 +5,7 @@ on:
 
 jobs:
   ci:
-    name: Install, typecheck, lint, test, build
+    name: Install, typecheck, lint, build, test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -36,14 +36,10 @@ jobs:
             echo "No lint script found — skipping lint."
           fi
 
-      - name: Test
-        run: |
-          if node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)"; then
-            npm test
-          else
-            echo "No test script found — skipping tests."
-          fi
-
+      # Build runs BEFORE Test on purpose: apiKeyLeak.test.js scans the
+      # pre-built dist/ for THORCHAIN_API_KEY instead of shelling out to a
+      # build inside the test process (which collided with rollup's module
+      # graph in CI). The bundle-leak invariant is enforced right here.
       - name: Build
         run: |
           # Guard the api-lifi naming regression: the serverless routes live in
@@ -53,3 +49,11 @@ jobs:
             exit 1
           fi
           npm run build
+
+      - name: Test
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)"; then
+            npm test
+          else
+            echo "No test script found — skipping tests."
+          fi

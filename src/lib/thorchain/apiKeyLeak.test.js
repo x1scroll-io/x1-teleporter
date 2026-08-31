@@ -24,8 +24,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execSync } from "node:child_process";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
@@ -95,20 +94,21 @@ test("NO VITE_/NEXT_PUBLIC_ key-prefixed names ANYWHERE in src/ (tests included)
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3 — built bundle scan (runs vite build, then greps dist/)
+// 3 — built bundle scan. The CI workflow builds BEFORE the test step (see
+// .github/workflows/ci.yml), so this test scans the pre-built dist/ and never
+// shells out to a build of its own — a build inside the test process collided
+// with rollup's module graph in CI (ModuleScope/traceVariable error). If
+// dist/ is absent (e.g. a bare local checkout), the scan is skipped with a
+// clear message; the CI pipeline (build-then-test) is the enforcement point
+// for the built-bundle invariant.
 // ─────────────────────────────────────────────────────────────────────────────
-test("dist/ bundle contains no THORCHAIN_API_KEY after npm run build", { timeout: 300000 }, () => {
-  // OOM GUARDRAIL: the build runs under a hard virtual-memory cap too. The
-  // cap is 32GB (not the 16GB used for test runners) because esbuild's wasm
-  // runtime reserves large virtual regions that cannot fit in 16GB — still a
-  // fixed cap, never uncapped. The test process itself runs under the usual
-  // 16GB cap via the repo's capped-test wrapper.
-  execSync(`ulimit -v $((1024*1024*32)); npm run build`, {
-    cwd: ROOT,
-    stdio: "pipe",
-    shell: "/bin/bash",
-    env: { ...process.env },
-  });
+test("dist/ bundle contains no THORCHAIN_API_KEY after npm run build", { timeout: 300000 }, (t) => {
+  if (!existsSync(DIST_DIR)) {
+    t.skip(
+      "dist/ not found — skipping the bundle scan. CI builds before tests and enforces this invariant there; run `npm run build` locally to check.",
+    );
+    return;
+  }
 
   const assets = walk(DIST_DIR);
   const jsAssets = assets.filter((f) => f.endsWith(".js"));
