@@ -6,6 +6,8 @@ import Teleporter from "./Teleporter.jsx";
 import BridgeCard from "./components/BridgeCard.jsx";
 import { WalletProvider } from "./lib/wallet/WalletContext.jsx";
 import { createWalletDiscovery } from "./lib/wallet/walletDiscovery.js";
+import { createLaserEyesHandle } from "./lib/wallet/laserEyesHandle.js";
+import { createBtcBalanceFetcher } from "./lib/wallet/bitcoinBalance.js";
 import { LEGACY_UI, THORCHAIN, selectRootCard } from "./lib/flags.ts";
 
 // BUILD MARKER — verify deployed build is current.
@@ -21,7 +23,15 @@ console.log(
 
 // One discovery handle for the app lifetime. WalletProvider starts it on
 // mount and stops it on unmount (start() is idempotent per handle).
-const discovery = createWalletDiscovery();
+// Bitcoin (Step 2.3) wiring: the LaserEyes handle + the mempool.space
+// balance fetcher. Without bitcoinLaserEyes every LaserEyes-covered
+// wallet's connect fails with "the LaserEyes handle is not wired" — the
+// red banner from the live preview. Detection stays impersonation-aware
+// (bitcoinDiscovery.js); this only supplies the connect handle.
+const discovery = createWalletDiscovery({
+  bitcoinLaserEyes: createLaserEyesHandle(),
+  bitcoinBalanceFetcher: createBtcBalanceFetcher(),
+});
 
 // Flag → card. Pure decision, tested in src/lib/flags.test.ts.
 // "legacy" = v1 Teleporter card (flag-restorable fallback).

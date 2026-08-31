@@ -237,6 +237,7 @@ import { LITECOIN_WALLET_IDS as LTC_IDS } from "./litecoinRegistry.js";
 import { DOGECOIN_WALLET_IDS as DOGE_IDS } from "./dogecoinRegistry.js";
 import { XRP_WALLET_IDS as XRP_IDS } from "./xrpRegistry.js";
 import { TRON_WALLET_IDS as TRON_IDS } from "./tronRegistry.js";
+import { BITCOIN_WALLET_IDS as BTC_IDS } from "./bitcoinRegistry.js";
 
 /** Fake @tronweb3/tronwallet-adapters-style adapter (readyState + events). */
 function makeFakeTronAdapter({ name, readyState = "Found" } = {}) {
@@ -365,4 +366,80 @@ test("composition: family isolation — connecting Litecoin never touches Tron",
   assert.equal(doge, null, "dogecoin has its own separate session list");
   assert.equal(xrp, null);
   assert.equal(tron, null);
+});
+
+/* ————————————— Bitcoin LaserEyes wiring through the composition ————————————— */
+
+const BTC_PAYMENT = "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh"; // native segwit (payment)
+const BTC_ORDINALS = "bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3297"; // taproot (ordinals)
+
+/** Fake LaserEyes handle — records the requested provider type. */
+function fakeLaserEyesHandle() {
+  const calls = [];
+  return {
+    calls,
+    async connect(providerType) {
+      calls.push(providerType);
+      return { paymentAddress: BTC_PAYMENT, address: BTC_ORDINALS, accounts: [BTC_PAYMENT] };
+    },
+    disconnect() {},
+  };
+}
+
+test("composition: bitcoin connect WITHOUT an injected LaserEyes handle fails with the 'not wired' banner error (the app-wiring regression)", async () => {
+  // The Step 2.3 preview bug at the composition level: when the app builds
+  // the discovery handle without `bitcoinLaserEyes` (main.jsx did), every
+  // LaserEyes-covered wallet's connect rejects with exactly this message —
+  // the red banner in the connect modal. The composition must keep failing
+  // loudly here (never a silent mock connect); the FIX is the app wiring
+  // (main.jsx), pinned by appWiring.test.js.
+  const discovery = createWalletDiscovery({
+    evmConfig: createDefaultEvmConfig(),
+    solanaRegistry: makeFakeRegistry(),
+    bitcoinWin: { XverseProviders: { BitcoinProvider: {} } },
+    // NOTE: no bitcoinLaserEyes — the buggy app wiring.
+  });
+  discovery.start();
+
+  const installed = discovery.getDiscovered().bitcoin;
+  assert.ok(
+    installed.some((w) => w.key === BTC_IDS.XVERSE),
+    "Xverse is discovered via its namespaced global (impersonation-aware detection intact)",
+  );
+
+  const provider = discovery.getProvider("bitcoin", BTC_IDS.XVERSE);
+  assert.ok(provider, "an installed wallet resolves a provider");
+  await assert.rejects(provider.connect(), /LaserEyes handle is not wired/);
+});
+
+test("composition: bitcoinLaserEyes + bitcoinBalanceFetcher wire the payment-address-only connect (the app wiring shape)", async () => {
+  // The post-fix wiring shape — the exact options main.jsx passes. The
+  // handle is called per-wallet (provider type), the session carries the
+  // PAYMENT address only, and the balance read targets it. The ordinals
+  // (bc1p) address must never reach the session.
+  const laserEyes = fakeLaserEyesHandle();
+  const balanceFetchedFor = [];
+  const balanceFetcher = async (address) => {
+    balanceFetchedFor.push(address);
+    return 123_456;
+  };
+  const discovery = createWalletDiscovery({
+    evmConfig: createDefaultEvmConfig(),
+    solanaRegistry: makeFakeRegistry(),
+    bitcoinWin: { XverseProviders: { BitcoinProvider: {} } },
+    bitcoinLaserEyes: laserEyes,
+    bitcoinBalanceFetcher: balanceFetcher,
+  });
+  discovery.start();
+
+  const provider = discovery.getProvider("bitcoin", BTC_IDS.XVERSE);
+  assert.ok(provider, "Xverse resolves a provider");
+  const result = await provider.connect();
+
+  assert.deepEqual(laserEyes.calls, ["xverse"], "connects the Xverse LaserEyes provider");
+  assert.equal(result.family, "bitcoin");
+  assert.equal(result.address, BTC_PAYMENT, "session address is the payment (bc1q) address");
+  assert.notEqual(result.address, BTC_ORDINALS, "the ordinals (bc1p) address must never be used");
+  assert.deepEqual(balanceFetchedFor, [BTC_PAYMENT], "balance fetched for the payment address");
+  assert.equal(result.balance, 123_456);
 });
