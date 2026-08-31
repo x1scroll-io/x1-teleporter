@@ -93,6 +93,11 @@ const S = {
   },
   hint: { fontSize: 11, color: "#5B9DFF", marginTop: 6, lineHeight: 1.5 },
   warn: { fontSize: 11, color: "#E8C04A", marginTop: 6, lineHeight: 1.5 },
+  warnBtn: {
+    width: "100%", marginTop: 6, padding: "8px 10px", borderRadius: 8,
+    background: "transparent", border: "1px dashed #8a6d1a", color: "#E8C04A",
+    fontSize: 11, cursor: "pointer", textAlign: "left", lineHeight: 1.5,
+  },
   cta: {
     width: "100%", marginTop: 14, padding: "13px 0", borderRadius: 10,
     border: "none", cursor: "pointer", fontWeight: 700, fontSize: 14,
@@ -140,12 +145,18 @@ const PLACEHOLDER_EVM = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
  * wallets the EVM→X1 route needs.
  *
  * @param {{evmSession: object, solSession: object,
- *          stage2Runner?: (args) => Promise<object>}} props
+ *          stage2Runner?: (args) => Promise<object>,
+ *          onConnectWallet?: () => void}} props
  *   evmSession / solSession: the WalletContext sessions (sessions.evm /
  *   sessions.solana). stage2Runner: DI'd Warp stage-2 runner for tests
  *   (default: defaultStage2Runner — the real runStage2 path).
+ *   onConnectWallet: when provided (the tab renders the form inside its
+ *   ConnectedBody), the missing-wallet warnings become actionable buttons
+ *   that open the connect modal — the multi-wallet fix: after the first
+ *   connect the modal is gone, so the form's "connect your wallet" prompts
+ *   must be able to bring it back.
  */
-export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner }) {
+export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, onConnectWallet }) {
   const [from, setFrom] = useState("eth");
   const [token, setToken] = useState("USDC");
   const [amount, setAmount] = useState("");
@@ -284,6 +295,14 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   }
 
   const canStage2 = solanaSessionCanSign(solSession); // hint-level only; executeStage2 re-checks via resolver
+  // The missing-wallet prompts render as ACTIONABLE buttons when the form
+  // lives inside the tab's ConnectedBody (onConnectWallet opens the connect
+  // modal); standalone renders (tests) keep the plain warning text.
+  const WarnTag = onConnectWallet ? "button" : "div";
+  const warnProps = (testId) =>
+    onConnectWallet
+      ? { type: "button", "data-testid": testId, onClick: onConnectWallet, style: { ...S.warn, ...S.warnBtn } }
+      : { "data-testid": testId, style: S.warn };
 
   return (
     <div className="teleport-form" data-testid="teleport-form" style={S.form}>
@@ -331,12 +350,17 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       </div>
       <div style={S.hint}>Bridge ${X1_MIN}+ into X1 to get started (the flat $1 Warp fee would be ~11% of a $10 bridge).</div>
 
-      {/* wallet guidance — honest, never a silent dead-end */}
+      {/* wallet guidance — honest, never a silent dead-end; actionable
+          (opens the connect modal) when the tab wires onConnectWallet */}
       {!evmReady && (
-        <div style={S.warn}>Connect your EVM wallet (Rabby / MetaMask) to bridge from an EVM chain.</div>
+        <WarnTag {...warnProps("warn-evm")}>
+          Connect your EVM wallet (Rabby / MetaMask) to bridge from an EVM chain.
+        </WarnTag>
       )}
       {!solReady && (
-        <div style={S.warn}>Connect your Solana/X1 wallet (Phantom / Backpack) to get a quote — the hop lands USDC on Solana first.</div>
+        <WarnTag {...warnProps("warn-solana")}>
+          Connect your Solana/X1 wallet (Phantom / Backpack) to get a quote — the hop lands USDC on Solana first.
+        </WarnTag>
       )}
 
       {/* quote + send */}

@@ -32,6 +32,7 @@ import { WalletProvider } from "./WalletContext.jsx";
 import BridgeCard from "../../components/BridgeCard.jsx";
 import TeleportForm from "../../components/TeleportForm.jsx";
 import { createInitialState } from "./walletReducer.js";
+import { WALLET_FAMILIES } from "./families.js";
 
 const EVM_ADDR = "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6";
 const SOL_ADDR = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
@@ -401,6 +402,142 @@ test("stage 2 live path: runner reports a broadcast → honest awaiting-relay st
     assert.ok(container.querySelector('[data-testid="reset"]'), "reset available");
   } finally {
     qf.restore();
+    unmount();
+  }
+});
+
+// ── MULTI-WALLET CONNECT: connect a SECOND family after the first ──────────
+
+// REPRODUCTION (the live-preview bug): TeleportTab switches from ConnectModal
+// to ConnectedBody the moment ANY family connects (anyConnected). The modal —
+// the ONLY path to connect — is unmounted, so after the first connect there
+// was NO way to connect a second family (e.g. Solana after EVM): the bridge
+// form showed "Connect your Solana/X1 wallet to get a quote" with no way to
+// do it, and the hop (LiFi leg lands USDC on Solana → Warp carries it to X1)
+// needs BOTH sessions. These tests lock the fix: ConnectedBody now has a
+// "Connect another wallet" affordance that re-opens the modal inline, the
+// modal auto-closes when the new family connects, and the form's connect
+// warnings are actionable buttons.
+
+test("MULTI-WALLET: after EVM connects, the connected body offers a way to add another wallet", () => {
+  const { container, unmount } = renderWithProvider(
+    React.createElement(BridgeCard, {}),
+    connectedState({ evm: true, evmProvider: makeEvmProvider() }),
+  );
+  try {
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
+    // PRE-FIX this selector matches nothing — the modal (the only connect
+    // path) is unmounted and the body has no way to open it again.
+    const affordance = container.querySelector('[data-testid="connect-another"]');
+    assert.ok(affordance, "a way to add another wallet is visible after the first connect");
+    assert.match(affordance.textContent, /Connect another wallet/);
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "modal is closed by default");
+  } finally {
+    unmount();
+  }
+});
+
+test("MULTI-WALLET: clicking 'Connect another wallet' renders the modal; cancel returns to the body", () => {
+  const { container, unmount } = renderWithProvider(
+    React.createElement(BridgeCard, {}),
+    connectedState({ evm: true, evmProvider: makeEvmProvider() }),
+  );
+  try {
+    click(container.querySelector('[data-testid="connect-another"]'));
+    const modal = container.querySelector('[data-testid="connect-modal"]');
+    assert.ok(modal, "the connect modal renders when adding another wallet");
+    // The modal's step 1 is the full family picker — ANY family reachable.
+    const familyButtons = [...modal.querySelectorAll(".family-row")].map((b) => b.getAttribute("data-family"));
+    assert.deepEqual(familyButtons, WALLET_FAMILIES, "full family picker available");
+
+    // Cancel: back to the connected body, nothing connected.
+    click(container.querySelector('[data-testid="cancel-connect"]'));
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "modal closes on cancel");
+    assert.ok(container.querySelector('[data-testid="connect-another"]'), "body restored with the affordance");
+    assert.equal(container.querySelector('[data-family="solana"]'), null, "no Solana session appeared");
+  } finally {
+    unmount();
+  }
+});
+
+test("MULTI-WALLET: connect Solana via the modal → both sessions in the body, solReady clears the warning", async () => {
+  const { container, unmount } = renderWithProvider(
+    React.createElement(BridgeCard, {}),
+    connectedState({ evm: true, evmProvider: makeEvmProvider() }),
+  );
+  try {
+    // No Solana session yet → the form shows the connect warning.
+    assert.ok(container.querySelector('[data-testid="warn-solana"]'), "Solana warning visible before the second connect");
+
+    click(container.querySelector('[data-testid="connect-another"]'));
+    assert.ok(container.querySelector('[data-testid="connect-modal"]'), "modal open");
+
+    // Pick Solana → connect Starport (mock fallback in the test harness).
+    click(container.querySelector('[data-family="solana"]'));
+    const starport = [...container.querySelectorAll(".wallet-row")]
+      .find((r) => r.getAttribute("data-wallet-id") === "starport");
+    await act(async () => {
+      starport.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    // The modal auto-closes back to the connected body.
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "modal closed after the second connect");
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
+
+    // BOTH sessions show.
+    const evmRow = container.querySelector('[data-family="evm"]');
+    const solRow = container.querySelector('[data-family="solana"]');
+    assert.ok(evmRow && evmRow.textContent.includes(EVM_ADDR), "EVM session still shown");
+    assert.ok(solRow && solRow.textContent.includes("mock:solana:"), "Solana session now shown");
+
+    // The form's solReady is now true — the connect warning clears.
+    assert.equal(container.querySelector('[data-testid="warn-solana"]'), null, "Solana connect warning cleared");
+    assert.ok(container.querySelector('[data-testid="teleport-form"]'), "form still rendered");
+  } finally {
+    unmount();
+  }
+});
+
+test("MULTI-WALLET: works for any pairing — connect Bitcoin after EVM", async () => {
+  const { container, unmount } = renderWithProvider(
+    React.createElement(BridgeCard, {}),
+    connectedState({ evm: true, evmProvider: makeEvmProvider() }),
+  );
+  try {
+    click(container.querySelector('[data-testid="connect-another"]'));
+    click(container.querySelector('[data-family="bitcoin"]'));
+    const starport = [...container.querySelectorAll(".wallet-row")]
+      .find((r) => r.getAttribute("data-wallet-id") === "starport");
+    await act(async () => {
+      starport.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "modal closed");
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body.textContent.includes(EVM_ADDR), "EVM session shown");
+    const btcRow = container.querySelector('[data-family="bitcoin"]');
+    assert.ok(btcRow && btcRow.textContent.includes("mock:bitcoin:"), "Bitcoin session shown");
+  } finally {
+    unmount();
+  }
+});
+
+test("MULTI-WALLET: the form's Solana connect warning is actionable — opens the connect modal", () => {
+  const { container, unmount } = renderWithProvider(
+    React.createElement(BridgeCard, {}),
+    connectedState({ evm: true, evmProvider: makeEvmProvider() }),
+  );
+  try {
+    const warn = container.querySelector('[data-testid="warn-solana"]');
+    assert.ok(warn, "warning visible");
+    assert.equal(warn.tagName, "BUTTON", "warning is actionable (a button) when rendered inside the tab");
+    click(warn);
+    assert.ok(container.querySelector('[data-testid="connect-modal"]'), "clicking the warning opens the connect modal");
+  } finally {
     unmount();
   }
 });
