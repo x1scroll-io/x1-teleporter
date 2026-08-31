@@ -411,7 +411,10 @@ export default function THORChainProgress({
       {banner}
 
       <div style={S.meta} data-testid="tc-meta">
-        Expected arrival ≈ {hopRef.current.expectedAmountOut} SOL · checks every 15s · saved on close
+        {Number.isFinite(Number(hopRef.current.expectedAmountOut)) && Number(hopRef.current.expectedAmountOut) > 0
+          ? `Expected arrival ≈ ${hopRef.current.expectedAmountOut} SOL · `
+          : ""}
+        checks every 15s · saved on close
       </div>
     </div>
   );

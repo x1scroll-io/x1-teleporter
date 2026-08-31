@@ -78,10 +78,11 @@ test("deposit row subtitle is family-aware (the Sparrow/Electrum line is BTC-onl
   assert.match(depositRowSubtitle("bitcoin"), /Sparrow, Electrum/);
 });
 
-test("deposit memo TODO documents the per-chain memo transport rule", () => {
+test("deposit memo note documents the per-chain memo transport rule", () => {
   assert.match(depositMemoNote("litecoin"), /OP_RETURN/);
   assert.match(depositMemoNote("dogecoin"), /OP_RETURN/);
-  assert.match(depositMemoNote("xrp"), /XRPL Memos field, NOT a destination tag/);
-  assert.match(depositMemoNote("bitcoin"), /Step 3.3/);
+  assert.match(depositMemoNote("xrp"), /XRPL Memos field \(NOT a destination tag\)/);
+  assert.match(depositMemoNote("bitcoin"), /THORChain tab's deposit stage/);
   assert.doesNotMatch(depositMemoNote("xrp"), /destination tag.*destination tag/);
+  assert.doesNotMatch(depositMemoNote("litecoin"), /TODO/);
 });
