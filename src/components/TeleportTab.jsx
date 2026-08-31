@@ -29,6 +29,7 @@
  * TeleportForm.jsx for the full flow + gates (WARP_LIVE_SEND, simulation).
  */
 
+import { useEffect, useRef, useState } from "react";
 import { useWalletContext } from "../lib/wallet/WalletContext.jsx";
 import { WALLET_FAMILIES, FAMILY_LABELS } from "../lib/wallet/families.js";
 import { formatBtcBalance } from "../lib/wallet/bitcoinBalance.js";
@@ -54,6 +55,15 @@ const S = {
   disconnect: {
     background: "none", border: "1px solid #3a4a63", color: "#7d8aa0",
     borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 13,
+  },
+  connectAnother: {
+    width: "100%", margin: "4px 0 8px", padding: "10px 0", borderRadius: 8,
+    background: "transparent", border: "1px dashed #2e4a6b", color: "#3fd3e8",
+    fontSize: 13, cursor: "pointer",
+  },
+  cancelConnect: {
+    background: "none", border: "none", color: "#3fd3e8", cursor: "pointer",
+    padding: "0 0 10px", fontSize: 13,
   },
 };
 
@@ -84,12 +94,54 @@ function formatBalance(familyName, balance) {
  * session's provider/address drives the quote + stage-1 send, the Solana
  * session's address is the LiFi leg's destination and its adapter signs the
  * Warp stage 2.
+ *
+ * MULTI-WALLET (bug fix): the tab switches here as soon as ANY family
+ * connects, which unmounts ConnectModal — the ONLY connect path. So the
+ * body carries a "Connect another wallet" affordance that re-opens the
+ * modal INLINE (a local `connecting` state); when the user connects a new
+ * family the modal auto-closes back to the body showing ALL sessions. The
+ * form's missing-wallet warnings are wired to the same affordance.
  */
 function ConnectedBody() {
   const { sessions, disconnect } = useWalletContext();
+  // "Connect another wallet" mode: while set, the ConnectModal renders
+  // INLINE in place of the body (it already has the family picker — pick a
+  // family → pick a wallet → connecting → connected). This is the ONLY path
+  // to connect additional families: the tab switches to this body as soon as
+  // ANY family connects, so the modal (the connect path) would otherwise be
+  // unmounted and unreachable (the live-preview bug).
+  const [connecting, setConnecting] = useState(false);
   const connected = WALLET_FAMILIES.filter(
     (family) => sessions[family]?.status === "connected",
   );
+  // Auto-close: when a NEW family connects while the inline modal is open
+  // (the user just connected another wallet), fall back to the connected
+  // body showing BOTH sessions + the form. Keyed on the connected count so
+  // the modal is untouched — the fix lives entirely in the tab's UI state.
+  const prevConnectedCount = useRef(connected.length);
+  useEffect(() => {
+    if (connecting && connected.length > prevConnectedCount.current) {
+      setConnecting(false);
+    }
+    prevConnectedCount.current = connected.length;
+  }, [connecting, connected.length]);
+
+  if (connecting) {
+    return (
+      <div className="teleport-connected" data-testid="teleport-connected">
+        <button
+          type="button"
+          className="cancel-connect"
+          data-testid="cancel-connect"
+          style={S.cancelConnect}
+          onClick={() => setConnecting(false)}
+        >
+          ← Back to connected wallets
+        </button>
+        <ConnectModal />
+      </div>
+    );
+  }
 
   return (
     <div className="teleport-connected" data-testid="teleport-connected">
@@ -121,7 +173,22 @@ function ConnectedBody() {
           </div>
         );
       })}
-      <TeleportForm evmSession={sessions.evm} solSession={sessions.solana} />
+      {connected.length < WALLET_FAMILIES.length && (
+        <button
+          type="button"
+          className="connect-another"
+          data-testid="connect-another"
+          style={S.connectAnother}
+          onClick={() => setConnecting(true)}
+        >
+          + Connect another wallet
+        </button>
+      )}
+      <TeleportForm
+        evmSession={sessions.evm}
+        solSession={sessions.solana}
+        onConnectWallet={() => setConnecting(true)}
+      />
     </div>
   );
 }
