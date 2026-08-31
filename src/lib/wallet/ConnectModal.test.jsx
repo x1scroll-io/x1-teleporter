@@ -515,6 +515,37 @@ test("bitcoin: ⚠️ rows render with a Verify badge and keep their install lin
   }
 });
 
+test("bitcoin: an installed wallet with NO wired LaserEyes handle shows the red 'not wired' banner (the preview bug)", async () => {
+  // The Step 2.3 preview reproduction at the DOM level: the wallet is
+  // detected (Installed badge) but its connect rejects with the banner
+  // error because no LaserEyes handle is wired. The deposit-address
+  // fallback row must survive the failed connect untouched.
+  const discovery = fakeDiscovery();
+  discovery._announceBitcoin({ key: BTC_IDS.XVERSE, name: "Xverse", source: "standard" });
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="bitcoin"]'));
+    const xverse = rows(container).find((r) => r.id === BTC_IDS.XVERSE);
+    assert.equal(xverse.installed, true, "Xverse highlighted as installed (detection works)");
+
+    await act(async () => {
+      xverse.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const status = container.querySelector('[data-testid="connect-status"]');
+    assert.ok(status, "error status renders");
+    assert.match(status.textContent, /LaserEyes handle is not wired/, "the red banner text");
+
+    const allRows = rows(container);
+    const deposit = allRows[allRows.length - 1];
+    assert.equal(deposit.id, DEPOSIT_ADDRESS_ID, "deposit-address row is still the final bitcoin row");
+    assert.equal(deposit.el.getAttribute("data-deposit-address"), "true");
+  } finally {
+    unmount();
+  }
+});
+
 /* ————————————— Step 2.4 families through the modal ————————————— */
 
 const LTC_ADDRESS = "LbTjMGN7gELw4KbeyQf6cTCq859hD18guE";
