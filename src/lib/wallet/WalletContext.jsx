@@ -59,6 +59,10 @@ const EMPTY_DISCOVERED = Object.freeze({
   evm: Object.freeze([]),
   solana: Object.freeze([]),
   bitcoin: Object.freeze([]),
+  litecoin: Object.freeze([]),
+  dogecoin: Object.freeze([]),
+  xrp: Object.freeze([]),
+  tron: Object.freeze([]),
 });
 
 /**

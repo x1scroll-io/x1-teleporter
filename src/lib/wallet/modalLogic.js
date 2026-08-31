@@ -28,6 +28,10 @@ import {
   isDepositAddressEntry,
   isHardwareEntry,
 } from "./bitcoinRegistry.js";
+import { LITECOIN_WALLETS } from "./litecoinRegistry.js";
+import { DOGECOIN_WALLETS } from "./dogecoinRegistry.js";
+import { XRP_WALLETS } from "./xrpRegistry.js";
+import { TRON_WALLETS } from "./tronRegistry.js";
 
 /** Stable id of the pinned Starport wallet in every family. */
 export const STARPORT_ID = "starport";
@@ -66,6 +70,14 @@ export const STARPORT_NAMES = Object.freeze(["starport", "Starport"]);
  * The Bitcoin family uses the FULL canonical table from the registry
  * (bitcoinRegistry.js — Step 2.3): every registry row renders, hardware
  * sorts after software, and the deposit-address row is always last.
+ *
+ * The Litecoin / Dogecoin / XRP / Tron families use their FULL canonical
+ * tables too (Step 2.4 — litecoinRegistry.js, dogecoinRegistry.js,
+ * xrpRegistry.js, tronRegistry.js): every registry row renders in the
+ * fixed modal order, ⚠️ rows keep their verify badge + TODO, ❌ rows
+ * (Crossmark / GemWallet) are badged unmaintained and ranked last, the
+ * WalletConnect row (Tron) sorts after hardware, and the deposit-address
+ * row is always final on BTC/LTC/DOGE/XRP (no deposit row for Tron).
  */
 export const WALLET_REGISTRY = Object.freeze({
   evm: Object.freeze([
@@ -82,24 +94,10 @@ export const WALLET_REGISTRY = Object.freeze({
     Object.freeze({ id: "Solflare", name: "Solflare", installUrl: "https://solflare.com/" }),
   ]),
   bitcoin: BITCOIN_WALLETS,
-  litecoin: Object.freeze([
-    Object.freeze({ id: STARPORT_ID, name: "Starport", pinned: true, installUrl: null }),
-    Object.freeze({ id: "Ctrl", name: "Ctrl (ex-XDEFI)", reference: true, installUrl: "https://ctrl.xyz/" }),
-    Object.freeze({ id: "Litescribe", name: "Litescribe", installUrl: "https://www.litescribe.io/" }),
-  ]),
-  dogecoin: Object.freeze([
-    Object.freeze({ id: STARPORT_ID, name: "Starport", pinned: true, installUrl: null }),
-    Object.freeze({ id: "Ctrl", name: "Ctrl (ex-XDEFI)", reference: true, installUrl: "https://ctrl.xyz/" }),
-    Object.freeze({ id: "MyDoge", name: "MyDoge", installUrl: "https://mydoge.com/" }),
-  ]),
-  xrp: Object.freeze([
-    Object.freeze({ id: STARPORT_ID, name: "Starport", pinned: true, installUrl: null }),
-    Object.freeze({ id: "Xaman", name: "Xaman", reference: true, installUrl: "https://xaman.app/" }),
-  ]),
-  tron: Object.freeze([
-    Object.freeze({ id: STARPORT_ID, name: "Starport", pinned: true, installUrl: null }),
-    Object.freeze({ id: "TronLink", name: "TronLink", reference: true, installUrl: "https://www.tronlink.org/" }),
-  ]),
+  litecoin: LITECOIN_WALLETS,
+  dogecoin: DOGECOIN_WALLETS,
+  xrp: XRP_WALLETS,
+  tron: TRON_WALLETS,
 });
 
 /**
@@ -155,6 +153,54 @@ export function normalizeBitcoinDiscovered(wallets) {
 }
 
 /**
+ * Normalize discovered Litecoin wallets (litecoinDiscovery.js) into the
+ * match shape: `{ key, name, raw }`. `key` is the registry id.
+ */
+export function normalizeLitecoinDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered Dogecoin wallets (dogecoinDiscovery.js) into the
+ * match shape: `{ key, name, raw }`. `key` is the registry id.
+ */
+export function normalizeDogecoinDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered XRP wallets (xrpDiscovery.js) into the match shape:
+ * `{ key, name, raw }`. `key` is the registry id.
+ */
+export function normalizeXrpDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered Tron wallets (tronDiscovery.js) into the match
+ * shape: `{ key, name, raw }`. `key` is the registry id (adapter name).
+ */
+export function normalizeTronDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
  * Build the ordered wallet rows for one family.
  *
  * Order (binding, docs/WALLET-REGISTRY.md "Connect modal layout" — a
@@ -165,11 +211,15 @@ export function normalizeBitcoinDiscovered(wallets) {
  *   3. Every other SOFTWARE registry wallet, ALPHABETICAL — installed ones
  *      highlighted IN PLACE, not-installed ones shown with an install link.
  *      ⚠️ rows stay in this group (they are never hidden) and carry their
- *      `status` through for the modal's verify badge.
+ *      `status` through for the modal's verify badge. Deposit-only rows
+ *      (Tangem) stay here too — rendered non-connectable.
  *   4. Hardware wallets (Ledger / Trezor), alphabetical — after software.
- *   5. The deposit-address row — ALWAYS the final row (BTC/LTC/DOGE/XRP),
+ *   5. WalletConnect (mobile) — after hardware (Tron's WalletConnect row).
+ *   6. ❌ wallets, badged "unmaintained", ranked last (Crossmark /
+ *      GemWallet on XRP).
+ *   7. The deposit-address row — ALWAYS the final row (BTC/LTC/DOGE/XRP),
  *      never removed, never connectable.
- *   6. Announced providers outside the registry, appended (never hidden).
+ *   8. Announced providers outside the registry, appended (never hidden).
  *
  * Every registry entry for the family appears exactly once. Starport's
  * pinned row is matched against discovery too: if a real Starport wallet
@@ -212,23 +262,45 @@ export function buildFamilyWalletRows({ family, discovered = [], registry = WALL
       discovered: match,
       status: entry.status,
       hardware: isHardwareEntry(entry),
+      walletConnect: entry.walletConnect === true,
+      unmaintained: entry.unmaintained === true,
       depositAddress: isDepositAddressEntry(entry),
+      depositOnly: entry.depositOnly === true,
+      memoSupport: entry.memoSupport,
+      adapterName: entry.adapterName,
       todo: entry.todo,
+      connectTodo: entry.connectTodo,
     };
   }
 
   const pinned = entries.filter((e) => e.pinned).map(toRow);
   const reference = entries.filter((e) => !e.pinned && e.reference).map(toRow);
   const software = entries
-    .filter((e) => !e.pinned && !e.reference && !isHardwareEntry(e) && !isDepositAddressEntry(e))
+    .filter(
+      (e) =>
+        !e.pinned &&
+        !e.reference &&
+        !isHardwareEntry(e) &&
+        e.walletConnect !== true &&
+        e.unmaintained !== true &&
+        !isDepositAddressEntry(e),
+    )
     .map(toRow)
     .sort((a, b) => a.name.localeCompare(b.name));
   const hardware = entries
     .filter((e) => !e.pinned && !e.reference && isHardwareEntry(e))
     .map(toRow)
     .sort((a, b) => a.name.localeCompare(b.name));
+  const walletConnect = entries
+    .filter((e) => !e.pinned && !e.reference && e.walletConnect === true)
+    .map(toRow)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const unmaintained = entries
+    .filter((e) => !e.pinned && !e.reference && e.unmaintained === true)
+    .map(toRow)
+    .sort((a, b) => a.name.localeCompare(b.name));
   const depositAddress = entries.filter((e) => isDepositAddressEntry(e)).map(toRow);
-  const rest = [...software, ...hardware, ...depositAddress];
+  const rest = [...software, ...hardware, ...walletConnect, ...unmaintained, ...depositAddress];
 
   // Announced providers outside the registry get their own entry, appended
   // after the fixed list — installed, never hidden (docs/BRIEF.md).

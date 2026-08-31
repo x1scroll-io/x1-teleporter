@@ -51,7 +51,18 @@ import { WALLET_REGISTRY } from "./modalLogic.js";
 import { createEvmProviderAdapter } from "./evmDiscovery.js";
 import { createSolanaProviderAdapter } from "./solanaDiscovery.js";
 import { createBitcoinProviderAdapter } from "./bitcoinDiscovery.js";
+import { createLitecoinProviderAdapter } from "./litecoinDiscovery.js";
+import { createDogecoinProviderAdapter } from "./dogecoinDiscovery.js";
+import { createXrpProviderAdapter } from "./xrpDiscovery.js";
+import { createTronProviderAdapter } from "./tronDiscovery.js";
 import { BITCOIN_WALLET_IDS as BTC_IDS, DEPOSIT_ADDRESS_ID } from "./bitcoinRegistry.js";
+import {
+  LITECOIN_WALLET_IDS as LTC_IDS,
+  LITECOIN_DEPOSIT_ADDRESS_ID as LTC_DEPOSIT,
+} from "./litecoinRegistry.js";
+import { DOGECOIN_WALLET_IDS as DOGE_IDS } from "./dogecoinRegistry.js";
+import { XRP_WALLET_IDS as XRP_IDS } from "./xrpRegistry.js";
+import { TRON_WALLET_IDS as TRON_IDS } from "./tronRegistry.js";
 
 const EVM_ADDRESS = "0x1111222233334444555566667777888899990000";
 const MOCK_EVM_ADDRESS = "mock:evm:0x1234567890abcdef1234567890abcdef12345678";
@@ -397,7 +408,7 @@ test("bitcoin: connecting an installed wallet stores the PAYMENT address and sho
     const status = container.querySelector('[data-testid="connect-status"]');
     assert.ok(status.textContent.includes(BTC_PAYMENT), "payment (bc1q) address shown");
     assert.equal(status.textContent.includes(BTC_ORDINALS), false, "ordinals (bc1p) address NEVER shown");
-    const balance = container.querySelector('[data-testid="btc-balance"]');
+    const balance = container.querySelector('[data-testid="bitcoin-balance"]');
     assert.ok(balance, "balance rendered in the modal");
     assert.equal(balance.textContent.includes("0.00123456 BTC"), true);
   } finally {
@@ -416,6 +427,291 @@ test("bitcoin: ⚠️ rows render with a Verify badge and keep their install lin
       assert.ok(el.querySelector(".badge--verify"), `${el.getAttribute("data-wallet-id")} shows the Verify badge`);
       assert.ok(el.querySelector("a.install-link"), `${el.getAttribute("data-wallet-id")} keeps its install link`);
     }
+  } finally {
+    unmount();
+  }
+});
+
+/* ————————————— Step 2.4 families through the modal ————————————— */
+
+const LTC_ADDRESS = "LbTjMGN7gELw4KbeyQf6cTCq859hD18guE";
+const DOGE_ADDRESS = "DQyfNhuqN9mseL9YmgW8Sh7GNDjUn6oC1R";
+
+/**
+ * Extend the base fake discovery with the four Step 2.4 families.
+ * Re-emits the FULL snapshot (all seven families) on every change so a
+ * late announce in one family never wipes the others from context state.
+ */
+function extendFakeDiscovery() {
+  const base = fakeDiscovery();
+  const subs = new Set();
+  let litecoin = [];
+  let dogecoin = [];
+  let xrp = [];
+  let tron = [];
+  const fullSnapshot = () => ({
+    ...base.getDiscovered(),
+    litecoin: [...litecoin],
+    dogecoin: [...dogecoin],
+    xrp: [...xrp],
+    tron: [...tron],
+  });
+  const emit = () => {
+    const snap = fullSnapshot();
+    for (const listener of [...subs]) listener(snap);
+  };
+  return {
+    start: base.start,
+    stop: base.stop,
+    subscribe(listener) {
+      subs.add(listener);
+      base.subscribe(emit); // base announcements re-emit the full snapshot
+      return () => subs.delete(listener);
+    },
+    getDiscovered: fullSnapshot,
+    getProvider(family, walletId) {
+      if (family === "litecoin") {
+        const entry = litecoin.find((w) => w.key === walletId);
+        return entry
+          ? createLitecoinProviderAdapter({ walletId, win: entry.win, balanceFetcher: entry.balanceFetcher })
+          : null;
+      }
+      if (family === "dogecoin") {
+        const entry = dogecoin.find((w) => w.key === walletId);
+        return entry
+          ? createDogecoinProviderAdapter({ walletId, win: entry.win, balanceFetcher: entry.balanceFetcher })
+          : null;
+      }
+      if (family === "xrp") {
+        const entry = xrp.find((w) => w.key === walletId);
+        return entry ? createXrpProviderAdapter({ walletId, win: entry.win }) : null;
+      }
+      if (family === "tron") {
+        const entry = tron.find((w) => w.key === walletId);
+        return entry
+          ? createTronProviderAdapter({ registryId: walletId, adapter: entry.adapter, balanceFetcher: entry.balanceFetcher })
+          : null;
+      }
+      return base.getProvider(family, walletId);
+    },
+    _announceLitecoin(wallet) {
+      litecoin = [...litecoin, wallet];
+      emit();
+    },
+    _announceDogecoin(wallet) {
+      dogecoin = [...dogecoin, wallet];
+      emit();
+    },
+    _announceXrp(wallet) {
+      xrp = [...xrp, wallet];
+      emit();
+    },
+    _announceTron(wallet) {
+      tron = [...tron, wallet];
+      emit();
+    },
+  };
+}
+
+test("litecoin: full table renders — Ctrl reference, deposit-address LAST with the OP_RETURN memo TODO", () => {
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="litecoin"]'));
+
+    const allRows = rows(container);
+    assert.equal(allRows[0].id, "starport", "Starport pinned first");
+    assert.equal(allRows[1].id, LTC_IDS.CTRL, "Ctrl (reference) second");
+    const deposit = allRows[allRows.length - 1];
+    assert.equal(deposit.id, LTC_DEPOSIT, "deposit-address row is the final litecoin row");
+    assert.equal(deposit.el.getAttribute("data-deposit-address"), "true");
+    assert.ok(deposit.el.querySelector(".deposit-memo-todo"), "deposit row shows the memo TODO");
+    assert.match(deposit.el.querySelector(".deposit-memo-todo").textContent, /OP_RETURN/, "LTC memo TODO names OP_RETURN");
+
+    const verifyRows = [...container.querySelectorAll('[data-status="verify"]')];
+    assert.deepEqual(
+      verifyRows.map((el) => el.getAttribute("data-wallet-id")).sort(),
+      [LTC_IDS.ENKRYPT, LTC_IDS.OKX, LTC_IDS.TRUST].sort(),
+      "⚠️ rows render with the Verify badge",
+    );
+    assert.ok(verifyRows.every((el) => el.querySelector(".badge--verify")));
+  } finally {
+    unmount();
+  }
+});
+
+test("litecoin: MEMO RULE — unverified-memo rows show the deposit-address hand-off note", () => {
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="litecoin"]'));
+
+    const litescribe = container.querySelector(`[data-wallet-id="${LTC_IDS.LITESCRIBE}"]`);
+    assert.ok(litescribe.querySelector(".memo-handoff-note"), "Litescribe shows the memo hand-off note");
+    assert.match(litescribe.querySelector(".memo-handoff-note").textContent, /OP_RETURN memo unverified/);
+
+    const ctrl = container.querySelector(`[data-wallet-id="${LTC_IDS.CTRL}"]`);
+    assert.equal(ctrl.querySelector(".memo-handoff-note"), null, "Ctrl can send in-app (OP_RETURN) — no hand-off note");
+  } finally {
+    unmount();
+  }
+});
+
+test("litecoin: connecting Ctrl stores the address and shows the LTC balance", async () => {
+  const discovery = extendFakeDiscovery();
+  discovery._announceLitecoin({
+    key: LTC_IDS.CTRL,
+    name: "Ctrl (ex-XDEFI)",
+    win: { xfi: { litecoin: { request: async () => [LTC_ADDRESS] } } },
+    balanceFetcher: async () => 82_430_950,
+  });
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="litecoin"]'));
+    const ctrl = rows(container).find((r) => r.id === LTC_IDS.CTRL);
+    assert.equal(ctrl.installed, true, "Ctrl highlighted as installed");
+
+    await act(async () => {
+      ctrl.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const status = container.querySelector('[data-testid="connect-status"]');
+    assert.ok(status.textContent.includes(LTC_ADDRESS), "LTC address shown");
+    const balance = container.querySelector('[data-testid="litecoin-balance"]');
+    assert.ok(balance, "balance rendered");
+    assert.equal(balance.textContent.includes("0.8243095 LTC"), true);
+  } finally {
+    unmount();
+  }
+});
+
+test("dogecoin: deposit-address row LAST; MyDoge ⚠️ with the balance-only hand-off note", () => {
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="dogecoin"]'));
+
+    const allRows = rows(container);
+    assert.equal(allRows[1].id, DOGE_IDS.CTRL, "Ctrl (reference) second");
+    assert.equal(allRows[allRows.length - 1].id, "deposit-address", "deposit-address row is final");
+
+    const myDoge = container.querySelector(`[data-wallet-id="${DOGE_IDS.MYDOGE}"]`);
+    assert.ok(myDoge.querySelector(".badge--verify"), "MyDoge shows the Verify badge");
+    assert.ok(myDoge.querySelector(".memo-handoff-note"), "MyDoge shows the memo hand-off note");
+    assert.match(myDoge.querySelector(".memo-handoff-note").textContent, /OP_RETURN memo unverified/);
+  } finally {
+    unmount();
+  }
+});
+
+test("dogecoin: connecting Ctrl shows the DOGE balance", async () => {
+  const discovery = extendFakeDiscovery();
+  discovery._announceDogecoin({
+    key: DOGE_IDS.CTRL,
+    name: "Ctrl (ex-XDEFI)",
+    win: { xfi: { dogecoin: { request: async () => [DOGE_ADDRESS] } } },
+    balanceFetcher: async () => 1_234_567_890,
+  });
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="dogecoin"]'));
+    const ctrl = rows(container).find((r) => r.id === DOGE_IDS.CTRL);
+    await act(async () => {
+      ctrl.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+    const balance = container.querySelector('[data-testid="dogecoin-balance"]');
+    assert.ok(balance, "balance rendered");
+    assert.equal(balance.textContent.includes("12.3456789 DOGE"), true);
+  } finally {
+    unmount();
+  }
+});
+
+test("xrp: Xaman reference; Crossmark/GemWallet badged Unmaintained and ranked before the deposit row; XRPL Memos TODO", () => {
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="xrp"]'));
+
+    const allRows = rows(container);
+    assert.equal(allRows[1].id, XRP_IDS.XAMAN, "Xaman (PRIMARY) second");
+    const ids = allRows.map((r) => r.id);
+    assert.ok(ids.indexOf(XRP_IDS.CROSSMARK) > ids.indexOf(XRP_IDS.LEDGER), "Crossmark ranks after hardware");
+    assert.ok(ids.indexOf(XRP_IDS.GEMWALLET) > ids.indexOf(XRP_IDS.LEDGER), "GemWallet ranks after hardware");
+    assert.equal(allRows[allRows.length - 1].id, XRP_IDS.DEPOSIT_ADDRESS, "deposit-address row is final");
+
+    for (const id of [XRP_IDS.CROSSMARK, XRP_IDS.GEMWALLET]) {
+      const el = container.querySelector(`[data-wallet-id="${id}"]`);
+      assert.equal(el.getAttribute("data-unmaintained"), "true", `${id} flagged unmaintained`);
+      assert.ok(el.querySelector(".badge--unmaintained"), `${id} shows the Unmaintained badge`);
+      assert.ok(el.querySelector("a.install-link"), `${id} keeps its install link`);
+    }
+
+    const tangem = container.querySelector(`[data-wallet-id="${XRP_IDS.TANGEM}"]`);
+    assert.equal(tangem.getAttribute("data-deposit-only"), "true", "Tangem renders as deposit-address only");
+    assert.equal(tangem.querySelector(".connect-btn"), null, "Tangem is never connectable");
+
+    const deposit = allRows[allRows.length - 1];
+    assert.match(deposit.el.querySelector(".deposit-memo-todo").textContent, /XRPL Memos field, NOT a destination tag/);
+  } finally {
+    unmount();
+  }
+});
+
+test("tron: TronLink reference; WalletConnect after hardware; NO deposit row; Binance/Trust Verify badges", () => {
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="tron"]'));
+
+    const allRows = rows(container);
+    assert.equal(allRows[0].id, "starport");
+    assert.equal(allRows[1].id, TRON_IDS.TRONLINK, "TronLink (reference) second");
+    const ids = allRows.map((r) => r.id);
+    assert.ok(ids.indexOf(TRON_IDS.WALLETCONNECT) > ids.indexOf(TRON_IDS.LEDGER), "WalletConnect sorts after hardware");
+    assert.ok(
+      !container.querySelector('[data-deposit-address="true"]'),
+      "Tron has NO deposit-address row (registry: BTC/LTC/DOGE/XRP only)",
+    );
+
+    const wc = container.querySelector(`[data-wallet-id="${TRON_IDS.WALLETCONNECT}"]`);
+    assert.ok(wc.querySelector("a.install-link"), "WalletConnect row keeps its install link");
+    for (const id of [TRON_IDS.BINANCE, TRON_IDS.TRUST]) {
+      const el = container.querySelector(`[data-wallet-id="${id}"]`);
+      assert.ok(el.querySelector(".badge--verify"), `${id} shows the Verify badge`);
+    }
+  } finally {
+    unmount();
+  }
+});
+
+test("tron: connecting an installed adapter wallet stores the address and shows the TRX balance", async () => {
+  const discovery = extendFakeDiscovery();
+  discovery._announceTron({
+    key: TRON_IDS.TRONLINK,
+    name: "TronLink",
+    adapter: {
+      name: "TronLink",
+      readyState: "Found",
+      address: "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      async connect() {},
+      async disconnect() {},
+    },
+    balanceFetcher: async () => 7_500_000,
+  });
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="tron"]'));
+    const tronlink = rows(container).find((r) => r.id === TRON_IDS.TRONLINK);
+    assert.equal(tronlink.installed, true, "TronLink highlighted as installed");
+
+    await act(async () => {
+      tronlink.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const status = container.querySelector('[data-testid="connect-status"]');
+    assert.ok(status.textContent.includes("TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"), "TRX address shown");
+    const balance = container.querySelector('[data-testid="tron-balance"]');
+    assert.ok(balance, "balance rendered");
+    assert.equal(balance.textContent.includes("7.5 TRX"), true);
   } finally {
     unmount();
   }

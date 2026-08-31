@@ -24,11 +24,28 @@ import { useWalletContext } from "../lib/wallet/WalletContext.jsx";
 import { FAMILY_LABELS } from "../lib/wallet/families.js";
 import { formatBtcBalance } from "../lib/wallet/bitcoinBalance.js";
 import {
+  formatLtcBalance,
+  formatDogeBalance,
+} from "../lib/wallet/altcoinBalance.js";
+import { formatXrpBalance } from "../lib/wallet/xrpBalance.js";
+import { formatTronBalance } from "../lib/wallet/tronBalance.js";
+import {
+  canSendInApp,
+  depositMemoNote,
+  depositRowSubtitle,
+  isMemoRuleFamily,
+  memoHandoffNote,
+} from "../lib/wallet/memoRule.js";
+import {
   buildFamilyRows,
   buildFamilyWalletRows,
   normalizeEvmDiscovered,
   normalizeSolanaDiscovered,
   normalizeBitcoinDiscovered,
+  normalizeLitecoinDiscovered,
+  normalizeDogecoinDiscovered,
+  normalizeXrpDiscovered,
+  normalizeTronDiscovered,
 } from "../lib/wallet/modalLogic.js";
 
 const S = {
@@ -72,6 +89,12 @@ const S = {
     marginLeft: 8, fontSize: 11, color: "#e5c35c", border: "1px solid #8a6d1a",
     borderRadius: 999, padding: "2px 8px",
   },
+  unmaintainedTag: {
+    marginLeft: 8, fontSize: 11, color: "#ff9d85", border: "1px solid #7a3a2a",
+    borderRadius: 999, padding: "2px 8px",
+  },
+  memoNote: { fontSize: 11, color: "#e5c35c", marginTop: 4, fontStyle: "italic" },
+  depositOnlyNote: { fontSize: 11, color: "#7d8aa0", marginTop: 4, fontStyle: "italic" },
   depositRow: {
     marginTop: 10, border: "1px dashed #3a4a63", background: "#0c1320",
   },
@@ -140,8 +163,35 @@ export default function ConnectModal() {
         ? normalizeSolanaDiscovered(discovered.solana ?? [])
         : family === "bitcoin"
           ? normalizeBitcoinDiscovered(discovered.bitcoin ?? [])
-          : [];
+          : family === "litecoin"
+            ? normalizeLitecoinDiscovered(discovered.litecoin ?? [])
+            : family === "dogecoin"
+              ? normalizeDogecoinDiscovered(discovered.dogecoin ?? [])
+              : family === "xrp"
+                ? normalizeXrpDiscovered(discovered.xrp ?? [])
+                : family === "tron"
+                  ? normalizeTronDiscovered(discovered.tron ?? [])
+                  : [];
   const rows = buildFamilyWalletRows({ family, discovered: discoveredItems });
+
+  /** Per-family balance formatter for the connected-session line. */
+  function formatBalance(familyName, balance) {
+    if (balance === undefined) return null;
+    switch (familyName) {
+      case "bitcoin":
+        return formatBtcBalance(balance);
+      case "litecoin":
+        return formatLtcBalance(balance);
+      case "dogecoin":
+        return formatDogeBalance(balance);
+      case "xrp":
+        return formatXrpBalance(balance);
+      case "tron":
+        return formatTronBalance(balance);
+      default:
+        return null;
+    }
+  }
 
   return (
     <section className="connect-modal" data-testid="connect-modal">
@@ -153,9 +203,9 @@ export default function ConnectModal() {
       {session.status === "connected" && (
         <div className="status status--connected" data-testid="connect-status" style={{ ...S.status, ...S.statusConnected }}>
           Connected: <code>{session.address}</code>
-          {session.balance !== undefined && family === "bitcoin" && (
-            <span className="balance" data-testid="btc-balance">
-              {" "}· balance {formatBtcBalance(session.balance)}
+          {formatBalance(family, session.balance) && (
+            <span className="balance" data-testid={`${family}-balance`}>
+              {" "}· balance {formatBalance(family, session.balance)}
             </span>
           )}{" "}
           <button type="button" className="disconnect-btn" style={S.installLink} onClick={() => disconnect(family)}>
@@ -179,7 +229,9 @@ export default function ConnectModal() {
           // Deposit-address fallback row (BTC/LTC/DOGE/XRP): ALWAYS the
           // final row, never connectable — the v1 path. The deposit address
           // + memo come from the THORChain flow (Step 3.3); until then the
-          // row shows the concept + a clearly marked TODO. No guessed APIs.
+          // row shows the concept + a clearly marked TODO (family-aware:
+          // OP_RETURN for LTC/DOGE, the XRPL Memos field for XRP). No
+          // guessed APIs.
           if (row.depositAddress) {
             return (
               <li
@@ -193,15 +245,39 @@ export default function ConnectModal() {
                   <div className="qr-placeholder" style={S.qrPlaceholder} aria-hidden="true" />
                   <div>
                     <span style={S.walletName}>{row.name}</span>
-                    <span style={S.walletSub}>
-                      Send from any desktop wallet (Sparrow, Electrum, …) — no extension needed
-                    </span>
+                    <span style={S.walletSub}>{depositRowSubtitle(family)}</span>
                     <span className="deposit-memo-todo" style={S.memoTodo}>
-                      ⚠️ TODO: deposit address + memo arrive with the THORChain
-                      quote flow (Step 3.3) — not guessed here.
+                      {depositMemoNote(family)}
                     </span>
                   </div>
                 </div>
+              </li>
+            );
+          }
+
+          // Deposit-only info rows (e.g. Tangem — registry: "Not a dApp
+          // connector; deposit-address only"): rendered with an install
+          // link, never connectable.
+          if (row.depositOnly) {
+            return (
+              <li
+                key={row.id}
+                className="wallet-row"
+                data-wallet-id={row.id}
+                data-deposit-only="true"
+                style={S.walletRow}
+              >
+                <span>
+                  <span style={S.walletName}>{row.name}</span>
+                  <span className="deposit-only-note" style={S.depositOnlyNote}>
+                    Deposit-address only — not a dApp connector
+                  </span>
+                </span>
+                {row.installUrl ? (
+                  <a className="install-link" style={S.installLink} href={row.installUrl} target="_blank" rel="noreferrer">
+                    Install
+                  </a>
+                ) : null}
               </li>
             );
           }
@@ -212,6 +288,11 @@ export default function ConnectModal() {
               ? { ...S.walletRow, ...S.walletRowInstalled }
               : S.walletRow;
           const actionable = row.pinned || row.installed;
+          // MEMO RULE (THORChain lane): wallets that cannot (or may not)
+          // attach the THORChain memo (OP_RETURN for LTC/DOGE, XRPL Memos
+          // for XRP) show their balance and hand sends off to the
+          // deposit-address row — the note renders here (memoRule.js).
+          const handoff = isMemoRuleFamily(family) && !canSendInApp(row) ? memoHandoffNote(family, row) : null;
           return (
             <li
               key={row.id}
@@ -226,6 +307,7 @@ export default function ConnectModal() {
               data-installed={row.installed}
               data-pinned={row.pinned}
               data-status={row.status ?? ""}
+              data-unmaintained={row.unmaintained}
               style={rowStyle}
             >
               <span>
@@ -235,6 +317,16 @@ export default function ConnectModal() {
                 {row.status === "verify" && (
                   <span className="badge badge--verify" style={S.verifyTag} title="Verify at build time (registry ⚠️ row)">
                     Verify
+                  </span>
+                )}
+                {row.unmaintained && (
+                  <span className="badge badge--unmaintained" style={S.unmaintainedTag} title="Stale / unmaintained (registry ❌ row)">
+                    Unmaintained
+                  </span>
+                )}
+                {handoff && (
+                  <span className="memo-handoff-note" style={S.memoNote}>
+                    {handoff}
                   </span>
                 )}
               </span>

@@ -186,14 +186,14 @@ test("stop() detaches subscribers; snapshots stay readable", async () => {
     });
     discovery.subscribe(() => { notifications += 1; });
     discovery.start();
-    // One notification per sub-discovery's initial snapshot (evm + solana + bitcoin).
-    assert.equal(notifications, 3, "start notifies subscribers");
+    // One notification per sub-discovery's initial snapshot (7 families).
+    assert.equal(notifications, 7, "start notifies subscribers");
     await flush();
     discovery.stop();
 
     wallet.announce();
     await flush();
-    assert.equal(notifications, 3, "no subscriber notification after stop");
+    assert.equal(notifications, 7, "no subscriber notification after stop");
 
     const snap = discovery.getDiscovered();
     assert.ok(
@@ -215,6 +215,154 @@ test("default handle (no injected config/registry) degrades to fallback-only dis
   assert.equal(snap.evm[0].rdns, "injected");
   assert.deepEqual(snap.solana, []);
   assert.deepEqual(snap.bitcoin, [], "no bitcoin globals/registrations in the default env");
+  assert.deepEqual(snap.litecoin, [], "no litecoin globals in the default env");
+  assert.deepEqual(snap.dogecoin, [], "no dogecoin globals in the default env");
+  assert.deepEqual(snap.xrp, [], "no xrp globals in the default env");
+  assert.deepEqual(snap.tron, [], "no tron adapters in the default env");
   assert.equal(discovery.getProvider("evm", "io.metamask"), null);
   assert.equal(discovery.getProvider("bitcoin", "Xverse"), null);
+  assert.equal(discovery.getProvider("litecoin", "Ctrl"), null);
+  assert.equal(discovery.getProvider("dogecoin", "Ctrl"), null);
+  assert.equal(discovery.getProvider("xrp", "Crossmark"), null);
+  assert.equal(discovery.getProvider("tron", "TronLink"), null);
+});
+
+/* ————————————— Step 2.4 families through the composition ————————————— */
+
+import { createLitecoinProviderAdapter } from "./litecoinDiscovery.js";
+import { createDogecoinProviderAdapter } from "./dogecoinDiscovery.js";
+import { createXrpProviderAdapter } from "./xrpDiscovery.js";
+import { createTronProviderAdapter } from "./tronDiscovery.js";
+import { LITECOIN_WALLET_IDS as LTC_IDS } from "./litecoinRegistry.js";
+import { DOGECOIN_WALLET_IDS as DOGE_IDS } from "./dogecoinRegistry.js";
+import { XRP_WALLET_IDS as XRP_IDS } from "./xrpRegistry.js";
+import { TRON_WALLET_IDS as TRON_IDS } from "./tronRegistry.js";
+
+/** Fake @tronweb3/tronwallet-adapters-style adapter (readyState + events). */
+function makeFakeTronAdapter({ name, readyState = "Found" } = {}) {
+  const listeners = new Set();
+  return {
+    name,
+    readyState,
+    state: readyState === "Found" ? "Disconnected" : "NotFound",
+    address: "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    async connect() {},
+    async disconnect() {},
+    on(event, listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+test("composition: litecoin + dogecoin + xrp globals and tron adapters are discovered together", () => {
+  const win = {
+    xfi: { litecoin: {}, dogecoin: {} },
+    litescribe: {},
+    doge: {},
+    xrpl: { crossmark: {} },
+  };
+  const tronlink = makeFakeTronAdapter({ name: "TronLink" });
+  const okx = makeFakeTronAdapter({ name: "OKX Wallet", readyState: "NotFound" });
+
+  const discovery = createWalletDiscovery({
+    evmConfig: createDefaultEvmConfig(),
+    solanaRegistry: makeFakeRegistry(),
+    litecoinWin: win,
+    dogecoinWin: win,
+    xrpWin: win,
+    tronAdapters: [
+      { registryId: TRON_IDS.TRONLINK, adapter: tronlink },
+      { registryId: TRON_IDS.OKX, adapter: okx },
+    ],
+  });
+  discovery.start();
+  const snap = discovery.getDiscovered();
+
+  assert.deepEqual(snap.litecoin.map((w) => w.key).sort(), [LTC_IDS.CTRL, LTC_IDS.LITESCRIBE]);
+  assert.deepEqual(snap.dogecoin.map((w) => w.key).sort(), [DOGE_IDS.CTRL, DOGE_IDS.MYDOGE]);
+  assert.deepEqual(snap.xrp.map((w) => w.key), [XRP_IDS.CROSSMARK]);
+  assert.deepEqual(snap.tron.map((w) => w.key), [TRON_IDS.TRONLINK], "only Found adapters are installed");
+});
+
+test("composition: getProvider resolves the new families' real providers", async () => {
+  const win = { xfi: { litecoin: { request: async () => ["LbTjMGN7gELw4KbeyQf6cTCq859hD18guE"] } } };
+  const tronlink = makeFakeTronAdapter({ name: "TronLink" });
+  const discovery = createWalletDiscovery({
+    evmConfig: createDefaultEvmConfig(),
+    solanaRegistry: makeFakeRegistry(),
+    litecoinWin: win,
+    tronAdapters: [{ registryId: TRON_IDS.TRONLINK, adapter: tronlink }],
+  });
+  discovery.start();
+
+  const ltcProvider = discovery.getProvider("litecoin", LTC_IDS.CTRL);
+  assert.ok(ltcProvider, "Ctrl on Litecoin resolves");
+  assert.equal(ltcProvider.isReal, true);
+  const ltcResult = await ltcProvider.connect();
+  assert.equal(ltcResult.address, "LbTjMGN7gELw4KbeyQf6cTCq859hD18guE");
+
+  const tronProvider = discovery.getProvider("tron", TRON_IDS.TRONLINK);
+  assert.ok(tronProvider, "TronLink resolves via its adapter");
+  const tronResult = await tronProvider.connect();
+  assert.equal(tronResult.address, "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+
+  // Not installed / unknown → null (mock fallback).
+  assert.equal(discovery.getProvider("dogecoin", DOGE_IDS.CTRL), null);
+  assert.equal(discovery.getProvider("xrp", XRP_IDS.XAMAN), null, "Xaman is mobile — never a global install");
+  assert.equal(discovery.getProvider("tron", TRON_IDS.OKX), null, "OKX adapter not Found → null");
+});
+
+test("TRON-EVM ISOLATION: TronLink-family wallets NEVER appear in the EVM list, even with an ethereum-like object injected", () => {
+  // A window where a TronLink-family wallet injected BOTH an ethereum-like
+  // object and its own globals. EVM discovery is EIP-6963-only: nothing
+  // announces via 6963, so the EVM list must NOT contain TronLink — even
+  // though the injected ethereum-like object exists. Tron discovery is
+  // adapter-only: TronLink appears ONLY via its adapter.
+  const win = {
+    tronLink: {},
+    ethereum: { isTronLink: true, request: async () => [] }, // ethereum-like injection
+    xfi: { litecoin: {} },
+  };
+  const tronlink = makeFakeTronAdapter({ name: "TronLink" });
+  const discovery = createWalletDiscovery({
+    evmConfig: createDefaultEvmConfig(),
+    solanaRegistry: makeFakeRegistry(),
+    litecoinWin: win,
+    tronAdapters: [{ registryId: TRON_IDS.TRONLINK, adapter: tronlink }],
+  });
+  discovery.start();
+  const snap = discovery.getDiscovered();
+
+  const evmNames = snap.evm.map((p) => p.name ?? "");
+  assert.ok(
+    !evmNames.some((n) => n.toLowerCase().includes("tronlink")),
+    "TronLink must never appear in the EVM list (EIP-6963-only discovery ignores the ethereum-like injection)",
+  );
+
+  assert.deepEqual(snap.tron.map((w) => w.key), [TRON_IDS.TRONLINK], "TronLink appears in the TRON list via its adapter");
+  assert.deepEqual(snap.litecoin.map((w) => w.key), [LTC_IDS.CTRL], "the ethereum-like injection does not leak into other families either");
+});
+
+test("composition: family isolation — connecting Litecoin never touches Tron", async () => {
+  // Per docs/BRIEF.md: one wallet session per family; families never
+  // interfere. Proven here at the provider-resolution level: each family
+  // resolves through its OWN discovery module.
+  const win = { xfi: { litecoin: {} } };
+  const discovery = createWalletDiscovery({
+    evmConfig: createDefaultEvmConfig(),
+    solanaRegistry: makeFakeRegistry(),
+    litecoinWin: win,
+  });
+  discovery.start();
+
+  const ltc = discovery.getProvider("litecoin", LTC_IDS.CTRL);
+  const doge = discovery.getProvider("dogecoin", DOGE_IDS.CTRL);
+  const xrp = discovery.getProvider("xrp", XRP_IDS.CROSSMARK);
+  const tron = discovery.getProvider("tron", TRON_IDS.TRONLINK);
+
+  assert.ok(ltc, "litecoin resolves through its own module");
+  assert.equal(doge, null, "dogecoin has its own separate session list");
+  assert.equal(xrp, null);
+  assert.equal(tron, null);
 });
