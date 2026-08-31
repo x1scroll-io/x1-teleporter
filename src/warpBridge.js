@@ -27,6 +27,7 @@ import {
   getAssociatedTokenAddress,
   getAssociatedTokenAddressSync,
   createTransferInstruction,
+  createAssociatedTokenAccountIdempotentInstruction,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
@@ -40,6 +41,36 @@ export const WARP_PROGRAM_ID = new PublicKey(
 export const USDC_MINT = new PublicKey(
   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 );
+
+// X1-side: USDC.x is a Token-2022 mint; the recipient ATA must EXIST on X1
+// before Warp's guardians execute bridge_in_v2 (the v2 IDL has no
+// associated_token_program in bridge_in_v2's account list — the program
+// cannot create it, the client must).
+export const X1_ATA_PROGRAM = new PublicKey(
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+);
+
+// Minimum lamports a Solana fee payer needs before stage 2 will even
+// simulate. Covers rent-exempt for a 0-byte system account (~0.00089088 SOL)
+// plus a few tx fees. Below this the RPC rejects the tx at load with the
+// cryptic `AccountNotFound` (fee payer does not exist on-chain) — we preflight
+// it so the user gets an actionable message instead.
+export const SOLANA_FEE_PAYER_MIN_LAMPORTS = 1_000_000n; // 0.001 SOL
+
+/**
+ * Stage2FeePayerError — thrown when the user's Solana wallet cannot pay the
+ * stage-2 tx fee (account missing on Solana mainnet, or below rent-exempt).
+ * Without this preflight the RPC fails the simulation with the bare
+ * `AccountNotFound`, which is indistinguishable from a broken account list.
+ */
+export class Stage2FeePayerError extends Error {
+  constructor(message, { pubkey = null, lamports = null } = {}) {
+    super(message);
+    this.name = "Stage2FeePayerError";
+    this.pubkey = pubkey;
+    this.lamports = lamports;
+  }
+}
 
 // BridgeOut instruction discriminator — from the IDL
 export const BRIDGE_OUT_DISCRIMINATOR = Uint8Array.from([
@@ -67,6 +98,60 @@ export const ONE_USDC = 1_000_000n;
 // on-chain skim and every other fee read the SAME constant — if the rate ever
 // changes there, this follows automatically and cannot drift.
 export const SKIM_BPS = BigInt(Math.round(FEE_RATES.X1_HOP_SKIM * 10_000));
+
+// ── WARP v2 SPEC — FULL ACCOUNT LISTS (extracted from the Warp UI bundle's
+// own IDL at app.bridge.x1.xyz, Aug 2026; cross-checked against a live
+// mainnet bridge_out tx 3f8phJKqb…). The stage-2 code builds bridge_out from
+// this named spec so a test can prove every slot matches the IDL — order and
+// role both matter to the program (accounts are read by position).
+//
+// bridge_out (Solana side, native-USDC lock):
+//   config, token_registry, outgoing_msg, sender, sender_token_account,
+//   token_mint, vault, vault_token_account, fee_collector,
+//   fee_collector_token_account, token_program, system_program
+export const WARP_BRIDGE_OUT_ACCOUNTS_SPEC = [
+  { name: "config", writable: true, signer: false },
+  { name: "token_registry", writable: true, signer: false },
+  { name: "outgoing_msg", writable: true, signer: false },
+  { name: "sender", writable: true, signer: true },
+  { name: "sender_token_account", writable: true, signer: false },
+  { name: "token_mint", writable: true, signer: false },
+  { name: "vault", writable: true, signer: false },
+  { name: "vault_token_account", writable: true, signer: false },
+  { name: "fee_collector", writable: true, signer: false },
+  { name: "fee_collector_token_account", writable: true, signer: false },
+  { name: "token_program", writable: false, signer: false },
+  { name: "system_program", writable: false, signer: false },
+];
+
+// bridge_in_v2 (X1 side, executed by Warp's guardians with the staged
+// signature set — NOT submitted by this app; the app's job is to make every
+// account it CAN control exist first, above all the recipient ATA):
+//   config, guardian_set, token_registry, signature_set, incoming_msg, payer,
+//   recipient, recipient_token_account, token_mint, mint_authority,
+//   [vault, vault_token_account — OPTIONAL, native-only: omitted for wrapped
+//   USDC.x], token_program, system_program
+//
+// NOTE: the v2 IDL has NO associated_token_program in this list — the program
+// CANNOT create the recipient ATA. It must pre-exist, which is exactly what
+// ensureX1RecipientAta() does (idempotent create, payer = the user's wallet)
+// before the Solana-side bridge_out is broadcast.
+export const WARP_BRIDGE_IN_V2_ACCOUNTS_SPEC = [
+  { name: "config", writable: true, signer: false, pdaSeeds: ["config"] },
+  { name: "guardian_set", writable: false, signer: false, pdaSeeds: ["guardian_set"] },
+  { name: "token_registry", writable: true, signer: false, pdaSeeds: ["token_registry", "<local_mint>"] },
+  { name: "signature_set", writable: true, signer: false, pdaSeeds: ["sig_set", "<guardian_set_index>", "<source_seq>", "<sender>", "<source_token_mint>", "<local_mint>", "<amount>", "<source_timestamp>"] },
+  { name: "incoming_msg", writable: true, signer: false, pdaSeeds: ["evt_in", "<source_seq>"] },
+  { name: "payer", writable: true, signer: true },
+  { name: "recipient", writable: true, signer: false }, // must equal sender (bridge-to-self)
+  { name: "recipient_token_account", writable: true, signer: false }, // ← created idempotently by us
+  { name: "token_mint", writable: true, signer: false },
+  { name: "mint_authority", writable: true, signer: false, pdaSeeds: ["mint_authority", "<local_mint>"], optional: true }, // wrapped tokens
+  { name: "vault", writable: true, signer: false, pdaSeeds: ["vault", "<local_mint>"], optional: true }, // native-only: OMITTED for USDC.x
+  { name: "vault_token_account", writable: true, signer: false, optional: true }, // native-only: OMITTED for USDC.x
+  { name: "token_program", writable: false, signer: false },
+  { name: "system_program", writable: false, signer: false },
+];
 
 // ── PDA DERIVATION ──
 // From the Warp IDL — verified against live on-chain accounts.
@@ -215,6 +300,109 @@ async function getSlotFallback() {
   throw new Error("Could not read current slot from any RPC (needed to build the seq).");
 }
 
+// ── STAGE-2 PREFLIGHT (fee payer must exist on Solana) ──
+// The live hop failed with the bare `AccountNotFound`. Reproduction: when the
+// fee payer's system account does not exist on Solana mainnet (a wallet that
+// only ever received USDC via a LiFi-created ATA has NO Solana account), the
+// RPC rejects the tx at LOAD — before any instruction runs — with
+// TransactionError::AccountNotFound. All 12 bridge_out accounts exist
+// on-chain; the tx construction is spec-perfect (proven by simulation reaching
+// `Instruction: BridgeOut` with a funded fee payer). The fix is to preflight
+// the fee payer so the failure is actionable instead of cryptic.
+export async function assertSolanaFeePayer(connection, userPubkey) {
+  if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
+  let info = null;
+  try {
+    info = await connection.getAccountInfo(userPubkey);
+  } catch (e) {
+    // RPC read failed — fail closed with the same class of error, but say WHY.
+    throw new Stage2FeePayerError(
+      `Could not check your Solana wallet (${userPubkey.toBase58()}) before bridging: ${e?.message || e}. ` +
+      `Retry when the RPC is reachable.`,
+      { pubkey: userPubkey.toBase58() },
+    );
+  }
+  const lamports = info ? BigInt(info.lamports) : 0n;
+  if (lamports < SOLANA_FEE_PAYER_MIN_LAMPORTS) {
+    throw new Stage2FeePayerError(
+      `Your Solana wallet (${userPubkey.toBase58()}) has no spendable SOL on Solana mainnet ` +
+      `(${Number(lamports) / 1e9} SOL) — the Warp bridge needs a funded Solana account to pay the tx fee. ` +
+      `Send ~0.001 SOL to that address (or connect a Solana wallet that has SOL), then retry. ` +
+      `Your funds stay safe in your wallet until then.`,
+      { pubkey: userPubkey.toBase58(), lamports },
+    );
+  }
+  return { ok: true, lamports };
+}
+
+// ── X1 DESTINATION PREP — idempotent recipient ATA (Warp v2 spec step 1) ──
+// Warp's own UI creates the recipient's USDC.x ATA on X1 BEFORE bridging; the
+// v2 IDL's bridge_in_v2 has no associated_token_program, so the guardian mint
+// REQUIRES the ATA to pre-exist. Our stage-2 previously never touched X1 — the
+// guardian bridge_in_v2 would fail on a missing recipient ATA. This creates it
+// idempotently (create-if-missing, no-op if present) so stage-2 is retryable:
+// a retry after a half-finished attempt cannot hit "account already exists".
+export function deriveX1UsdcxAta(userPubkey) {
+  return getAssociatedTokenAddressSync(
+    X1_USDCX_MINT, userPubkey, true, TOKEN_2022_PROGRAM_ID,
+  );
+}
+
+export async function ensureX1RecipientAta({ connection, userPubkey, payer = null }) {
+  if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
+  if (payer && !(payer instanceof PublicKey)) payer = new PublicKey(payer);
+  const payerPk = payer || userPubkey; // the connected wallet pays rent + signs
+  const ata = deriveX1UsdcxAta(userPubkey);
+
+  let info = null;
+  try {
+    info = await connection.getAccountInfo(ata);
+  } catch (e) {
+    throw new Error(
+      `Could not check your X1 USDC.x account (${ata.toBase58()}): ${e?.message || e}. ` +
+      `Retry when the X1 RPC is reachable.`,
+    );
+  }
+  if (info) return { needsCreation: false, ata };
+
+  // Idempotent create — plain create would throw "account already exists" if a
+  // retry fires after the ATA got made (trading AccountNotFound for
+  // AccountAlreadyExists). Payer = the user's connected wallet (its adapter
+  // signs); the ATA is owned by the user, mint = USDC.x (Token-2022).
+  const tx = new Transaction();
+  tx.add(
+    createAssociatedTokenAccountIdempotentInstruction(
+      payerPk, // payer (rent + fee)
+      ata,     // associated token account to create/ensure
+      userPubkey, // owner
+      X1_USDCX_MINT, // mint (USDC.x, Token-2022)
+      TOKEN_2022_PROGRAM_ID, // token program
+    ),
+  );
+  tx.feePayer = payerPk;
+  try {
+    const { blockhash } = await connection.getLatestBlockhash("confirmed");
+    tx.recentBlockhash = blockhash;
+  } catch { /* wallet may supply one */ }
+  return { needsCreation: true, transaction: tx, ata };
+}
+
+// Guarded broadcast of the X1 ATA-creation tx: simulate on the X1 RPC first
+// (fail-closed — a rejection or an unreachable RPC blocks the send), then let
+// the connected wallet sign + broadcast on the X1 network.
+export async function sendX1AtaCreation(connection, transaction, provider) {
+  const p = provider ||
+    (typeof window !== "undefined" ? window.solana || window.phantom?.solana : null);
+  if (!p) throw new Error("No Solana/X1 wallet found to sign the X1 account-creation tx");
+  return guardedSendSolanaTx(connection, transaction, async () => {
+    if (typeof p.signAndSendTransaction === "function") {
+      const res = await p.signAndSendTransaction(transaction);
+      return res?.signature || res;
+    }
+    throw new Error("Connected wallet can't sign the X1 account-creation transaction");
+  });
+}
+
 // Build the full Stage-2 transaction
 export async function buildStage2({
   connection,
@@ -262,22 +450,30 @@ export async function buildStage2({
   // 3) Warp BridgeOut
   const data = encodeBridgeOutData(theSeq, bridgeBase);
 
-  // Account order EXACTLY as decoded from live tx2 BridgeOut instruction
-  // (verified against on-chain mainnet tx 3f8phJKqbQ3NL4i18uYMWWiBi7iA6tNUAXQdchQ2FchqJMRuEqGyxej2t9aAfrwxvcwYgSgJb9fBacR7L7diqXw2)
-  const keys = [
-    { pubkey: WARP_ACCOUNTS.config, isSigner: false, isWritable: true },   // 0 config
-    { pubkey: WARP_ACCOUNTS.tokenRegistry, isSigner: false, isWritable: true }, // 1 tokenRegistry
-    { pubkey: outgoingMsgPda, isSigner: false, isWritable: true },         // 2 outgoing_msg
-    { pubkey: userPubkey, isSigner: true, isWritable: true },              // 3 sender
-    { pubkey: userUsdcAta, isSigner: false, isWritable: true },            // 4 sender_token_account
-    { pubkey: USDC_MINT, isSigner: false, isWritable: true },              // 5 token_mint
-    { pubkey: WARP_ACCOUNTS.vault, isSigner: false, isWritable: true },    // 6 vault
-    { pubkey: WARP_ACCOUNTS.vaultTokenAccount, isSigner: false, isWritable: true }, // 7 vault_token_account
-    { pubkey: WARP_ACCOUNTS.feePda, isSigner: false, isWritable: true },   // 8 fee PDA
-    { pubkey: WARP_ACCOUNTS.feeCollectorAta, isSigner: false, isWritable: true }, // 9 fee_collector_token_account
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },      // 10 token_program
-    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },// 11 system_program
-  ];
+  // Account order driven by WARP_BRIDGE_OUT_ACCOUNTS_SPEC (extracted from the
+  // Warp v2 IDL + verified against live mainnet tx
+  // 3f8phJKqbQ3NL4i18uYMWWiBi7iA6tNUAXQdchQ2FchqJMRuEqGyxej2t9aAfrwxvcwYgSgJb9fBacR7L7diqXw2).
+  // The program reads accounts by POSITION — order and writable/signer flags
+  // are part of the contract. A test asserts every slot against the spec.
+  const byName = {
+    config: WARP_ACCOUNTS.config,
+    token_registry: WARP_ACCOUNTS.tokenRegistry,
+    outgoing_msg: outgoingMsgPda,
+    sender: userPubkey,
+    sender_token_account: userUsdcAta,
+    token_mint: USDC_MINT,
+    vault: WARP_ACCOUNTS.vault,
+    vault_token_account: WARP_ACCOUNTS.vaultTokenAccount,
+    fee_collector: WARP_ACCOUNTS.feePda,
+    fee_collector_token_account: WARP_ACCOUNTS.feeCollectorAta,
+    token_program: TOKEN_PROGRAM_ID,
+    system_program: SystemProgram.programId,
+  };
+  const keys = WARP_BRIDGE_OUT_ACCOUNTS_SPEC.map(({ name, writable, signer }) => ({
+    pubkey: byName[name],
+    isSigner: signer,
+    isWritable: writable,
+  }));
 
   tx.add(
     new TransactionInstruction({
@@ -311,11 +507,14 @@ export async function sendStage2ViaPhantom(connection, transaction, provider) {
     (typeof window !== "undefined" ? window.solana || window.phantom?.solana : null);
   if (!p) throw new Error("No Solana wallet found to sign the Warp tx");
 
-  // PREFER signAndSendTransaction — the WALLET broadcasts via its OWN RPC.
-  // To avoid "Blockhash not found" (our blockhash not yet seen by the wallet's
-  // RPC), set a FRESH blockhash at the last moment. Use 'confirmed' (widely
-  // propagated across RPC nodes, unlike 'finalized' which can lag). Most wallets
-  // also re-fetch their own; this maximizes the chance both agree.
+  // PREFER signTransaction + OUR broadcast through the SAME connection the tx
+  // was simulated against. X1 is SVM-compatible: a wallet on the X1 network
+  // would broadcast a Solana tx to X1 via signAndSendTransaction — where the
+  // Solana accounts don't exist and the RPC rejects it (again with
+  // `AccountNotFound` when the wallet itself isn't on X1). Broadcasting via the
+  // app's Solana connection makes the destination chain deterministic and
+  // matches the simulation. A fresh blockhash is applied at the last moment to
+  // avoid "Blockhash not found".
   let freshHash = null;
   try {
     const r = await connection.getLatestBlockhash("confirmed");
@@ -331,32 +530,68 @@ export async function sendStage2ViaPhantom(connection, transaction, provider) {
   // succeed because the simulation RPC is down — the send is BLOCKED and the
   // surfaced reason propagates. No wallet prompt, no broadcast, no wasted gas.
   return guardedSendSolanaTx(connection, transaction, async () => {
-    if (typeof p.signAndSendTransaction === "function") {
-      const res = await p.signAndSendTransaction(transaction);
-      return res?.signature || res;
-    }
-
-    // Manual fallback: WE broadcast through the same connection the blockhash
-    // came from, so they match.
     if (typeof p.signTransaction === "function") {
+      // Deterministic broadcast: WE send through the connection the blockhash
+      // and simulation came from, so the tx lands on Solana mainnet regardless
+      // of which network the wallet is currently pointed at.
       const signed = await p.signTransaction(transaction);
       const sig = await connection.sendRawTransaction(signed.serialize(), { maxRetries: 3 });
       await connection.confirmTransaction(sig, "confirmed");
       return sig;
     }
+
+    // Fallback: let the wallet broadcast via its own RPC.
+    if (typeof p.signAndSendTransaction === "function") {
+      const res = await p.signAndSendTransaction(transaction);
+      return res?.signature || res;
+    }
     throw new Error("Connected wallet can't sign transactions");
   });
 }
 
-// Full guarded flow: build, simulate, and optionally send
+// Full guarded flow: preflight the fee payer, prepare the X1 recipient ATA
+// (idempotent, if an X1 connection is supplied), build, simulate, optionally
+// send.
 export async function runStage2({
-  connection,
+  connection,          // Solana RPC (the chain bridge_out executes on)
   userPubkey,
   feeWalletSvm,
   amountHuman,
   allowLive = false,
   provider = null,
+  x1Connection = null, // X1 RPC — enables the recipient-ATA prep (Warp v2 spec step 1)
+  createX1Ata = true,
 }) {
+  // 0) Fee-payer preflight (Solana): the bare `AccountNotFound` from the live
+  //    hop was the fee payer missing on Solana — surface it as an actionable
+  //    error instead of letting the simulation die cryptically.
+  await assertSolanaFeePayer(connection, userPubkey);
+
+  // 1) X1 destination prep: bridge_in_v2 (guardians) requires the recipient's
+  //    USDC.x ATA to already exist on X1. Create it idempotently via the
+  //    connected wallet (payer = user) BEFORE the Solana leg locks funds.
+  //    allowLive:false still SIMULATES the ATA tx (fail-closed) but broadcasts
+  //    nothing — same no-touch promise as the Solana leg.
+  let prep = null;
+  if (x1Connection && createX1Ata) {
+    prep = await ensureX1RecipientAta({
+      connection: x1Connection,
+      userPubkey,
+      payer: userPubkey, // the user's connected wallet pays rent + signs
+    });
+    if (prep.needsCreation) {
+      if (allowLive) {
+        // Guarded: simulate on X1 (fail-closed), then wallet signs + broadcasts.
+        await sendX1AtaCreation(x1Connection, prep.transaction, provider);
+      } else {
+        const prepSim = await simulateStage2(x1Connection, prep.transaction);
+        if (!prepSim.ok) {
+          return { stage: "x1_ata_simulation", success: false, sim: prepSim, prep, built: null };
+        }
+      }
+    }
+  }
+
   const built = await buildStage2({
     connection,
     userPubkey,
@@ -365,13 +600,13 @@ export async function runStage2({
   });
   const sim = await simulateStage2(connection, built.transaction);
   if (!sim.ok) {
-    return { stage: "simulation", success: false, sim, built };
+    return { stage: "simulation", success: false, sim, built, prep };
   }
   if (!allowLive) {
-    return { stage: "simulated_ok", success: true, sim, built, sent: null };
+    return { stage: "simulated_ok", success: true, sim, built, sent: null, prep };
   }
   const sig = await sendStage2ViaPhantom(connection, built.transaction, provider);
-  return { stage: "sent", success: true, sim, built, signature: sig };
+  return { stage: "sent", success: true, sim, built, signature: sig, prep };
 }
 
 // ════════════════════════════════════════════════════════════════════════════

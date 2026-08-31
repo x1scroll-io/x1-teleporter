@@ -43,7 +43,7 @@
 
 import { useState } from "react";
 import {
-  CHAINS, TOKENS, EVM_CHAINS, X1_MIN, WARP_BRIDGE_URL, SOLANA_RPC, tokensFor,
+  CHAINS, TOKENS, EVM_CHAINS, X1_MIN, WARP_BRIDGE_URL, SOLANA_RPC, X1_RPC, tokensFor,
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { executeLiFiEvmTx } from "../lib/teleportExecute.js";
@@ -63,8 +63,13 @@ export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive }
   const { Connection, PublicKey } = await import("@solana/web3.js");
   const { runStage2 } = await import("../warpBridge.js");
   const connection = new Connection(SOLANA_RPC, "confirmed");
+  // X1 RPC for the destination prep: runStage2 creates the recipient's USDC.x
+  // ATA on X1 (idempotent, payer = the connected wallet) before the Solana
+  // bridge_out, so Warp's guardian bridge_in_v2 finds the ATA already there.
+  const x1Connection = new Connection(X1_RPC, "confirmed");
   return runStage2({
     connection,
+    x1Connection,
     userPubkey: solAdapter.publicKey,
     feeWalletSvm: new PublicKey(FEE_WALLETS.SVM),
     amountHuman,
