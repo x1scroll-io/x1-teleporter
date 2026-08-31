@@ -15,8 +15,14 @@
 type Env = Record<string, string | undefined>;
 
 function readEnv(): Env {
-  const meta = import.meta as unknown as { env?: Env };
-  return meta.env ?? {};
+  // Vite replaces ONLY literal `import.meta.env` expressions at build time.
+  // A dynamic `meta.env` access compiles to native `import.meta.env`, which is
+  // undefined in the browser — flags would silently resolve false in every
+  // deployed bundle (this is exactly why env injection never reached the
+  // gate). Read the replaceable form directly. Under node --test (no Vite
+  // transform), `import.meta.env` is undefined and `?? {}` keeps every flag
+  // at its safety default.
+  return import.meta.env ?? {};
 }
 
 /**
