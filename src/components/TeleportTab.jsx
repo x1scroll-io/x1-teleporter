@@ -18,6 +18,15 @@
  * trigger: no session connected → picker; any session connected → body.
  * Wallet-agnostic by construction: it keys on session.status, never on a
  * wallet id or provider shape.
+ *
+ * PHASE 3 (bridge form): once ANY session is connected the body renders the
+ * REAL bridge form (TeleportForm) — chains, tokens, amount, Get Quote, the
+ * fee lines (Teleporter fee 1% + Warp bridge fee $1 on X1 routes), and the
+ * simulation-gated send — wired to the WalletContext sessions (the EVM
+ * session's provider/address drives the quote + stage-1 send; the Solana
+ * session's address is the LiFi leg's destination and its adapter signs the
+ * Warp stage 2). The old "Phase 3" placeholder is GONE — see
+ * TeleportForm.jsx for the full flow + gates (WARP_LIVE_SEND, simulation).
  */
 
 import { useWalletContext } from "../lib/wallet/WalletContext.jsx";
@@ -30,6 +39,7 @@ import {
 import { formatXrpBalance } from "../lib/wallet/xrpBalance.js";
 import { formatTronBalance } from "../lib/wallet/tronBalance.js";
 import ConnectModal from "./ConnectModal.jsx";
+import TeleportForm from "./TeleportForm.jsx";
 
 const S = {
   h2: { margin: "0 0 12px", fontSize: 18, color: "#e8ecf3" },
@@ -44,10 +54,6 @@ const S = {
   disconnect: {
     background: "none", border: "1px solid #3a4a63", color: "#7d8aa0",
     borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 13,
-  },
-  placeholder: {
-    marginTop: 8, padding: 12, border: "1px dashed #3a4a63", borderRadius: 8,
-    color: "#7d8aa0", fontSize: 12, fontStyle: "italic",
   },
 };
 
@@ -73,8 +79,11 @@ function formatBalance(familyName, balance) {
 /**
  * The connected body — the Teleport tab's second sequential state. Renders
  * every connected family session (one session per family, isolation intact)
- * with its address + balance and a per-family Disconnect. The bridge form
- * is the Phase 3 next state; until then the placeholder marks the seam.
+ * with its address + balance and a per-family Disconnect, then the Phase 3
+ * bridge form (TeleportForm) wired to the connected sessions — the EVM
+ * session's provider/address drives the quote + stage-1 send, the Solana
+ * session's address is the LiFi leg's destination and its adapter signs the
+ * Warp stage 2.
  */
 function ConnectedBody() {
   const { sessions, disconnect } = useWalletContext();
@@ -112,9 +121,7 @@ function ConnectedBody() {
           </div>
         );
       })}
-      <div className="bridge-form-placeholder" data-testid="bridge-form-placeholder" style={S.placeholder}>
-        The bridge form is the next state of this tab (Phase 3).
-      </div>
+      <TeleportForm evmSession={sessions.evm} solSession={sessions.solana} />
     </div>
   );
 }
