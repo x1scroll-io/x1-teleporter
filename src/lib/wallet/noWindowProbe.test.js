@@ -37,10 +37,13 @@ export const SRC_ROOT = fileURLToPath(new URL("../../", import.meta.url));
  * regex SOURCE in this file never contains a self-matching run — a naive
  * literal regex would flag this very file.
  */
-const BANNED_GLOBAL_NAMES = ["ethereum", "solana", "BitcoinProvider", "tronLink"];
+const BANNED_GLOBAL_NAMES = ["ethereum", "solana", "BitcoinProvider", "tronLink", "unisat"];
 export const BANNED_PATTERNS = BANNED_GLOBAL_NAMES.map(
   (name) => new RegExp(`window\\${"."}${name}`),
 );
+
+/** The bare injected unisat-global pattern alone (Bitcoin impersonation rule). */
+export const UNISAT_PATTERN = new RegExp(`window\\${"."}unisat`);
 
 /**
  * Legacy files allowed to keep reading the injected globals until the
@@ -48,6 +51,17 @@ export const BANNED_PATTERNS = BANNED_GLOBAL_NAMES.map(
  * of the rule is that new code never touches these globals.
  */
 export const LEGACY_ALLOWLIST = new Set(["Teleporter.jsx", "warpBridge.js"]);
+
+/**
+ * The SOLE sanctioned bare injected `unisat` global access: the
+ * impersonation-aware Bitcoin detection module (reads the bare global per
+ * the registry's three-step collision rule) + the registry data file that
+ * documents the key. Do NOT extend — any other bare read is a bug.
+ */
+export const BITCOIN_UNISAT_ALLOWLIST = new Set([
+  "lib/wallet/bitcoinDiscovery.js",
+  "lib/wallet/bitcoinRegistry.js",
+]);
 
 const SOURCE_EXTENSIONS = /\.(js|jsx|ts|tsx|mjs|cjs)$/;
 
@@ -82,12 +96,13 @@ export function findBannedWindowAccess(rootDir, { patterns = BANNED_PATTERNS, al
   return offenders.sort();
 }
 
-test("live scan: no src/ file (outside the documented legacy allowlist) reads any injected wallet global", () => {
-  const offenders = findBannedWindowAccess(SRC_ROOT);
+test("live scan: no src/ file (outside the documented allowlists) reads any injected wallet global", () => {
+  const allowlist = new Set([...LEGACY_ALLOWLIST, ...BITCOIN_UNISAT_ALLOWLIST]);
+  const offenders = findBannedWindowAccess(SRC_ROOT, { allowlist });
   assert.deepEqual(
     offenders,
     [],
-    "banned injected-global access found in src/ — remove the patterns; do NOT extend LEGACY_ALLOWLIST",
+    "banned injected-global access found in src/ — remove the patterns; do NOT extend the allowlists",
   );
 });
 
@@ -112,4 +127,24 @@ test("scanner self-test: the allowlist is honored (and not blanket)", () => {
   // …but a DIFFERENT allowlist entry does not (allowlist is exact-match).
   const notAllowed = findBannedWindowAccess(fixturesDir, { allowlist: new Set(["some-other-file.js"]) });
   assert.deepEqual(notAllowed, [fixtureRel]);
+});
+
+test("the bare injected unisat global appears ONLY in the impersonation-aware Bitcoin allowlist (Step 2.3)", () => {
+  // The bare injected unisat global is banned everywhere except the module
+  // that implements the registry's three-step impersonation rule and the
+  // data file that documents the key.
+  const offenders = findBannedWindowAccess(SRC_ROOT, {
+    patterns: [UNISAT_PATTERN],
+    allowlist: BITCOIN_UNISAT_ALLOWLIST,
+  });
+  assert.deepEqual(offenders, [], "the bare global outside the impersonation module is a bug");
+
+  // And the allowlist is not dead: WITHOUT it, exactly those files are
+  // flagged for the unisat pattern.
+  const raw = findBannedWindowAccess(SRC_ROOT, { patterns: [UNISAT_PATTERN], allowlist: new Set() });
+  assert.deepEqual(
+    raw.sort(),
+    [...BITCOIN_UNISAT_ALLOWLIST].sort(),
+    "the impersonation allowlist must cover exactly the files that read the bare global",
+  );
 });

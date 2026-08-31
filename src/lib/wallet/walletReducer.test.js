@@ -139,3 +139,33 @@ test("unknown families are ignored defensively", () => {
   assert.equal(walletReducer(state, { type: "DISCONNECT", family: "monero" }), state);
   assert.equal(canConnect(state, "monero"), false);
 });
+
+test("CONNECT_SUCCESS carries the optional balance (Bitcoin payment-address balance, Step 2.3)", () => {
+  let state = createInitialState();
+  state = walletReducer(state, { type: "CONNECT_START", family: "bitcoin" });
+  state = walletReducer(state, {
+    type: "CONNECT_SUCCESS",
+    family: "bitcoin",
+    address: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+    provider: {},
+    balance: 400_000,
+  });
+  assert.equal(state.bitcoin.status, CONNECTED);
+  assert.equal(state.bitcoin.balance, 400_000);
+
+  // Families without a balance keep their shape-stable sessions (no
+  // balance key introduced).
+  state = walletReducer(state, { type: "CONNECT_START", family: "evm" });
+  state = walletReducer(state, {
+    type: "CONNECT_SUCCESS",
+    family: "evm",
+    address: "0xabc",
+    provider: {},
+  });
+  assert.equal(state.evm.balance, undefined);
+  assert.deepEqual(Object.keys(state.evm), ["status", "address", "provider", "error"]);
+
+  // DISCONNECT clears the balance with the session.
+  state = walletReducer(state, { type: "DISCONNECT", family: "bitcoin" });
+  assert.deepEqual(state.bitcoin, initialFamilyState());
+});

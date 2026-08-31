@@ -58,6 +58,7 @@ export const WalletContext = createContext(null);
 const EMPTY_DISCOVERED = Object.freeze({
   evm: Object.freeze([]),
   solana: Object.freeze([]),
+  bitcoin: Object.freeze([]),
 });
 
 /**
@@ -142,6 +143,9 @@ export function WalletProvider({ children, providerFactory, initialState, discov
           family,
           address: result.address,
           provider: result.provider ?? provider,
+          // Optional per-family extra: the Bitcoin session carries the
+          // payment-address balance (sats) read at connect time.
+          balance: result.balance,
         });
       } catch (error) {
         dispatch({

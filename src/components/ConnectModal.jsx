@@ -22,11 +22,13 @@
 import { useState } from "react";
 import { useWalletContext } from "../lib/wallet/WalletContext.jsx";
 import { FAMILY_LABELS } from "../lib/wallet/families.js";
+import { formatBtcBalance } from "../lib/wallet/bitcoinBalance.js";
 import {
   buildFamilyRows,
   buildFamilyWalletRows,
   normalizeEvmDiscovered,
   normalizeSolanaDiscovered,
+  normalizeBitcoinDiscovered,
 } from "../lib/wallet/modalLogic.js";
 
 const S = {
@@ -61,10 +63,24 @@ const S = {
   walletRowInstalled: { border: "1px solid #2e7d4f", background: "#0f1d16" },
   walletRowPinned: { border: "1px solid #8a6d1a", background: "#1a160c" },
   walletName: { fontWeight: 600 },
+  walletSub: { display: "block", fontSize: 11, color: "#7d8aa0", marginTop: 2 },
   badge: {
     marginLeft: 8, fontSize: 11, color: "#5fd38a", border: "1px solid #2e7d4f",
     borderRadius: 999, padding: "2px 8px",
   },
+  verifyTag: {
+    marginLeft: 8, fontSize: 11, color: "#e5c35c", border: "1px solid #8a6d1a",
+    borderRadius: 999, padding: "2px 8px",
+  },
+  depositRow: {
+    marginTop: 10, border: "1px dashed #3a4a63", background: "#0c1320",
+  },
+  qrPlaceholder: {
+    width: 88, height: 88, borderRadius: 6, border: "1px solid #2a3a55",
+    background: "repeating-conic-gradient(#16223a 0% 25%, #0c1320 0% 50%) 0 0 / 14px 14px",
+    marginRight: 12, flex: "0 0 auto",
+  },
+  memoTodo: { fontSize: 11, color: "#e5c35c", marginTop: 4, fontStyle: "italic" },
   pinnedTag: { marginLeft: 8, fontSize: 11, color: "#e5c35c", border: "1px solid #8a6d1a", borderRadius: 999, padding: "2px 8px" },
   connectBtn: {
     background: "#16404f", color: "#a8e6f5", border: "1px solid #1f5d74",
@@ -122,7 +138,9 @@ export default function ConnectModal() {
       ? normalizeEvmDiscovered(discovered.evm ?? [])
       : family === "solana"
         ? normalizeSolanaDiscovered(discovered.solana ?? [])
-        : [];
+        : family === "bitcoin"
+          ? normalizeBitcoinDiscovered(discovered.bitcoin ?? [])
+          : [];
   const rows = buildFamilyWalletRows({ family, discovered: discoveredItems });
 
   return (
@@ -134,7 +152,12 @@ export default function ConnectModal() {
 
       {session.status === "connected" && (
         <div className="status status--connected" data-testid="connect-status" style={{ ...S.status, ...S.statusConnected }}>
-          Connected: <code>{session.address}</code>{" "}
+          Connected: <code>{session.address}</code>
+          {session.balance !== undefined && family === "bitcoin" && (
+            <span className="balance" data-testid="btc-balance">
+              {" "}· balance {formatBtcBalance(session.balance)}
+            </span>
+          )}{" "}
           <button type="button" className="disconnect-btn" style={S.installLink} onClick={() => disconnect(family)}>
             Disconnect
           </button>
@@ -153,6 +176,36 @@ export default function ConnectModal() {
 
       <ul className="wallet-list" style={S.walletList}>
         {rows.map((row) => {
+          // Deposit-address fallback row (BTC/LTC/DOGE/XRP): ALWAYS the
+          // final row, never connectable — the v1 path. The deposit address
+          // + memo come from the THORChain flow (Step 3.3); until then the
+          // row shows the concept + a clearly marked TODO. No guessed APIs.
+          if (row.depositAddress) {
+            return (
+              <li
+                key={row.id}
+                className="wallet-row wallet-row--deposit-address"
+                data-wallet-id={row.id}
+                data-deposit-address="true"
+                style={{ ...S.walletRow, ...S.depositRow }}
+              >
+                <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
+                  <div className="qr-placeholder" style={S.qrPlaceholder} aria-hidden="true" />
+                  <div>
+                    <span style={S.walletName}>{row.name}</span>
+                    <span style={S.walletSub}>
+                      Send from any desktop wallet (Sparrow, Electrum, …) — no extension needed
+                    </span>
+                    <span className="deposit-memo-todo" style={S.memoTodo}>
+                      ⚠️ TODO: deposit address + memo arrive with the THORChain
+                      quote flow (Step 3.3) — not guessed here.
+                    </span>
+                  </div>
+                </div>
+              </li>
+            );
+          }
+
           const rowStyle = row.pinned
             ? { ...S.walletRow, ...S.walletRowPinned }
             : row.installed
@@ -172,12 +225,18 @@ export default function ConnectModal() {
               data-wallet-id={row.id}
               data-installed={row.installed}
               data-pinned={row.pinned}
+              data-status={row.status ?? ""}
               style={rowStyle}
             >
               <span>
                 <span style={S.walletName}>{row.name}</span>
                 {row.pinned && <span className="badge badge--recommended" style={S.pinnedTag}>Recommended</span>}
                 {row.installed && <span className="badge badge--installed" style={S.badge}>Installed</span>}
+                {row.status === "verify" && (
+                  <span className="badge badge--verify" style={S.verifyTag} title="Verify at build time (registry ⚠️ row)">
+                    Verify
+                  </span>
+                )}
               </span>
               {actionable ? (
                 <button

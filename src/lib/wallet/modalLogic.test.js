@@ -18,7 +18,13 @@ import {
   buildFamilyWalletRows,
   normalizeEvmDiscovered,
   normalizeSolanaDiscovered,
+  normalizeBitcoinDiscovered,
 } from "./modalLogic.js";
+import {
+  BITCOIN_WALLETS,
+  BITCOIN_WALLET_IDS as IDS,
+  DEPOSIT_ADDRESS_ID,
+} from "./bitcoinRegistry.js";
 
 /** Every family in the registry must have entries — the modal has no empty families. */
 test("registry covers every family with the pinned Starport row + a reference wallet", () => {
@@ -171,4 +177,117 @@ test("wagmi's generic injected fallback connector is not a wallet entry", () => 
     ["io.metamask"],
     "the injected fallback is filtered out, announced providers kept",
   );
+});
+
+/* ————————————— Bitcoin family (Step 2.3, canonical table) ————————————— */
+
+/**
+ * The order buildFamilyWalletRows MUST produce for bitcoin:
+ * pinned (Starport) → reference (Xverse) → software alphabetical →
+ * hardware alphabetical (Ledger, Trezor) → deposit-address last.
+ * Derived from the same grouping rules, so it pins the modal layout
+ * without duplicating the implementation.
+ */
+function expectedBitcoinOrder() {
+  const byId = new Map(BITCOIN_WALLETS.map((e) => [e.id, e]));
+  const byName = (a, b) => byId.get(a).name.localeCompare(byId.get(b).name);
+  const pinned = BITCOIN_WALLETS.filter((e) => e.pinned).map((e) => e.id);
+  const reference = BITCOIN_WALLETS.filter((e) => e.reference).map((e) => e.id);
+  const software = BITCOIN_WALLETS.filter(
+    (e) => !e.pinned && !e.reference && !e.hardware && !e.depositAddress,
+  )
+    .map((e) => e.id)
+    .sort(byName);
+  const hardware = BITCOIN_WALLETS.filter((e) => e.hardware)
+    .map((e) => e.id)
+    .sort(byName);
+  const deposit = BITCOIN_WALLETS.filter((e) => e.depositAddress).map((e) => e.id);
+  return [...pinned, ...reference, ...software, ...hardware, ...deposit];
+}
+
+test("bitcoin: the full registry table renders — deposit-address row ALWAYS last, never removed", () => {
+  // Zero wallets installed: every row still renders (modal layout rule:
+  // never hidden), and the deposit-address row is the final row.
+  const rows = buildFamilyWalletRows({ family: "bitcoin", discovered: [] });
+
+  assert.equal(rows[0].id, STARPORT_ID, "Starport pinned first");
+  assert.equal(rows[1].id, IDS.XVERSE, "Xverse (reference wallet) second");
+  assert.equal(rows[rows.length - 1].id, DEPOSIT_ADDRESS_ID, "deposit-address row is last");
+  assert.equal(rows[rows.length - 1].depositAddress, true);
+  assert.equal(rows[rows.length - 1].installed, false);
+
+  // Every canonical entry appears exactly once, in the fixed modal order —
+  // nothing hidden, nothing reordered by install state.
+  assert.deepEqual(rows.map((r) => r.id), expectedBitcoinOrder());
+});
+
+test("bitcoin: hardware (Ledger, Trezor) sorts after software, before deposit-address", () => {
+  const rows = buildFamilyWalletRows({ family: "bitcoin", discovered: [] });
+  const ids = rows.map((r) => r.id);
+  const softwareSet = new Set(
+    rows.filter((r) => !r.pinned && !r.reference && !r.hardware && !r.depositAddress).map((r) => r.id),
+  );
+  const hardwareIds = [IDS.LEDGER, IDS.TREZOR];
+
+  const softwareIdx = ids.map((id, i) => (softwareSet.has(id) ? i : -1)).filter((i) => i >= 0);
+  const hardwareIdx = ids.map((id, i) => (hardwareIds.includes(id) ? i : -1)).filter((i) => i >= 0);
+  const deposit = ids.indexOf(DEPOSIT_ADDRESS_ID);
+
+  assert.ok(Math.max(...softwareIdx) < Math.min(...hardwareIdx), "all hardware after all software");
+  assert.ok(Math.max(...hardwareIdx) < deposit, "hardware before deposit-address");
+  assert.ok(rows[hardwareIdx[0]].hardware && rows[hardwareIdx[1]].hardware);
+});
+
+test("bitcoin: software rows (✅ and ⚠️) are alphabetical; ⚠️ rows carry status + install links", () => {
+  const rows = buildFamilyWalletRows({ family: "bitcoin", discovered: [] });
+  const software = rows.filter((r) => !r.pinned && !r.reference && !r.hardware && !r.depositAddress);
+  assert.deepEqual(
+    software.map((r) => r.name),
+    [...software.map((r) => r.name)].sort((a, b) => a.localeCompare(b)),
+    "software sorted alphabetically",
+  );
+
+  const verifyRows = software.filter((r) => r.status === "verify");
+  assert.ok(verifyRows.length >= 6, "all ⚠️ registry rows present (Magic Eden, Coinbase, Enkrypt, Keplr, Leap, Trust, OP_NET)");
+  for (const row of verifyRows) {
+    assert.ok(
+      typeof row.installUrl === "string" && row.installUrl.startsWith("https://"),
+      `${row.id} keeps its install link (never hidden)`,
+    );
+  }
+});
+
+test("bitcoin: installed wallets are highlighted in place (fixed order, not detected-first)", () => {
+  const rows = buildFamilyWalletRows({
+    family: "bitcoin",
+    discovered: normalizeBitcoinDiscovered([
+      { key: IDS.PHANTOM, name: "Phantom", source: "global" },
+      { key: IDS.XVERSE, name: "Xverse", source: "standard" },
+    ]),
+  });
+
+  assert.deepEqual(
+    rows.map((r) => r.id),
+    expectedBitcoinOrder(),
+    "fixed order unchanged by install state",
+  );
+  assert.equal(rows.find((r) => r.id === IDS.XVERSE).installed, true);
+  assert.equal(rows.find((r) => r.id === IDS.PHANTOM).installed, true);
+  assert.equal(rows.find((r) => r.id === IDS.UNISAT).installed, false);
+});
+
+test("bitcoin: normalizeBitcoinDiscovered maps discovery entries to {key, name}", () => {
+  const normalized = normalizeBitcoinDiscovered([
+    { key: IDS.XVERSE, name: "Xverse", source: "standard" },
+    { key: "standard:Future", name: "Future", source: "standard" },
+  ]);
+  assert.deepEqual(normalized.map((n) => n.key), [IDS.XVERSE, "standard:Future"]);
+  assert.equal(normalized[0].name, "Xverse");
+  assert.deepEqual(normalizeBitcoinDiscovered(undefined), []);
+});
+
+test("bitcoin: a discovered Starport announcement flips the pinned row to installed", () => {
+  const rows = buildFamilyWalletRows({ family: "bitcoin", discovered: [{ key: "Starport" }] });
+  assert.equal(rows[0].id, STARPORT_ID);
+  assert.equal(rows[0].installed, true, "Starport highlighted when it announces Bitcoin");
 });

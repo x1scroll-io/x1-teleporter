@@ -50,6 +50,8 @@ import { WALLET_FAMILIES, FAMILY_LABELS } from "./families.js";
 import { WALLET_REGISTRY } from "./modalLogic.js";
 import { createEvmProviderAdapter } from "./evmDiscovery.js";
 import { createSolanaProviderAdapter } from "./solanaDiscovery.js";
+import { createBitcoinProviderAdapter } from "./bitcoinDiscovery.js";
+import { BITCOIN_WALLET_IDS as BTC_IDS, DEPOSIT_ADDRESS_ID } from "./bitcoinRegistry.js";
 
 const EVM_ADDRESS = "0x1111222233334444555566667777888899990000";
 const MOCK_EVM_ADDRESS = "mock:evm:0x1234567890abcdef1234567890abcdef12345678";
@@ -83,6 +85,7 @@ function fakeDiscovery() {
   const listeners = new Set();
   let evm = [];
   let solana = [];
+  let bitcoin = [];
   return {
     start() {},
     stop() {},
@@ -91,7 +94,7 @@ function fakeDiscovery() {
       return () => listeners.delete(listener);
     },
     getDiscovered() {
-      return { evm: [...evm], solana: [...solana] };
+      return { evm: [...evm], solana: [...solana], bitcoin: [...bitcoin] };
     },
     getProvider(family, walletId) {
       if (family === "evm") {
@@ -102,11 +105,21 @@ function fakeDiscovery() {
         const adapter = solana.find((a) => a.name === walletId);
         return adapter ? createSolanaProviderAdapter(adapter) : null;
       }
+      if (family === "bitcoin") {
+        const entry = bitcoin.find((w) => w.key === walletId);
+        return entry
+          ? createBitcoinProviderAdapter({ walletId, laserEyes: entry.laserEyes, balanceFetcher: entry.balanceFetcher })
+          : null;
+      }
       return null;
     },
     // Test helpers:
     _announceEvm(entry) {
       evm = [...evm, entry];
+      for (const l of listeners) l(this.getDiscovered());
+    },
+    _announceBitcoin(wallet) {
+      bitcoin = [...bitcoin, wallet];
       for (const l of listeners) l(this.getDiscovered());
     },
   };
@@ -317,6 +330,92 @@ test("family list reflects a connected session (address shown, back navigation w
     const solanaRow = container.querySelector('[data-family="solana"]');
     assert.equal(solanaRow.getAttribute("data-status"), "connected");
     assert.equal(solanaRow.textContent.includes("mock:solana:"), true, "address shown in family list");
+  } finally {
+    unmount();
+  }
+});
+
+/* ————————————— Bitcoin family (Step 2.3) ————————————— */
+
+const BTC_PAYMENT = "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh";
+const BTC_ORDINALS = "bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3297";
+
+test("bitcoin: deposit-address row always renders LAST with the memo TODO, even with zero wallets installed", () => {
+  const { container, unmount } = renderCard(fakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="bitcoin"]'));
+
+    const allRows = rows(container);
+    const deposit = allRows[allRows.length - 1];
+    assert.equal(deposit.id, DEPOSIT_ADDRESS_ID, "deposit-address row is the final bitcoin row");
+    assert.equal(deposit.el.getAttribute("data-deposit-address"), "true");
+    assert.equal(deposit.installed, false, "never connectable");
+    assert.equal(deposit.el.querySelector(".connect-btn"), null, "no connect button on the deposit row");
+    assert.ok(
+      deposit.el.querySelector(".qr-placeholder"),
+      "QR placeholder renders (real QR arrives with the THORChain deposit address)",
+    );
+    assert.ok(
+      deposit.el.querySelector(".deposit-memo-todo"),
+      "memo TODO is clearly marked (memo arrives with the THORChain quote flow)",
+    );
+  } finally {
+    unmount();
+  }
+});
+
+test("bitcoin: connecting an installed wallet stores the PAYMENT address and shows the balance", async () => {
+  const discovery = fakeDiscovery();
+  discovery._announceBitcoin({
+    key: BTC_IDS.XVERSE,
+    name: "Xverse",
+    source: "standard",
+    laserEyes: {
+      connect: async (providerType) => {
+        assert.equal(providerType, "xverse");
+        return { paymentAddress: BTC_PAYMENT, address: BTC_ORDINALS, accounts: [BTC_PAYMENT] };
+      },
+      disconnect() {},
+    },
+    balanceFetcher: async (address) => {
+      assert.equal(address, BTC_PAYMENT, "balance is fetched for the payment address");
+      return 123_456;
+    },
+  });
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="bitcoin"]'));
+    const xverse = rows(container).find((r) => r.id === BTC_IDS.XVERSE);
+    assert.equal(xverse.installed, true, "Xverse highlighted as installed");
+    assert.ok(xverse.el.querySelector(".badge--installed"));
+
+    await act(async () => {
+      xverse.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const status = container.querySelector('[data-testid="connect-status"]');
+    assert.ok(status.textContent.includes(BTC_PAYMENT), "payment (bc1q) address shown");
+    assert.equal(status.textContent.includes(BTC_ORDINALS), false, "ordinals (bc1p) address NEVER shown");
+    const balance = container.querySelector('[data-testid="btc-balance"]');
+    assert.ok(balance, "balance rendered in the modal");
+    assert.equal(balance.textContent.includes("0.00123456 BTC"), true);
+  } finally {
+    unmount();
+  }
+});
+
+test("bitcoin: ⚠️ rows render with a Verify badge and keep their install links (never hidden)", () => {
+  const { container, unmount } = renderCard(fakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="bitcoin"]'));
+
+    const verifyRows = [...container.querySelectorAll('[data-status="verify"]')];
+    assert.ok(verifyRows.length >= 6, "all ⚠️ rows rendered");
+    for (const el of verifyRows) {
+      assert.ok(el.querySelector(".badge--verify"), `${el.getAttribute("data-wallet-id")} shows the Verify badge`);
+      assert.ok(el.querySelector("a.install-link"), `${el.getAttribute("data-wallet-id")} keeps its install link`);
+    }
   } finally {
     unmount();
   }
