@@ -7,7 +7,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveFlags, THORCHAIN, ANYSWAP, REVERSE_ENABLED, WARP_LIVE_SEND } from "./flags.ts";
+import { resolveFlags, THORCHAIN, ANYSWAP, REVERSE_ENABLED, LEGACY_UI, selectRootCard } from "./flags.ts";
 
 test("flags default to false when no env vars are set", () => {
   // Singleton values (resolved from the real environment at module load —
@@ -15,14 +15,12 @@ test("flags default to false when no env vars are set", () => {
   assert.equal(THORCHAIN, false);
   assert.equal(ANYSWAP, false);
   assert.equal(REVERSE_ENABLED, false);
-  assert.equal(WARP_LIVE_SEND, false); // send gate closed by default
 
   // Explicit empty env: same result via the pure resolver.
   const flags = resolveFlags({});
   assert.equal(flags.THORCHAIN, false);
   assert.equal(flags.ANYSWAP, false);
   assert.equal(flags.REVERSE_ENABLED, false);
-  assert.equal(flags.WARP_LIVE_SEND, false);
 });
 
 test("NEXT_PUBLIC_ flag name takes precedence over VITE_ name", () => {
@@ -44,24 +42,51 @@ test("ANYSWAP is independent of THORCHAIN", () => {
   assert.equal(flags.THORCHAIN, false);
 });
 
-// ── WARP_LIVE_SEND gate (the runStage2 allowLive wiring) ──
-// The send path is BLOCKED while the flag is false and ARMED when true.
-// flags.ts is pure, so the gate resolves directly from the env.
+test("LEGACY_UI defaults to false — the v2 card is the default mount", () => {
+  assert.equal(LEGACY_UI, false);
+  const flags = resolveFlags({});
+  assert.equal(flags.LEGACY_UI, false);
+});
+
+test("LEGACY_UI resolves from both the VITE_ and NEXT_PUBLIC_ names", () => {
+  assert.equal(resolveFlags({ VITE_FLAG_LEGACY_UI: "true" }).LEGACY_UI, true);
+  assert.equal(resolveFlags({ NEXT_PUBLIC_FLAG_LEGACY_UI: "1" }).LEGACY_UI, true);
+});
+
+test("LEGACY_UI: NEXT_PUBLIC_ name takes precedence over VITE_ name", () => {
+  const flags = resolveFlags({
+    NEXT_PUBLIC_FLAG_LEGACY_UI: "true",
+    VITE_FLAG_LEGACY_UI: "false",
+  });
+  assert.equal(flags.LEGACY_UI, true);
+});
+
+test("selectRootCard defaults to v2 (BridgeCard) when the legacy flag is off", () => {
+  assert.equal(selectRootCard({ LEGACY_UI: false }), "v2");
+  // Missing / undefined flag behaves like off — default is v2.
+  assert.equal(selectRootCard({}), "v2");
+});
+
+test("selectRootCard returns legacy (Teleporter) when the legacy flag is set", () => {
+  assert.equal(selectRootCard({ LEGACY_UI: true }), "legacy");
+  // And it flows through resolveFlags end-to-end.
+  assert.equal(selectRootCard(resolveFlags({ NEXT_PUBLIC_FLAG_LEGACY_UI: "true" })), "legacy");
+});
 
 test("WARP_LIVE_SEND false => send gate closed (allowLive resolves false)", () => {
   const flags = resolveFlags({});
   assert.equal(flags.WARP_LIVE_SEND, false);
-});
+})
 
 test("WARP_LIVE_SEND true via VITE_WARP_LIVE_SEND => send gate armed (allowLive resolves true)", () => {
   const flags = resolveFlags({ VITE_WARP_LIVE_SEND: "true" });
   assert.equal(flags.WARP_LIVE_SEND, true);
-});
+})
 
 test("VITE_WARP_LIVE_SEND accepts '1' as true", () => {
   const flags = resolveFlags({ VITE_WARP_LIVE_SEND: "1" });
   assert.equal(flags.WARP_LIVE_SEND, true);
-});
+})
 
 test("NEXT_PUBLIC_FLAG_WARP_LIVE_SEND takes precedence over VITE_WARP_LIVE_SEND", () => {
   const flags = resolveFlags({
@@ -69,4 +94,4 @@ test("NEXT_PUBLIC_FLAG_WARP_LIVE_SEND takes precedence over VITE_WARP_LIVE_SEND"
     VITE_WARP_LIVE_SEND: "false",
   });
   assert.equal(flags.WARP_LIVE_SEND, true);
-});
+})

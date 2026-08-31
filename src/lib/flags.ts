@@ -23,7 +23,13 @@ function readEnv(): Env {
  * Resolve the flags from a raw env object. Exported for testing — the
  * singleton booleans below are resolved once at module load.
  */
-export function resolveFlags(env: Env): { THORCHAIN: boolean; ANYSWAP: boolean; REVERSE_ENABLED: boolean; WARP_LIVE_SEND: boolean } {
+export function resolveFlags(env: Env): {
+  THORCHAIN: boolean;
+  ANYSWAP: boolean;
+  REVERSE_ENABLED: boolean;
+  LEGACY_UI: boolean;
+  WARP_LIVE_SEND: boolean;
+} {
   const on = (names: string[]): boolean => {
     for (const name of names) {
       const raw = env[name];
@@ -38,9 +44,8 @@ export function resolveFlags(env: Env): { THORCHAIN: boolean; ANYSWAP: boolean; 
     THORCHAIN: on(["NEXT_PUBLIC_FLAG_THORCHAIN", "VITE_FLAG_THORCHAIN"]),
     ANYSWAP: on(["NEXT_PUBLIC_FLAG_ANYSWAP", "VITE_FLAG_ANYSWAP"]),
     REVERSE_ENABLED: on(["NEXT_PUBLIC_FLAG_REVERSE_ENABLED", "VITE_FLAG_REVERSE_ENABLED"]),
-    // Read NEXT_PUBLIC_ name first, then the exact VITE_WARP_LIVE_SEND name
-    // (that's the one set in Vercel Preview scope). Default: false.
     WARP_LIVE_SEND: on(["NEXT_PUBLIC_FLAG_WARP_LIVE_SEND", "VITE_WARP_LIVE_SEND"]),
+    LEGACY_UI: on(["NEXT_PUBLIC_FLAG_LEGACY_UI", "VITE_FLAG_LEGACY_UI"]),
   };
 }
 
@@ -67,17 +72,30 @@ export const ANYSWAP: boolean = flags.ANYSWAP;
 export const REVERSE_ENABLED: boolean = flags.REVERSE_ENABLED;
 
 /**
- * Whether the REAL Solana → X1 Warp send may broadcast (warpBridge.js
- * runStage2 `allowLive`). Default: false.
- *
- * SECOND gate: even with WARP_LIVE true, this must ALSO be true to actually
- * broadcast.
- * MUST NEVER be true without a working completion path. See step 1.2 — a
- * partial fix enabled burns with no relay behind them.
- *
- * While false, stage 2 stays in safe confirm-mode (simulates) and the footer
- * shows the confirm-mode notice. Set VITE_WARP_LIVE_SEND=true in Vercel
- * Preview scope to arm a live send there; Production stays false until the
- * Day-14 cutover.
+ * WARP_LIVE_SEND — env-driven gate for REAL Warp bridge sends (forward + reverse).
+ * MUST NEVER be true without a working completion path (step 1.2). Default: false.
+ * Set VITE_WARP_LIVE_SEND=true in Vercel Preview only when the live hop is ready.
  */
 export const WARP_LIVE_SEND: boolean = flags.WARP_LIVE_SEND;
+
+/**
+ * Whether the app mounts the legacy v1 Teleporter card instead of the v2
+ * BridgeCard. Default: false (the v2 card is the default mount).
+ *
+ * PREVIEW SAFETY NET ONLY: flip to true if the v2 card breaks on the
+ * preview — the old proven card returns with a rebuild and no code change.
+ * Teleporter.jsx is NOT deleted; it stays as the flag-restorable fallback
+ * until the v2 cutover. This flag does NOT change what production serves
+ * (production stays on v1 Teleporter until the cutover regardless).
+ */
+export const LEGACY_UI: boolean = flags.LEGACY_UI;
+
+/**
+ * Choose which root card main.jsx mounts. Pure — exported for tests.
+ *
+ * @param flags resolved flags (LEGACY_UI)
+ * @returns "legacy" when the legacy-UI flag is on, otherwise "v2" (default)
+ */
+export function selectRootCard(flags: { LEGACY_UI?: boolean }): "v2" | "legacy" {
+  return flags.LEGACY_UI === true ? "legacy" : "v2";
+}
