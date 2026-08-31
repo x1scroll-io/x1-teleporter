@@ -272,10 +272,12 @@ test("connect flow: Starport falls back to the mock provider (dev/test seam)", a
       await flush();
     });
 
-    const status = container.querySelector('[data-testid="connect-status"]');
-    assert.ok(status, "status area rendered");
-    assert.equal(status.textContent.includes(MOCK_EVM_ADDRESS), true, "mock fallback address shown");
-    assert.equal(container.querySelector('[data-family="evm"]'), null, "still inside the wallet step");
+    // The connect → body transition (bug fix): the picker closes and the
+    // connected body renders the mock fallback address.
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered after the mock fallback connect");
+    assert.equal(body.textContent.includes(MOCK_EVM_ADDRESS), true, "mock fallback address shown in the body");
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "picker closed after connect");
   } finally {
     unmount();
   }
@@ -293,12 +295,14 @@ test("connect flow: an installed discovered wallet connects through the real pro
       await flush();
     });
 
-    const status = container.querySelector('[data-testid="connect-status"]');
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered after the real-provider connect");
     assert.equal(
-      status.textContent.toLowerCase().includes(EVM_ADDRESS.toLowerCase()),
+      body.textContent.toLowerCase().includes(EVM_ADDRESS.toLowerCase()),
       true,
-      "real provider address shown",
+      "real provider address shown in the body",
     );
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "picker closed after connect");
   } finally {
     unmount();
   }
@@ -326,7 +330,81 @@ test("connect flow: a rejected wallet surfaces as an error state (retryable)", a
   }
 });
 
-test("family list reflects a connected session (address shown, back navigation works)", async () => {
+/* ————————————— Connect → body transition (bug fix) ————————————— */
+
+// The bug: after a successful connect the UI STAYS on the wallet-picker
+// screen. The session flips to connected (the inline status box proves the
+// state updates) but nothing derives "show body" from the connected
+// session — the picker is the only thing the Teleport tab can render.
+// These tests reproduce that gap and lock the fix: connect → the picker
+// closes → the connected body renders (wallet-agnostic).
+
+test("TRANSITION: connecting a wallet closes the picker and renders the connected body", async () => {
+  const { container, unmount } = renderCard(fakeDiscovery());
+  try {
+    assert.ok(container.querySelector('[data-testid="connect-modal"]'), "picker renders before connect");
+
+    click(container.querySelector('[data-family="evm"]'));
+    const starport = rows(container).find((r) => r.id === "starport");
+    await act(async () => {
+      starport.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    assert.equal(
+      container.querySelector('[data-testid="connect-modal"]'),
+      null,
+      "picker is GONE after connect (the modal closes)",
+    );
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body renders after connect");
+    assert.equal(body.textContent.includes(MOCK_EVM_ADDRESS), true, "connected address rendered in the body");
+  } finally {
+    unmount();
+  }
+});
+
+test("TRANSITION is wallet-agnostic: fires for a mock wallet AND a discovered EVM wallet", async () => {
+  const discovery = fakeDiscovery();
+  discovery._announceEvm(makeEvmEntry({ rdns: "io.metamask", name: "MetaMask" }));
+  const { container, unmount } = renderCard(discovery);
+  try {
+    // Wallet 1: Starport → mock provider fallback.
+    click(container.querySelector('[data-family="evm"]'));
+    const starport = rows(container).find((r) => r.id === "starport");
+    await act(async () => {
+      starport.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+    assert.ok(container.querySelector('[data-testid="teleport-connected"]'), "mock wallet: transition fired");
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "picker closed");
+
+    // Disconnect → the picker returns (the connect/disconnect cycle closes).
+    act(() => container.querySelector(".disconnect-btn").click());
+    assert.ok(container.querySelector('[data-testid="connect-modal"]'), "picker returns after disconnect");
+    assert.equal(container.querySelector('[data-testid="teleport-connected"]'), null);
+
+    // Wallet 2: MetaMask → real discovered wagmi connector.
+    click(container.querySelector('[data-family="evm"]'));
+    const metaMask = rows(container).find((r) => r.id === "io.metamask");
+    await act(async () => {
+      metaMask.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "discovered EVM wallet: transition fired");
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "picker closed again");
+    assert.equal(
+      body.textContent.toLowerCase().includes(EVM_ADDRESS.toLowerCase()),
+      true,
+      "real provider address in the body",
+    );
+  } finally {
+    unmount();
+  }
+});
+
+test("connected body renders the Solana session; Disconnect returns to the picker", async () => {
   const { container, unmount } = renderCard(fakeDiscovery());
   try {
     click(container.querySelector('[data-family="solana"]'));
@@ -335,12 +413,16 @@ test("family list reflects a connected session (address shown, back navigation w
       starport.el.querySelector(".connect-btn").click();
       await flush();
     });
-    assert.ok(container.querySelector('[data-testid="connect-status"]'));
 
-    click(container.querySelector(".back"));
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
     const solanaRow = container.querySelector('[data-family="solana"]');
-    assert.equal(solanaRow.getAttribute("data-status"), "connected");
-    assert.equal(solanaRow.textContent.includes("mock:solana:"), true, "address shown in family list");
+    assert.ok(solanaRow, "connected Solana session rendered in the body");
+    assert.equal(solanaRow.textContent.includes("mock:solana:"), true, "Solana address shown in the body");
+
+    act(() => container.querySelector(".disconnect-btn").click());
+    assert.equal(container.querySelector('[data-testid="teleport-connected"]'), null, "body closes on disconnect");
+    assert.ok(container.querySelector('[data-testid="connect-modal"]'), "picker returns after disconnect");
   } finally {
     unmount();
   }
@@ -405,11 +487,12 @@ test("bitcoin: connecting an installed wallet stores the PAYMENT address and sho
       await flush();
     });
 
-    const status = container.querySelector('[data-testid="connect-status"]');
-    assert.ok(status.textContent.includes(BTC_PAYMENT), "payment (bc1q) address shown");
-    assert.equal(status.textContent.includes(BTC_ORDINALS), false, "ordinals (bc1p) address NEVER shown");
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
+    assert.ok(body.textContent.includes(BTC_PAYMENT), "payment (bc1q) address shown");
+    assert.equal(body.textContent.includes(BTC_ORDINALS), false, "ordinals (bc1p) address NEVER shown");
     const balance = container.querySelector('[data-testid="bitcoin-balance"]');
-    assert.ok(balance, "balance rendered in the modal");
+    assert.ok(balance, "balance rendered in the connected body");
     assert.equal(balance.textContent.includes("0.00123456 BTC"), true);
   } finally {
     unmount();
@@ -574,10 +657,11 @@ test("litecoin: connecting Ctrl stores the address and shows the LTC balance", a
       await flush();
     });
 
-    const status = container.querySelector('[data-testid="connect-status"]');
-    assert.ok(status.textContent.includes(LTC_ADDRESS), "LTC address shown");
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
+    assert.ok(body.textContent.includes(LTC_ADDRESS), "LTC address shown");
     const balance = container.querySelector('[data-testid="litecoin-balance"]');
-    assert.ok(balance, "balance rendered");
+    assert.ok(balance, "balance rendered in the connected body");
     assert.equal(balance.textContent.includes("0.8243095 LTC"), true);
   } finally {
     unmount();
@@ -618,8 +702,10 @@ test("dogecoin: connecting Ctrl shows the DOGE balance", async () => {
       ctrl.el.querySelector(".connect-btn").click();
       await flush();
     });
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
     const balance = container.querySelector('[data-testid="dogecoin-balance"]');
-    assert.ok(balance, "balance rendered");
+    assert.ok(balance, "balance rendered in the connected body");
     assert.equal(balance.textContent.includes("12.3456789 DOGE"), true);
   } finally {
     unmount();
@@ -707,10 +793,11 @@ test("tron: connecting an installed adapter wallet stores the address and shows 
       await flush();
     });
 
-    const status = container.querySelector('[data-testid="connect-status"]');
-    assert.ok(status.textContent.includes("TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"), "TRX address shown");
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
+    assert.ok(body.textContent.includes("TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"), "TRX address shown");
     const balance = container.querySelector('[data-testid="tron-balance"]');
-    assert.ok(balance, "balance rendered");
+    assert.ok(balance, "balance rendered in the connected body");
     assert.equal(balance.textContent.includes("7.5 TRX"), true);
   } finally {
     unmount();
