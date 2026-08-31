@@ -98,3 +98,20 @@ a fresh session after the mechanics are proven.
 - docs/WALLET-REGISTRY.md — the detection keys + modal rules the wallet
   discovery builds on (Starport pinned, installed highlighted, never hidden).
 - docs/BRIEF.md — design direction (one card, tabs, glass, honest fees).
+
+---
+
+## PHASE-3 UX TARGET (the canonical ask — Mr. Esters, 2026-08-31)
+
+Add to docs/BRIEF.md as the Phase-3 UX follow-on (AFTER the hop proves mechanics — do not start before):
+
+- Kill the rail-named tabs (THORChain tab especially). ONE unified bridge form.
+- The rail (LiFi / THORChain / Warp) is inferred from the chosen From/To chains
+  and stays invisible to the user — they never see "THORChain".
+- Four pickers: From (chain), To (chain), Token From, Token To.
+- Token pickers ordered: stablecoins first, then the chain's gas token, then a
+  search box that matches on token name OR pasted address and populates live.
+- Keep "Buy" as its own tab (fiat on-ramp is a genuinely different action).
+- Goal: user describes what they want moved; the app picks the rail. Plumbing
+  invisible. This is the front-end edge over FortiBlox (who expose their
+  machinery) and over Warp's utilitarian UI.
