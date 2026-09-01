@@ -43,9 +43,10 @@
 
 import { useState } from "react";
 import {
-  CHAINS, TOKENS, EVM_CHAINS, X1_MIN, WARP_BRIDGE_URL, SOLANA_RPC, X1_RPC, tokensFor,
+  CHAINS, TOKENS, EVM_CHAINS, X1_MIN, X1_REVERSE_MIN, WARP_BRIDGE_URL, SOLANA_RPC, X1_RPC, tokensFor,
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
+import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
 import { executeLiFiEvmTx } from "../lib/teleportExecute.js";
 import { resolveEvmProvider, resolveSolanaAdapter, solanaSessionCanSign } from "../lib/wallet/sessionProviders.js";
 import { SimulationError } from "../lib/simulateTx.js";
@@ -75,6 +76,80 @@ export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive }
     amountHuman,
     allowLive, // WARP_LIVE_SEND gate — passed by the form (never hardcoded)
     provider: solAdapter,
+  });
+}
+
+/**
+ * The real REVERSE stage-1 runner (Warp X1→Solana burn). Default for the
+ * form; tests inject a fake to pin the WARP_LIVE_SEND gate + amount without
+ * touching a chain. The form passes `allowLive: WARP_LIVE_SEND` — the flag
+ * is read here only as a forwarded value, so the gate stays testable.
+ *
+ * Fee policy (1% once, x1_onward class): the skim is computed from SKIM_BPS
+ * (sourced from fees.ts) on the GROSS input — runReverse prepends the 1%
+ * USDC.x transfer to FEE_WALLETS.X1 and burns the remainder. The burn amount
+ * is therefore gross − skim, exactly what the quote box showed.
+ */
+export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allowLive }) {
+  const { Connection, PublicKey } = await import("@solana/web3.js");
+  const { runReverse, SKIM_BPS } = await import("../warpBridge.js");
+  // X1 RPC: the burn executes on X1 mainnet (SVM-compatible) — sim + send
+  // both go through this connection (the PR #30 deterministic-broadcast
+  // pattern: signTransaction + app broadcast via the chain RPC).
+  const connection = new Connection(X1_RPC, "confirmed");
+  const skim = (amountHuman * Number(SKIM_BPS)) / 10_000; // 1% of the gross
+  return runReverse({
+    connection,
+    userPubkey: solAdapter.publicKey,
+    amountHuman: amountHuman - skim, // bridge_out burns the net
+    feeAmount: skim,                 // 1% USDC.x skim to OUR X1 fee wallet
+    feeWallet: new PublicKey(FEE_WALLETS.X1),
+    allowLive, // WARP_LIVE_SEND gate — passed by the form (never hardcoded)
+    provider: solAdapter,
+  });
+}
+
+/**
+ * The real REVERSE stage-2 runner (LiFi Solana→EVM leg). Default for the
+ * form; tests inject a fake. Bridges the net that actually LANDED on Solana
+ * (deterministic: X − 1% − Warp's $1): fresh LiFi quote at execute time
+ * (fail-closed — a quote failure surfaces instead of guessing), then the
+ * simulation-gated Solana tx via executeLiFiSolanaTx (the v1 x1_onward leg-2
+ * executor, already in the codebase). The SVM wallet signs; the EVM address
+ * is the destination. NOT a Warp broadcast — no WARP_LIVE_SEND gate here: it
+ * is only reachable after a REAL burn released USDC on Solana (stage 1 is the
+ * gated step).
+ */
+export async function defaultReverseStage2Runner({ solAdapter, evmAddress, to, netOnSolana, onStatus = () => {} }) {
+  const { executeLiFiSolanaTx } = await import("../lib/lifiSolanaTx.js");
+  const built = buildReverseLifiQuoteParams({
+    to,
+    netOnSolana,
+    fromAddress: solAdapter.publicKey?.toBase58 ? solAdapter.publicKey.toBase58() : String(solAdapter.publicKey),
+    toAddress: evmAddress, // the connected EVM session's address (no placeholders)
+  });
+  if (!built) throw new Error("No route for the selected destination chain");
+  onStatus("Quoting the Solana → " + to + " leg…");
+  const resp = await fetch(`/api/lifi/quote?${built.qs}`);
+  const d = await resp.json();
+  if (d?.error || d?.message) throw new Error(d.message || d.error);
+  onStatus("Sending the Solana → " + to + " leg…");
+  return executeLiFiSolanaTx({ lifiData: d, solWallet: solAdapter });
+}
+
+/**
+ * The real REVERSE release poller: after the X1 burn is broadcast, the Warp
+ * guardians release USDC on Solana. Polls the Warp status API (from=x1) and
+ * reports progress via onUpdate; resolves { ok, destinationTx } when the
+ * release is confirmed. Default for the form; tests inject a fake.
+ */
+export async function defaultReleasePoller(sig, { onUpdate = () => {} } = {}) {
+  const { pollWarpStatus, WARP_API } = await import("../warpBridge.js");
+  return pollWarpStatus(sig, {
+    api: WARP_API.mainnet,
+    from: "x1", // reverse direction: source chain is X1
+    maxMs: 300_000,
+    onUpdate,
   });
 }
 
@@ -140,6 +215,14 @@ const S = {
     background: "transparent", border: "1px solid #1a2130", color: "#7d8aa0",
     fontSize: 13, cursor: "pointer",
   },
+  dirBtn: {
+    background: "transparent", border: "1px solid #1c2a3f", color: "#7d8aa0",
+    borderRadius: 6, padding: "6px 12px", fontSize: 13, cursor: "pointer",
+  },
+  dirActive: {
+    background: "rgba(63,211,232,.12)", border: "1px solid #3fd3e8", color: "#3fd3e8",
+    borderRadius: 6, padding: "6px 12px", fontSize: 13, cursor: "pointer", fontWeight: 700,
+  },
 };
 
 const PLACEHOLDER_EVM = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
@@ -161,8 +244,13 @@ const PLACEHOLDER_EVM = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
  *   connect the modal is gone, so the form's "connect your wallet" prompts
  *   must be able to bring it back.
  */
-export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, onConnectWallet }) {
+export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, reverseStage1Runner = defaultReverseStage1Runner, reverseStage2Runner = defaultReverseStage2Runner, releasePoller = defaultReleasePoller, onConnectWallet }) {
+  // direction: "forward" = EVM → X1 (the proven on-ramp), "reverse" = X1 → EVM
+  // (the off-ramp: Warp burn X1→Solana, then LiFi Solana→EVM). The forward
+  // flow is byte-identical in behavior — the toggle only adds the reverse path.
+  const [direction, setDirection] = useState("forward");
   const [from, setFrom] = useState("eth");
+  const [to, setTo] = useState("eth"); // reverse destination (EVM chains)
   const [token, setToken] = useState("USDC");
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState(null);
@@ -173,20 +261,32 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   const [stage1Hash, setStage1Hash] = useState(null);
   const [confirmMode, setConfirmMode] = useState(false); // stage 2 simulated, not sent
   const [step2Busy, setStep2Busy] = useState(false);
+  const [reverseStage, setReverseStage] = useState(0); // reverse progress: 0..5 (burn sent → released)
+  const [releaseNote, setReleaseNote] = useState(null); // Warp release poll progress text
+  const [polling, setPolling] = useState(false);
+  const [handoffReason, setHandoffReason] = useState(null); // reverse handoff: burn|lifi|terminal
 
   const evmReady = Boolean(evmSession?.address);
   const solReady = Boolean(solSession?.address);
+
+  const changeDirection = (d) => {
+    setDirection(d); setQuote(null); setError(null); setStatus(null);
+    setPhase("idle"); setWarpSig(null); setStage1Hash(null); setConfirmMode(false);
+    setReverseStage(0); setReleaseNote(null); setHandoffReason(null);
+  };
 
   const changeFrom = (c) => {
     setFrom(c);
     if (!TOKENS[c]?.[token]) setToken(Object.keys(TOKENS[c] || {})[0] || "USDC");
     setQuote(null); setError(null); setPhase("idle");
   };
+  const changeTo = (c) => { setTo(c); setQuote(null); setError(null); setPhase("idle"); };
   const changeToken = (t) => { setToken(t); setQuote(null); setError(null); setPhase("idle"); };
   const changeAmount = (v) => { setAmount(v); setQuote(null); setError(null); setPhase("idle"); };
   const reset = () => {
     setPhase("idle"); setQuote(null); setError(null); setStatus(null);
     setWarpSig(null); setStage1Hash(null); setConfirmMode(false); setStep2Busy(false);
+    setReverseStage(0); setReleaseNote(null); setPolling(false); setHandoffReason(null);
   };
 
   async function getQuote() {
@@ -299,6 +399,174 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     }
   }
 
+  // ── REVERSE (X1 → EVM) ────────────────────────────────────────────────────
+  // Stage 1: burn USDC.x on X1 (Warp bridge_out) → USDC released on Solana.
+  // Stage 2: LiFi Solana→EVM on the net that landed. Mirrors the forward
+  // stages: sim fail-closed everywhere, WARP_LIVE_SEND gates the burn send,
+  // honest handoffs at every dead-end (funds safe on Solana / X1).
+
+  async function getReverseQuote() {
+    setError(null); setStatus(null);
+    const amt = parseFloat(amount);
+    if (!amount || !(amt > 0)) { setError("Enter an amount"); return; }
+    if (amt < X1_REVERSE_MIN) { setError(`Bridge $${X1_REVERSE_MIN}+ out of X1 to get started`); return; }
+    if (!solReady) { setError("Connect your Solana/X1 wallet to get a quote"); return; }
+    if (!evmReady) { setError("Connect your EVM wallet to get a quote"); return; }
+    setPhase("quoting");
+    try {
+      // The stage-1 math is deterministic (1% skim + Warp's $1 — fees.ts);
+      // the LiFi SOL→EVM leg is quoted LIVE on the net that will land on
+      // Solana. If the leg can't be quoted, the quote is still honest: stage 1
+      // (the X1 burn) is fully priced and the Solana→EVM hop becomes the
+      // handoff stage (funds rest safely on Solana).
+      const legs = computeReverseLegs({ amount: amt });
+      const built = buildReverseLifiQuoteParams({
+        to,
+        netOnSolana: legs.netOnSolana,
+        fromAddress: solSession.address,
+        toAddress: evmSession.address,
+      });
+      let lifiData = null;
+      if (built) {
+        const resp = await fetch(`/api/lifi/quote?${built.qs}`);
+        const d = await resp.json();
+        if (!(d?.error || d?.message) && d?.estimate?.toAmount) lifiData = d;
+      }
+      const derived = deriveReverseQuote({ data: lifiData, to, amount: amt });
+      setQuote({ amount: amt, to, ...derived, lifiData });
+      setPhase("quoted");
+    } catch (e) {
+      console.error("[Teleport v2] reverse quote failed:", e);
+      setError("Quote request failed"); setPhase("idle");
+    }
+  }
+
+  async function executeReverseStage1() {
+    if (!quote) return;
+    setError(null); setStatus(null);
+    const solAdapter = await resolveSolanaAdapter(solSession);
+    if (!solAdapter) {
+      setError("Connect your Solana/X1 wallet (Phantom/Backpack) to burn USDC.x on X1");
+      setHandoffReason("burn");
+      setPhase("handoff");
+      return;
+    }
+    setPhase("bridging");
+    setStep2Busy(true);
+    try {
+      const res = await reverseStage1Runner({
+        solAdapter,
+        amountHuman: quote.amount, // gross — the runner skims 1% + burns the net
+        allowLive: WARP_LIVE_SEND, // the gate: real burns only when VITE_WARP_LIVE_SEND=true
+      });
+      if (!res.success) {
+        if (res.sim?.simUnavailable) {
+          setError(`Burn sim couldn't run (RPC: ${res.sim?.rpcError || "unknown"}) — send blocked. Retry when the RPC is reachable.`);
+        } else {
+          const logs = res.sim?.logs || [];
+          const key = logs.filter((l) => /error|failed|assert|seq|insufficient|invalid|constraint/i.test(l)).slice(-2).join(" | ");
+          setError(`Burn sim failed: ${JSON.stringify(res.sim?.err)}${key ? " — " + key : ""} (full logs in console)`);
+        }
+        // Funds never left X1 (nothing was broadcast) — back to quoted, never
+        // to a state that could re-send anything.
+        setPhase("quoted");
+        return;
+      }
+      if (res.sent || res.signature) {
+        setWarpSig(res.signature);
+        setReverseStage(2);
+        setPhase("relaying");
+        // Poll the Warp release (X1 burn → USDC on Solana) in the background;
+        // the relaying state shows progress and unlocks stage 2 on release.
+        pollRelease(res.signature);
+      } else {
+        // Simulated only — the WARP_LIVE_SEND gate held (confirm-mode).
+        setConfirmMode(true);
+        setPhase("done");
+      }
+    } catch (e) {
+      console.error("[Teleport v2] reverse stage 1 error:", e);
+      setError(`Warp error: ${String(e?.message || e)}`);
+      setPhase("quoted");
+    } finally {
+      setStep2Busy(false);
+    }
+  }
+
+  async function pollRelease(sig) {
+    setPolling(true); setReleaseNote("Burn sent — awaiting the Warp release on Solana…");
+    try {
+      const res = await releasePoller(sig, {
+        onUpdate: (stage, detail) => {
+          if (stage === "guardians_signing") {
+            setReleaseNote(`Guardians signing (${detail?.count || "?"} sigs) — USDC release in progress…`);
+            setReverseStage(3);
+          } else if (stage === "complete") {
+            setReleaseNote("Released on Solana ✓");
+            setReverseStage(5);
+          } else if (stage === "failed") {
+            setReleaseNote("Release failed — your USDC.x is safe on X1. Contact support.");
+          } else if (stage === "awaiting_guardians") {
+            setReleaseNote("Burn detected — waiting for guardians to sign…");
+          }
+        },
+      });
+      if (res?.ok && res.destinationTx) {
+        setReleaseNote("Released on Solana ✓");
+        setReverseStage(5);
+        setPhase("step2"); // unlock the LiFi Solana→EVM leg
+      } else if (res?.terminal) {
+        setError("The Warp release failed terminally — your USDC.x is safe on X1. Contact support.");
+        setHandoffReason("terminal");
+        setPhase("handoff");
+      } else {
+        // Timed out / still relaying — stay in the relaying state; the user
+        // can check again (funds are safe: the burn is on X1, the release is
+        // pending on the Warp side).
+        setReleaseNote("Still awaiting the release — the Warp guardians can take a few minutes.");
+      }
+    } catch (e) {
+      console.error("[Teleport v2] release poll error:", e);
+      setReleaseNote("Could not reach the Warp status API — check again in a moment.");
+    } finally {
+      setPolling(false);
+    }
+  }
+
+  async function executeReverseStage2() {
+    if (!quote) return;
+    setError(null); setStatus(null);
+    const solAdapter = await resolveSolanaAdapter(solSession);
+    if (!solAdapter) {
+      setError("Connect your Solana/X1 wallet to finish the hop");
+      setHandoffReason("lifi");
+      setPhase("handoff");
+      return;
+    }
+    setPhase("bridging");
+    setStep2Busy(true);
+    try {
+      const txHash = await reverseStage2Runner({
+        solAdapter,
+        evmAddress: evmSession?.address,
+        to: quote.to,
+        netOnSolana: quote.solanaAmount ?? quote.legs?.netOnSolana,
+        onStatus: (msg) => setStatus(msg),
+      });
+      setStage1Hash(txHash); // reuse the slot — it's the final leg hash
+      setPhase("done");
+    } catch (e) {
+      console.error("[Teleport v2] reverse stage 2 error:", e);
+      // The USDC is ALREADY on Solana (the burn released it) — the LiFi leg
+      // failed. Honest handoff: funds safe, retry the hop or finish elsewhere.
+      setError(`${e?.message || "The Solana → EVM leg failed"}. Your USDC is safe on Solana.`);
+      setHandoffReason("lifi");
+      setPhase("handoff");
+    } finally {
+      setStep2Busy(false);
+    }
+  }
+
   const canStage2 = solanaSessionCanSign(solSession); // hint-level only; executeStage2 re-checks via resolver
   // The missing-wallet prompts render as ACTIONABLE buttons when the form
   // lives inside the tab's ConnectedBody (onConnectWallet opens the connect
@@ -308,9 +576,9 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     onConnectWallet
       ? { type: "button", "data-testid": testId, onClick: onConnectWallet, style: { ...S.warn, ...S.warnBtn } }
       : { "data-testid": testId, style: S.warn };
-
-  return (
-    <div className="teleport-form" data-testid="teleport-form" style={S.form}>
+  // ── FORWARD RENDER (EVM → X1) — the proven on-ramp; content byte-identical ──
+  const renderForward = () => (
+    <>
       {/* from / to */}
       <div style={S.row}>
         <span style={S.rowCol}>
@@ -451,7 +719,186 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
           <button data-testid="reset" style={S.ghostBtn} onClick={reset}>Bridge again</button>
         </div>
       ) : null}
+    </>
+  );
 
+  // ── REVERSE RENDER (X1 → EVM) — the off-ramp: Warp burn X1→Solana, then
+  // LiFi Solana→EVM. Mirrors the forward structure (same testids, same
+  // phases) so the two directions share the wallet guidance + quote/stage UX.
+  const renderReverse = () => (
+    <>
+      {/* from / to — reverse: X1 fixed source, EVM destination */}
+      <div style={S.row}>
+        <span style={S.rowCol}>
+          <span style={S.label}>From</span>
+          <select data-testid="from-chain" value="x1" onChange={() => {}} style={S.select} aria-label="Source chain (fixed: X1)">
+            <option value="x1" style={{ background: "#0a1019" }}>X1 {CHAINS.x1.glyph} · USDC.x</option>
+          </select>
+        </span>
+        <span style={S.rowCol}>
+          <span style={S.label}>To</span>
+          <select data-testid="to-chain" value={to} onChange={(e) => changeTo(e.target.value)} style={S.select}>
+            {EVM_CHAINS.map((c) => (
+              <option key={c} value={c} style={{ background: "#0a1019" }}>
+                {CHAINS[c].glyph} {CHAINS[c].name}
+              </option>
+            ))}
+          </select>
+        </span>
+      </div>
+
+      {/* token + amount — token fixed to USDC.x (the burn mint) */}
+      <div style={S.row}>
+        <span style={S.rowCol}>
+          <span style={S.label}>Token</span>
+          <select data-testid="token" value="USDC.x" onChange={() => {}} style={S.select} aria-label="Token (fixed: USDC.x)">
+            <option value="USDC.x" style={{ background: "#0a1019" }}>USDC.x</option>
+          </select>
+        </span>
+        <span style={{ ...S.rowCol, flex: 1 }}>
+          <span style={S.label}>Amount</span>
+          <input
+            data-testid="amount"
+            value={amount}
+            onChange={(e) => changeAmount(e.target.value)}
+            inputMode="decimal"
+            placeholder="0.00"
+            style={S.input}
+          />
+        </span>
+      </div>
+      <div style={S.hint}>Bridge ${X1_REVERSE_MIN}+ out of X1 — USDC.x burns on X1, USDC lands on {CHAINS[to].name} via Solana.</div>
+
+      {/* wallet guidance — honest, never a silent dead-end; actionable when
+          the tab wires onConnectWallet */}
+      {!solReady && (
+        <WarnTag {...warnProps("warn-solana")}>
+          Connect your Solana/X1 wallet (Phantom / Backpack) — the USDC.x burn happens on X1.
+        </WarnTag>
+      )}
+      {!evmReady && (
+        <WarnTag {...warnProps("warn-evm")}>
+          Connect your EVM wallet (Rabby / MetaMask) to receive USDC on {CHAINS[to].name}.
+        </WarnTag>
+      )}
+
+      {/* quote + send */}
+      {phase === "idle" || phase === "quoting" ? (
+        <button data-testid="get-quote" style={phase === "quoting" ? { ...S.cta, ...S.ctaDisabled } : S.cta} onClick={getReverseQuote} disabled={phase === "quoting"}>
+          {phase === "quoting" ? "Finding route…" : "Get quote"}
+        </button>
+      ) : phase === "quoted" ? (
+        <>
+          {quote && (
+            <div className="quote-box" data-testid="quote-box" style={S.quoteBox}>
+              <div style={S.quoteRow}>
+                <span style={S.quoteKey}>You send</span>
+                <span style={S.quoteVal}>{quote.amount} USDC.x on X1</span>
+              </div>
+              {(quote.feeLines || []).map((l) => (
+                <div key={l.id} data-testid={`fee-line-${l.id}`} style={S.quoteRow}>
+                  <span style={S.quoteKey}>{l.label}</span>
+                  <span style={S.quoteVal}>${l.amountUsd.toFixed(2)}</span>
+                </div>
+              ))}
+              <div style={S.quoteRow}>
+                <span style={S.quoteKey}>You receive</span>
+                <span data-testid="you-receive" style={S.quoteValHi}>≈ {quote.net.toFixed(2)} {quote.recvToken} on {quote.recvChain}</span>
+              </div>
+              {!quote.lifiQuoted && (
+                <div style={S.note} data-testid="reverse-lifi-note">
+                  The Solana → {CHAINS[quote.to].name} leg couldn't be quoted right now — stage 1 (the X1 burn) still works; your USDC will rest safely on Solana and you can finish the hop later.
+                </div>
+              )}
+              <div style={S.steps}>
+                {(quote.steps || []).map((s, i) => (
+                  <span key={i} style={S.stepChip}>{s.tool} · {s.name}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          <button data-testid="bridge-now" style={S.cta} onClick={executeReverseStage1}>
+            Bridge — Step 1 of 2
+          </button>
+        </>
+      ) : phase === "bridging" ? (
+        <button data-testid="bridging" style={{ ...S.cta, ...S.ctaDisabled }} disabled>
+          Bridging… {status ? `(${status})` : ""}
+        </button>
+      ) : phase === "relaying" ? (
+        <div data-testid="relaying" style={S.box}>
+          <b>X1 burn sent</b> {warpSig ? `(${String(warpSig).slice(0, 10)}…)` : ""} — USDC.x is burning on X1; the Warp guardians release USDC on Solana.
+          {releaseNote && <div data-testid="release-note" style={{ marginTop: 6 }}>{releaseNote}</div>}
+          {!polling && !String(releaseNote || "").includes("Released") && warpSig && (
+            <button data-testid="check-release" style={S.ghostBtn} onClick={() => pollRelease(warpSig)}>
+              Check release status again
+            </button>
+          )}
+          <button data-testid="reset" style={S.ghostBtn} onClick={reset}>Done / bridge again</button>
+        </div>
+      ) : phase === "step2" ? (
+        <>
+          <div style={S.box}>
+            <b>USDC released on Solana ✓</b> — now finish the hop to {CHAINS[quote?.to || to].name} via LiFi.
+            If you stop here, your funds rest safely as USDC on Solana.
+          </div>
+          <button data-testid="bridge-step2" style={step2Busy ? { ...S.cta, ...S.ctaDisabled } : S.cta} onClick={executeReverseStage2} disabled={step2Busy}>
+            {step2Busy ? "Bridging to " + CHAINS[quote?.to || to].name + "…" : "Step 2 of 2 — finish the hop to " + CHAINS[quote?.to || to].name}
+          </button>
+        </>
+      ) : phase === "handoff" ? (
+        <div data-testid="handoff" style={S.box}>
+          {handoffReason === "burn" && (
+            <>Stage 1 didn't start — nothing was sent. Your USDC.x stays safe on X1. Connect your Solana/X1 wallet to burn, then retry.</>
+          )}
+          {handoffReason === "terminal" && (
+            <>The Warp release failed terminally — your USDC.x is safe on X1. Contact support.</>
+          )}
+          {handoffReason === "lifi" && (
+            <>
+              <b>Your USDC is safe on Solana</b>{stage1Hash ? ` (final leg tx ${String(stage1Hash).slice(0, 10)}…)` : ""}.
+              The Solana → {CHAINS[quote?.to || to].name} hop didn't complete.{" "}
+              {canStage2 && (
+                <button data-testid="retry-stage2" style={{ ...S.ghostBtn, marginTop: 0, width: "auto", padding: "4px 12px" }} onClick={executeReverseStage2} disabled={step2Busy}>
+                  Retry the hop to {CHAINS[quote?.to || to].name}
+                </button>
+              )}
+            </>
+          )}
+          <div style={{ marginTop: 8 }}>
+            <a href={WARP_BRIDGE_URL} target="_blank" rel="noopener noreferrer" style={S.link}>🌉 Open Warp Bridge to check the Solana release</a>
+          </div>
+          <button data-testid="reset" style={S.ghostBtn} onClick={reset}>Done / bridge again</button>
+        </div>
+      ) : phase === "done" ? (
+        <div data-testid="done" style={{ ...S.box, ...S.boxOk }}>
+          {confirmMode
+            ? <>✓ Simulation passed — <b>not sent</b> (live Warp sends are OFF; set VITE_WARP_LIVE_SEND=true to arm).</>
+            : <>✓ Bridge complete — USDC on {CHAINS[quote?.to || to].name}.</>}
+          <button data-testid="reset" style={S.ghostBtn} onClick={reset}>Bridge again</button>
+        </div>
+      ) : null}
+    </>
+  );
+
+  return (
+    <div className="teleport-form" data-testid="teleport-form" style={S.form}>
+      {/* direction toggle — ETH→X1 (on-ramp) / X1→ETH (off-ramp). The forward
+          flow is unchanged; the reverse path is the new direction. */}
+      <div style={S.row} data-testid="direction-toggle">
+        <span style={S.rowCol}>
+          <span style={S.label}>Direction</span>
+          <span style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <button type="button" data-testid="dir-forward" onClick={() => changeDirection("forward")} style={direction === "forward" ? S.dirActive : S.dirBtn}>
+              ETH → X1
+            </button>
+            <button type="button" data-testid="dir-reverse" onClick={() => changeDirection("reverse")} style={direction === "reverse" ? S.dirActive : S.dirBtn}>
+              X1 → ETH
+            </button>
+          </span>
+        </span>
+      </div>
+      {direction === "reverse" ? renderReverse() : renderForward()}
       {status && phase === "quoted" && <div data-testid="form-status" style={S.status}>{status}</div>}
       {error && (
         <div data-testid="form-error" style={S.error}>⚠️ {error}</div>
@@ -459,3 +906,4 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     </div>
   );
 }
+

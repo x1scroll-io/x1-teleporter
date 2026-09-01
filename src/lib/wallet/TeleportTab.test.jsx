@@ -571,3 +571,236 @@ test("stage 1 sent but the Solana session can't sign → honest handoff (funds s
     unmount();
   }
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+//  REVERSE LEG (X1 → ETH): the direction toggle + the off-ramp flow.
+//  Forward behavior is unchanged (all tests above pass untouched); these pin
+//  the NEW path: toggle → reverse quote (1% + $1 + LiFi leg) → stage 1 X1 burn
+//  (WARP_LIVE_SEND-gated) → Warp release poll → stage 2 LiFi Solana→EVM →
+//  done / honest handoff.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Mocked /api/lifi/quote for the REVERSE leg (SOL→EVM). $98 net on Solana →
+ *  $97.02 delivered on Ethereum (toAmount in base units). */
+function mockReverseQuoteFetch() {
+  const calls = [];
+  const lifiQuote = {
+    id: "0xmock-reverse-quote",
+    estimate: { toAmount: "97020000", fromAmount: "98000000" },
+  };
+  const fetcher = mock.fn(async (url) => {
+    calls.push(String(url));
+    return { ok: true, json: async () => lifiQuote };
+  });
+  mock.method(globalThis, "fetch", fetcher);
+  return { calls, restore: () => mock.restoreAll() };
+}
+
+async function reverseQuote(container) {
+  setInput(container.querySelector('[data-testid="amount"]'), "100");
+  click(container.querySelector('[data-testid="dir-reverse"]'));
+  click(container.querySelector('[data-testid="get-quote"]'));
+  await flush();
+}
+
+test("direction toggle: default forward; X1→ETH switch flips the form to the reverse state (X1 source, EVM destinations, USDC.x token)", () => {
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    assert.ok(container.querySelector('[data-testid="direction-toggle"]'), "direction toggle rendered");
+    // Default: the proven forward state — EVM from-picker, X1 fixed destination.
+    const fromSelect = container.querySelector('[data-testid="from-chain"]');
+    assert.ok(Array.from(fromSelect.options).some((o) => o.value === "eth"), "forward from-picker lists EVM chains");
+    assert.equal(container.querySelector('[data-testid="to-chain"]').value, "x1", "forward destination fixed to X1");
+
+    // Flip to reverse.
+    click(container.querySelector('[data-testid="dir-reverse"]'));
+    assert.equal(container.querySelector('[data-testid="from-chain"]').value, "x1", "reverse source fixed to X1");
+    const toSelect = container.querySelector('[data-testid="to-chain"]');
+    assert.ok(Array.from(toSelect.options).some((o) => o.value === "eth") && Array.from(toSelect.options).some((o) => o.value === "arb"),
+      "reverse destination picker lists EVM chains");
+    assert.equal(container.querySelector('[data-testid="token"]').value, "USDC.x", "reverse token fixed to USDC.x");
+
+    // Flip back — the forward state returns.
+    click(container.querySelector('[data-testid="dir-forward"]'));
+    assert.equal(container.querySelector('[data-testid="to-chain"]').value, "x1");
+    assert.ok(Array.from(container.querySelector('[data-testid="from-chain"]').options).some((o) => o.value === "eth"));
+  } finally {
+    unmount();
+  }
+});
+
+test("reverse quote flow: pinned SOL→EVM query (x1Class=1, fee OMITTED), fee lines 1% + $1, honest Ethereum net", async () => {
+  const qf = mockReverseQuoteFetch();
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    await reverseQuote(container);
+
+    assert.equal(qf.calls.length, 1, "exactly one quote call (the LiFi SOL→EVM leg)");
+    const url = new URL(qf.calls[0], "http://localhost");
+    assert.equal(url.searchParams.get("fromChain"), "SOL");
+    assert.equal(url.searchParams.get("toChain"), "eth");
+    assert.equal(url.searchParams.get("fromToken"), "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Solana USDC source");
+    assert.equal(url.searchParams.get("toToken"), "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "Ethereum USDC destination");
+    assert.equal(url.searchParams.get("fromAmount"), "98000000", "the net that lands on Solana ($98), in base units");
+    assert.equal(url.searchParams.get("fromAddress"), SOL_ADDR, "real connected Solana address — no placeholders");
+    assert.equal(url.searchParams.get("toAddress"), EVM_ADDR, "real connected EVM address — no placeholders");
+    assert.equal(url.searchParams.get("x1Class"), "1", "x1-class marker");
+    assert.equal(url.searchParams.has("fee"), false, "x1-class quote OMITS the fee key entirely");
+
+    const box = container.querySelector('[data-testid="quote-box"]');
+    assert.ok(box, "quote box rendered");
+    const skim = container.querySelector('[data-testid="fee-line-warp-skim"]');
+    assert.ok(skim && skim.textContent.includes("Teleporter fee (1%)") && skim.textContent.includes("$1.00"),
+      `1% Teleporter fee line, got: ${skim?.textContent}`);
+    const flat = container.querySelector('[data-testid="fee-line-warp-flat"]');
+    assert.ok(flat && flat.textContent.includes("Warp bridge fee") && flat.textContent.includes("$1.00"),
+      `Warp $1 third-party line, got: ${flat?.textContent}`);
+    const recv = container.querySelector('[data-testid="you-receive"]');
+    assert.ok(recv && recv.textContent.includes("97.02") && recv.textContent.includes("USDC") && recv.textContent.includes("Ethereum"),
+      `honest Ethereum net, got: ${recv?.textContent}`);
+    assert.equal(container.querySelector('[data-testid="reverse-lifi-note"]'), null, "no handoff note when the leg quoted");
+    assert.ok(container.querySelector('[data-testid="bridge-now"]'), "send button appears when quoted");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("reverse quote without a LiFi route → honest handoff note; stage 1 (the X1 burn) still quoted on Solana", async () => {
+  const fetcher = mock.fn(async () => ({ ok: true, json: async () => ({ error: "lifi_quote_failed", message: "no routes found" }) }));
+  mock.method(globalThis, "fetch", fetcher);
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    await reverseQuote(container);
+    // Stage 1 is still fully quoted — the burn works; the EVM leg is the next stage.
+    const note = container.querySelector('[data-testid="reverse-lifi-note"]');
+    assert.ok(note, "honest handoff note rendered");
+    const recv = container.querySelector('[data-testid="you-receive"]');
+    assert.ok(recv && recv.textContent.includes("98.00") && recv.textContent.includes("Solana"),
+      `you-receive is the USDC on Solana (not an invented EVM figure), got: ${recv?.textContent}`);
+    assert.ok(container.querySelector('[data-testid="bridge-now"]'), "stage 1 (burn) still available");
+  } finally {
+    mock.restoreAll();
+    unmount();
+  }
+});
+
+test("REVERSE stage 1 gated by WARP_LIVE_SEND: runner receives allowLive=false (default flag) + gross amount → simulated, not sent", async () => {
+  const qf = mockReverseQuoteFetch();
+  const runnerCalls = [];
+  const fakeRunner = async (args) => {
+    runnerCalls.push(args);
+    return { stage: "simulated_ok", success: true, sim: { ok: true }, sent: null };
+  };
+  const { container, unmount } = renderForm(FORM_PROPS({ reverseStage1Runner: fakeRunner }));
+  try {
+    await reverseQuote(container);
+    click(container.querySelector('[data-testid="bridge-now"]'));
+    await flush();
+
+    assert.equal(runnerCalls.length, 1, "reverse stage-1 runner invoked once");
+    assert.equal(runnerCalls[0].allowLive, false,
+      "WARP_LIVE_SEND gate: default flag state → allowLive=false (no real X1 burn). Arm VITE_WARP_LIVE_SEND=true to broadcast.");
+    assert.equal(runnerCalls[0].amountHuman, 100, "runner receives the GROSS — it skims 1% and burns the net");
+
+    const done = container.querySelector('[data-testid="done"]');
+    assert.ok(done && done.textContent.includes("not sent"),
+      `confirm-mode shown, got: ${done?.textContent}`);
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("REVERSE stage 1 live: burn sent → Warp release poll confirms → stage 2 unlock (LiFi Solana→EVM)", async () => {
+  const qf = mockReverseQuoteFetch();
+  const fakeRunner1 = async () => ({ stage: "sent", success: true, signature: "burn-sig-123" });
+  const pollStages = [];
+  const fakePoller = async (sig, { onUpdate } = {}) => {
+    onUpdate("awaiting_guardians", {});
+    onUpdate("guardians_signing", { count: 3 });
+    onUpdate("complete", { destinationTx: "release-tx-456" });
+    pollStages.push("polled:" + sig);
+    return { ok: true, destinationTx: "release-tx-456" };
+  };
+  const { container, unmount } = renderForm(FORM_PROPS({ reverseStage1Runner: fakeRunner1, releasePoller: fakePoller }));
+  try {
+    await reverseQuote(container);
+    click(container.querySelector('[data-testid="bridge-now"]'));
+    await flush();
+
+    assert.deepEqual(pollStages, ["polled:burn-sig-123"], "release poller called with the burn signature");
+    const step2 = container.querySelector('[data-testid="bridge-step2"]');
+    assert.ok(step2 && step2.textContent.includes("Step 2 of 2") && step2.textContent.includes("Ethereum"),
+      `stage 2 unlocked after the release, got: ${step2?.textContent}`);
+    assert.ok(step2.textContent.includes("finish the hop to Ethereum"), "honest next-step label");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("REVERSE stage 2: LiFi Solana→EVM leg executes with the deterministic net → done on the destination chain", async () => {
+  const qf = mockReverseQuoteFetch();
+  const fakeRunner1 = async () => ({ stage: "sent", success: true, signature: "burn-sig" });
+  const fakePoller = async () => ({ ok: true, destinationTx: "release-tx" });
+  const stage2Calls = [];
+  const fakeRunner2 = async (args) => {
+    stage2Calls.push(args);
+    return "lifi-final-hash";
+  };
+  const { container, unmount } = renderForm(FORM_PROPS({
+    reverseStage1Runner: fakeRunner1,
+    releasePoller: fakePoller,
+    reverseStage2Runner: fakeRunner2,
+  }));
+  try {
+    await reverseQuote(container);
+    click(container.querySelector('[data-testid="bridge-now"]'));
+    await flush();
+    click(container.querySelector('[data-testid="bridge-step2"]'));
+    await flush();
+
+    assert.equal(stage2Calls.length, 1, "stage-2 runner invoked once");
+    assert.equal(stage2Calls[0].to, "eth");
+    assert.equal(stage2Calls[0].evmAddress, EVM_ADDR, "destination = the connected EVM wallet");
+    assert.equal(stage2Calls[0].netOnSolana, 98, "bridges the net that LANDED on Solana (100 − 1% − $1)");
+
+    const done = container.querySelector('[data-testid="done"]');
+    assert.ok(done && done.textContent.includes("USDC on Ethereum"),
+      `done state on the destination chain, got: ${done?.textContent}`);
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("REVERSE stage 2 failure → honest handoff: USDC safe on Solana, retry available, never a silent dead-end", async () => {
+  const qf = mockReverseQuoteFetch();
+  const fakeRunner1 = async () => ({ stage: "sent", success: true, signature: "burn-sig" });
+  const fakePoller = async () => ({ ok: true, destinationTx: "release-tx" });
+  const fakeRunner2 = async () => { throw new Error("No LiFi route for this pair"); };
+  const { container, unmount } = renderForm(FORM_PROPS({
+    reverseStage1Runner: fakeRunner1,
+    releasePoller: fakePoller,
+    reverseStage2Runner: fakeRunner2,
+  }));
+  try {
+    await reverseQuote(container);
+    click(container.querySelector('[data-testid="bridge-now"]'));
+    await flush();
+    click(container.querySelector('[data-testid="bridge-step2"]'));
+    await flush();
+
+    const handoff = container.querySelector('[data-testid="handoff"]');
+    assert.ok(handoff && handoff.textContent.includes("safe on Solana"),
+      `honest handoff, got: ${handoff?.textContent}`);
+    const err = container.querySelector('[data-testid="form-error"]');
+    assert.ok(err && err.textContent.includes("No LiFi route"), `surfaced reason, got: ${err?.textContent}`);
+    assert.ok(container.querySelector('[data-testid="retry-stage2"]'), "retry affordance present");
+    assert.ok(container.querySelector('[data-testid="reset"]'), "reset present");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
