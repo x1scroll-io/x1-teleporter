@@ -145,7 +145,19 @@ function renderCard(discovery) {
       React.createElement(
         WalletProvider,
         { discovery },
-        React.createElement(BridgeCard),
+        // No-op balancesDeps keeps these render tests hermetic (the balance
+        // line is DI-tested in BalancesLine.test.jsx — no RPC here).
+        React.createElement(BridgeCard, {
+          formProps: {
+            balancesDeps: {
+              priceFetcher: async () => null,
+              evmBalanceFetcher: async () => null,
+              solBalanceFetcher: async () => null,
+              x1BalanceFetcher: async () => null,
+              createConnections: async () => ({ sol: null, x1: null }),
+            },
+          },
+        }),
       ),
     );
   });

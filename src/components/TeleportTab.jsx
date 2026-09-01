@@ -102,7 +102,7 @@ function formatBalance(familyName, balance) {
  * family the modal auto-closes back to the body showing ALL sessions. The
  * form's missing-wallet warnings are wired to the same affordance.
  */
-function ConnectedBody() {
+function ConnectedBody({ formProps = {} }) {
   const { sessions, disconnect } = useWalletContext();
   // "Connect another wallet" mode: while set, the ConnectModal renders
   // INLINE in place of the body (it already has the family picker — pick a
@@ -188,12 +188,13 @@ function ConnectedBody() {
         evmSession={sessions.evm}
         solSession={sessions.solana}
         onConnectWallet={() => setConnecting(true)}
+        {...formProps}
       />
     </div>
   );
 }
 
-export default function TeleportTab() {
+export default function TeleportTab({ formProps = {} }) {
   const { sessions } = useWalletContext();
   const anyConnected = WALLET_FAMILIES.some(
     (family) => sessions[family]?.status === "connected",
@@ -201,7 +202,7 @@ export default function TeleportTab() {
 
   return (
     <div className="teleport-tab" role="tabpanel" aria-label="Teleport">
-      {anyConnected ? <ConnectedBody /> : <ConnectModal />}
+      {anyConnected ? <ConnectedBody formProps={formProps} /> : <ConnectModal />}
     </div>
   );
 }
