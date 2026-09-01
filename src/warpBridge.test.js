@@ -559,3 +559,253 @@ test("runStage2: X1 ATA already exists → prep is a no-op, no X1 tx built or se
   assert.ok(!wallet.calls.some((c) => c.method === "signAndSendTransaction"));
   assert.ok(wallet.calls.some((c) => c.method === "signTransaction"));
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+//  REVERSE LEG (X1 → Solana): the Warp bridge_out BURN on X1 mainnet.
+//  The reverse completes the round trip: X1 USDC.x burns on X1, guardians
+//  release USDC on Solana (then the form's stage 2 runs the LiFi Solana→EVM
+//  leg). These pin the X1 outbound construction + gates, mirroring the
+//  forward buildStage2 / runStage2 tests.
+// ════════════════════════════════════════════════════════════════════════════
+import {
+  buildReverseBurn,
+  runReverse,
+  encodeReverseSeq,
+  assertX1FeePayer,
+  ensureX1FeeWalletAta,
+  X1FeePayerError,
+  X1_FEE_PAYER_MIN_LAMPORTS,
+} from "./warpBridge.js";
+
+// The fixed X1-side fee account from the real mainnet burn tx mMQt8Ypjed…
+// (account slot 9 — a FIXED program fee account, not a derivable ATA).
+const X1_FEE_ACCOUNT_GT = "4uRFjqVU5ZKkp7hQLx3Lm3YeWFts17ER8a5HLUE18ayG";
+// The fee collector wallet at slot 8 = WARP_ACCOUNTS.feePda (7bz2ZN…).
+const X1_FEE_COLLECTOR_GT = WARP_ACCOUNTS.feePda.toBase58();
+
+function mockX1Connection({ userPubkey = USER, feePayerExists = true, feeAtaExists = true, simOk = true, simErr = null } = {}) {
+  const calls = [];
+  const connection = {
+    calls,
+    async getAccountInfo(pk) {
+      calls.push("getAccountInfo");
+      // Fee-payer preflight: the USER's system account.
+      if (pk.equals(userPubkey)) return feePayerExists ? { lamports: 5_000_000 } : null;
+      // Fee-wallet ATA check (ensureX1FeeWalletAta).
+      const feeAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, FEE_WALLET, true, TOKEN_2022_PROGRAM_ID);
+      if (pk.equals(feeAta)) return feeAtaExists ? { lamports: 2_039_280 } : null;
+      return null;
+    },
+    async getSlot() { calls.push("getSlot"); return 123_456_789; },
+    async getLatestBlockhash() { calls.push("getLatestBlockhash"); return { blockhash: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", lastValidBlockHeight: 99 }; },
+    async simulateTransaction() {
+      calls.push("simulateTransaction");
+      if (simErr) throw simErr;
+      return simOk ? { value: { err: null, logs: ["Program log: Instruction: BridgeOut"], unitsConsumed: 12345 } } : { value: { err: { InstructionError: [0, "Custom"] }, logs: ["Program log: Error: insufficient funds"] } };
+    },
+    async sendRawTransaction() { calls.push("sendRawTransaction"); return "x1-burn-sig"; },
+    async confirmTransaction() { calls.push("confirmTransaction"); return { value: { err: null } }; },
+  };
+  return connection;
+}
+
+// The reverse burn tx must match the REAL mainnet X1→Sol burn layout
+// (mMQt8Ypjed…), slot-for-slot: config, token_registry (USDC.x), outgoing_msg,
+// sender, user's USDC.x ATA (Token-2022), the USDC.x mint, program-self ×2,
+// fee collector wallet, FIXED fee account, Token-2022 program, system program.
+test("buildReverseBurn: X1 bridge_out account list matches the verified mainnet burn (order + roles)", async () => {
+  const built = await buildReverseBurn({
+    connection: mockBuildConnection(), // getSlot + getLatestBlockhash
+    userPubkey: USER,
+    amountHuman: 25,
+  });
+  const ix = built.transaction.instructions.find((i) => i.programId.equals(WARP_PROGRAM_ID));
+  assert.ok(ix, "bridge_out instruction present");
+  assert.equal(ix.keys.length, 12, "verified mainnet burn has exactly 12 accounts");
+
+  const userUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, USER, true, TOKEN_2022_PROGRAM_ID);
+  const enc = (s) => new TextEncoder().encode(s);
+  const u64le = (v) => { const b = new Uint8Array(8); let n = BigInt(v); for (let i = 0; i < 8; i++) { b[i] = Number(n & 0xffn); n >>= 8n; } return b; };
+  const [config] = PublicKey.findProgramAddressSync([enc("config")], WARP_PROGRAM_ID);
+  const [tokenRegistry] = PublicKey.findProgramAddressSync([enc("token_registry"), X1_USDCX_MINT.toBytes()], WARP_PROGRAM_ID);
+  const [outgoingMsg] = PublicKey.findProgramAddressSync([enc("evt_out"), u64le(built.seq)], WARP_PROGRAM_ID);
+
+  const expected = [
+    config,                    // 0 config (48Po6q — same PDA on both chains)
+    tokenRegistry,             // 1 token_registry (USDC.x registry)
+    outgoingMsg,               // 2 outgoing_msg (evt_out PDA for the seq)
+    USER,                      // 3 sender (signer)
+    userUsdcxAta,              // 4 user's USDC.x ATA (Token-2022 burn source)
+    X1_USDCX_MINT,             // 5 USDC.x mint
+    WARP_PROGRAM_ID,           // 6 program self (burn authority pattern)
+    WARP_PROGRAM_ID,           // 7 program self
+    new PublicKey(X1_FEE_COLLECTOR_GT), // 8 fee collector wallet
+    new PublicKey(X1_FEE_ACCOUNT_GT),   // 9 FIXED fee account (4uRFjq…)
+    TOKEN_2022_PROGRAM_ID,     // 10 Token-2022 program (USDC.x is Token-2022)
+    SystemProgram.programId,   // 11 system program
+  ];
+  for (let i = 0; i < 12; i++) {
+    const key = ix.keys[i];
+    assert.ok(
+      key.pubkey.equals(expected[i]),
+      `slot ${i}: expected ${expected[i].toBase58()}, got ${key.pubkey.toBase58()}`,
+    );
+  }
+  assert.equal(ix.keys[3].isSigner, true, "sender must sign the burn");
+  assert.equal(ix.keys[3].isWritable, true);
+  assert.equal(ix.keys[0].isWritable, true);
+
+  // Instruction data: BRIDGE_OUT discriminator + seq (u64 LE) + amount (u64 LE).
+  assert.equal(ix.data.length, 24);
+  assert.deepEqual([...ix.data.slice(0, 8)], [27, 194, 57, 119, 215, 165, 247, 150]);
+  assert.equal(BigInt(ix.data[8]) | (BigInt(ix.data[9]) << 8n) | (BigInt(ix.data[10]) << 16n) | (BigInt(ix.data[11]) << 24n), BigInt(built.seq) & 0xffffffffn);
+  const amountLE = ix.data.slice(16, 24);
+  let amt = 0n; for (let i = 7; i >= 0; i--) amt = (amt << 8n) | BigInt(amountLE[i]);
+  assert.equal(amt, 25_000_000n, "burn amount = 25 USDC.x in base units");
+});
+
+test("encodeReverseSeq: chain-pair 0x10 (X1→Sol) encodes into the top byte, slot·1000 + ixIndex below", () => {
+  const seq = encodeReverseSeq(123_456_789, 0);
+  assert.equal(seq >> 56n, 0x10n, "chain pair X1→Sol = 0x10 in the top byte");
+  assert.equal(seq & 0x00ffffffffffffffn, 123_456_789n * 1000n);
+  const seq2 = encodeReverseSeq(123_456_789, 42);
+  assert.equal(seq2 & 0x00ffffffffffffffn, 123_456_789n * 1000n + 42n);
+  assert.throws(() => encodeReverseSeq(1, 1000), /ixIndex/);
+  assert.throws(() => encodeReverseSeq(1, -1), /ixIndex/);
+});
+
+test("assertX1FeePayer: missing X1 account → X1FeePayerError with an actionable XNT message", async () => {
+  const conn = { async getAccountInfo() { return null; } };
+  await assert.rejects(
+    () => assertX1FeePayer(conn, USER),
+    (err) => {
+      assert.ok(err instanceof X1FeePayerError);
+      assert.match(err.message, /no spendable XNT/);
+      assert.match(err.message, /send ~0.001 XNT/i);
+      assert.equal(err.pubkey, USER.toBase58());
+      return true;
+    },
+  );
+});
+
+test("assertX1FeePayer: funded X1 account passes; threshold mirrors the Solana preflight", async () => {
+  const conn = { async getAccountInfo() { return { lamports: 5_000_000 }; } };
+  const res = await assertX1FeePayer(conn, USER);
+  assert.equal(res.ok, true);
+  assert.equal(X1_FEE_PAYER_MIN_LAMPORTS, 1_000_000n);
+});
+
+test("ensureX1FeeWalletAta: builds an IDEMPOTENT Token-2022 create (owner = fee wallet, payer = user) when missing", async () => {
+  const x1 = {
+    async getAccountInfo() { return null; },
+    async getLatestBlockhash() { return { blockhash: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", lastValidBlockHeight: 99 }; },
+  };
+  const res = await ensureX1FeeWalletAta({ connection: x1, userPubkey: USER, feeWallet: FEE_WALLET });
+  assert.equal(res.needsCreation, true);
+  const tx = res.transaction;
+  assert.equal(tx.instructions.length, 1);
+  const ix = tx.instructions[0];
+  assert.equal(ix.programId.toBase58(), "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+  assert.equal(ix.data[0], 1, "idempotent create (discriminator 1), not plain create");
+  // payer = the USER (pays rent + signs); owner = the FEE wallet.
+  assert.equal(ix.keys[0].pubkey.toBase58(), USER.toBase58());
+  assert.equal(ix.keys[0].isSigner, true);
+  assert.equal(ix.keys[2].pubkey.toBase58(), FEE_WALLET.toBase58(), "owner = fee wallet");
+  assert.equal(ix.keys[3].pubkey.toBase58(), X1_USDCX_MINT.toBase58());
+  assert.equal(ix.keys[5].pubkey.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58());
+  assert.equal(tx.feePayer.toBase58(), USER.toBase58());
+  // The ATA it creates IS the transfer destination the skim uses.
+  assert.equal(
+    res.ata.toBase58(),
+    getAssociatedTokenAddressSync(X1_USDCX_MINT, FEE_WALLET, true, TOKEN_2022_PROGRAM_ID).toBase58(),
+  );
+});
+
+test("ensureX1FeeWalletAta: no-op when the fee wallet's USDC.x ATA already exists on X1", async () => {
+  const x1 = { async getAccountInfo() { return { lamports: 2_039_280 }; } };
+  const res = await ensureX1FeeWalletAta({ connection: x1, userPubkey: USER, feeWallet: FEE_WALLET });
+  assert.equal(res.needsCreation, false);
+});
+
+test("runReverse: X1 fee-payer preflight blocks BEFORE anything is built (actionable XNT error, not AccountNotFound)", async () => {
+  const conn = mockX1Connection({ feePayerExists: false, feeAtaExists: true });
+  const wallet = mockWallet();
+  await assert.rejects(
+    () => runReverse({ connection: conn, userPubkey: USER, amountHuman: 25, feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: false, provider: wallet }),
+    (err) => err instanceof X1FeePayerError && /no spendable XNT/.test(err.message),
+  );
+  // Nothing built, nothing simulated, wallet never asked to sign.
+  assert.ok(!conn.calls.includes("getSlot"));
+  assert.ok(!conn.calls.includes("simulateTransaction"));
+  assert.equal(wallet.calls.length, 0);
+});
+
+test("runReverse (sim mode): fee-wallet ATA tx simulated-not-sent; burn simulated; nothing broadcast", async () => {
+  const conn = mockX1Connection({ feePayerExists: true, feeAtaExists: false, simOk: true });
+  const wallet = mockWallet();
+  const res = await runReverse({
+    connection: conn, userPubkey: USER, amountHuman: 24.75,
+    feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: false, provider: wallet,
+  });
+  assert.equal(res.stage, "simulated_ok");
+  assert.equal(res.success, true);
+  assert.equal(res.prep.needsCreation, true);
+  // Wallet never asked to sign in sim mode.
+  assert.equal(wallet.calls.length, 0);
+  // Burn simulated but never broadcast.
+  assert.ok(conn.calls.includes("simulateTransaction"));
+  assert.ok(!conn.calls.includes("sendRawTransaction"));
+});
+
+test("runReverse (live mode): 1% skim transfer FIRST, then the burn; broadcast through the X1 connection", async () => {
+  const userKp = Keypair.generate();
+  const conn = mockX1Connection({ userPubkey: userKp.publicKey, feePayerExists: true, feeAtaExists: true, simOk: true });
+  const wallet = mockWallet({ keypairs: [userKp] });
+  const res = await runReverse({
+    connection: conn, userPubkey: userKp.publicKey, amountHuman: 24.75,
+    feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: true, provider: wallet,
+  });
+  assert.equal(res.stage, "sent");
+  assert.equal(res.signature, "x1-burn-sig");
+
+  // Instruction order: [0] = our 1% skim transfer, [1] = Warp bridge_out burn.
+  const tx = res.built.transaction;
+  assert.equal(tx.instructions.length, 2);
+  assert.equal(tx.instructions[0].programId.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58(), "skim transfer uses Token-2022 (USDC.x)");
+  assert.equal(tx.instructions[1].programId.toBase58(), WARP_PROGRAM_ID.toBase58(), "burn follows the skim");
+
+  // The skim transfers 1% (0.25 USDC.x = 250000 base) to the fee wallet's X1 ATA.
+  const skim = tx.instructions[0];
+  const skimAmount = Buffer.from(skim.data).readBigUInt64LE(1);
+  assert.equal(skimAmount, 250_000n, "skim = 1% of 25 = 0.25 USDC.x (250000 base units)");
+  const userUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, userKp.publicKey, true, TOKEN_2022_PROGRAM_ID);
+  const feeUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, FEE_WALLET, true, TOKEN_2022_PROGRAM_ID);
+  assert.equal(skim.keys[0].pubkey.toBase58(), userUsdcxAta.toBase58(), "skim from the user's USDC.x ATA");
+  assert.equal(skim.keys[1].pubkey.toBase58(), feeUsdcxAta.toBase58(), "skim to the fee wallet's USDC.x ATA");
+
+  // The burn amount = gross − skim = 24.75 USDC.x (24750000 base).
+  const burn = tx.instructions[1];
+  let amt = 0n; const amountLE = burn.data.slice(16, 24);
+  for (let i = 7; i >= 0; i--) amt = (amt << 8n) | BigInt(amountLE[i]);
+  assert.equal(amt, 24_750_000n, "bridge_out burns the net (gross − 1% skim)");
+
+  // Deterministic broadcast: fresh blockhash → sim → signTransaction → app
+  // sendRawTransaction through the X1 connection (PR #30 pattern).
+  assert.ok(conn.calls.includes("sendRawTransaction"));
+  assert.ok(conn.calls.includes("confirmTransaction"));
+  assert.ok(wallet.calls.some((c) => c.method === "signTransaction"));
+});
+
+test("runReverse is FAIL-CLOSED: a rejected burn simulation blocks — no send, wallet never asked to sign", async () => {
+  const conn = mockX1Connection({ feePayerExists: true, feeAtaExists: true, simOk: false });
+  const wallet = mockWallet();
+  const res = await runReverse({
+    connection: conn, userPubkey: USER, amountHuman: 25,
+    feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: true, provider: wallet,
+  });
+  assert.equal(res.stage, "simulation");
+  assert.equal(res.success, false);
+  assert.deepEqual(res.sim.err, { InstructionError: [0, "Custom"] });
+  assert.ok(!conn.calls.includes("sendRawTransaction"), "must not broadcast a tx whose simulation failed");
+  assert.ok(!wallet.calls.some((c) => c.method === "signTransaction" || c.method === "signAndSendTransaction"));
+});

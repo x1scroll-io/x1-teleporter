@@ -647,6 +647,106 @@ export async function runStage2({
 // ════════════════════════════════════════════════════════════════════════════
 export const X1_USDCX_MINT = new PublicKey("B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq");
 const X1_FEE_COLLECTOR = new PublicKey("7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2Jig7j");
+
+// Minimum lamports an X1 fee payer needs before the reverse burn will even
+// simulate. X1 is SVM-compatible: same mechanics as Solana (rent-exempt for a
+// 0-byte system account + a few tx fees), so the threshold mirrors
+// SOLANA_FEE_PAYER_MIN_LAMPORTS. Below this the X1 RPC rejects the tx at load
+// with the bare `AccountNotFound` — preflight it so the user gets an
+// actionable message instead (the mirror of assertSolanaFeePayer).
+export const X1_FEE_PAYER_MIN_LAMPORTS = 1_000_000n; // 0.001 XNT
+
+/**
+ * X1FeePayerError — thrown when the user's X1 (SVM) wallet cannot pay the
+ * reverse-burn tx fee (account missing on X1 mainnet, or below rent-exempt).
+ * Mirrors Stage2FeePayerError for the X1 side of the round trip.
+ */
+export class X1FeePayerError extends Error {
+  constructor(message, { pubkey = null, lamports = null } = {}) {
+    super(message);
+    this.name = "X1FeePayerError";
+    this.pubkey = pubkey;
+    this.lamports = lamports;
+  }
+}
+
+// ── X1 FEE-PAYER PREFLIGHT (the reverse mirror of assertSolanaFeePayer) ──
+// The X1-side bridge_out burn is an SVM tx paid by the user's X1 wallet. If
+// that account is missing on X1 (a wallet that only ever received USDC.x via
+// a guardian mint has NO X1 system account), the RPC rejects the tx at LOAD
+// with `AccountNotFound` — the same cryptic failure the forward hop hit on
+// Solana. Preflight it so the failure is actionable instead of cryptic.
+export async function assertX1FeePayer(connection, userPubkey) {
+  if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
+  let info = null;
+  try {
+    info = await connection.getAccountInfo(userPubkey);
+  } catch (e) {
+    throw new X1FeePayerError(
+      `Could not check your X1 wallet (${userPubkey.toBase58()}) before burning: ${e?.message || e}. ` +
+      `Retry when the X1 RPC is reachable.`,
+      { pubkey: userPubkey.toBase58() },
+    );
+  }
+  const lamports = info ? BigInt(info.lamports) : 0n;
+  if (lamports < X1_FEE_PAYER_MIN_LAMPORTS) {
+    throw new X1FeePayerError(
+      `Your X1 wallet (${userPubkey.toBase58()}) has no spendable XNT on X1 mainnet ` +
+      `(${Number(lamports) / 1e9} XNT) — the Warp burn needs a funded X1 account to pay the tx fee. ` +
+      `Send ~0.001 XNT to that address (or connect an X1 wallet that has XNT), then retry. ` +
+      `Your funds stay safe in your wallet until then.`,
+      { pubkey: userPubkey.toBase58(), lamports },
+    );
+  }
+  return { ok: true, lamports };
+}
+
+// ── X1 FEE-WALLET ATA PREP — idempotent, payer = the user (reverse prep) ──
+// The reverse burn prepends OUR 1% skim as a Token-2022 USDC.x transfer from
+// the user's ATA to the FEE WALLET's X1 USDC.x ATA. An SPL transfer requires
+// the destination ATA to EXIST — and step 1.2's root-cause note said the fee
+// ATA was missing on X1 ("the route is dead at step one"). This creates it
+// idempotently (create-if-missing, no-op if present) with the USER paying
+// rent (payer = user, owner = fee wallet — the ATA program allows any payer),
+// mirroring ensureX1RecipientAta on the forward leg. Fail-closed in sim mode,
+// guarded broadcast in live mode — exactly like the recipient-ATA prep.
+export async function ensureX1FeeWalletAta({ connection, userPubkey, feeWallet, payer = null }) {
+  if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
+  if (!(feeWallet instanceof PublicKey)) feeWallet = new PublicKey(feeWallet);
+  if (payer && !(payer instanceof PublicKey)) payer = new PublicKey(payer);
+  const payerPk = payer || userPubkey; // the connected wallet pays rent + signs
+  const ata = getAssociatedTokenAddressSync(
+    X1_USDCX_MINT, feeWallet, true, TOKEN_2022_PROGRAM_ID,
+  );
+
+  let info = null;
+  try {
+    info = await connection.getAccountInfo(ata);
+  } catch (e) {
+    throw new Error(
+      `Could not check the fee wallet's X1 USDC.x account (${ata.toBase58()}): ${e?.message || e}. ` +
+      `Retry when the X1 RPC is reachable.`,
+    );
+  }
+  if (info) return { needsCreation: false, ata };
+
+  const tx = new Transaction();
+  tx.add(
+    createAssociatedTokenAccountIdempotentInstruction(
+      payerPk,      // payer (rent + fee — the USER's wallet)
+      ata,          // the fee wallet's USDC.x ATA to create/ensure
+      feeWallet,    // owner = the fee wallet
+      X1_USDCX_MINT, // mint (USDC.x, Token-2022)
+      TOKEN_2022_PROGRAM_ID, // token program
+    ),
+  );
+  tx.feePayer = payerPk;
+  try {
+    const { blockhash } = await connection.getLatestBlockhash("confirmed");
+    tx.recentBlockhash = blockhash;
+  } catch { /* wallet may supply one */ }
+  return { needsCreation: true, transaction: tx, ata };
+}
 // The fee account at slot 9 is a FIXED program fee account (not a derivable
 // ATA) — taken verbatim from the real mainnet burn tx mMQt8Ypjed...
 const X1_FEE_ACCOUNT = new PublicKey("4uRFjqVU5ZKkp7hQLx3Lm3YeWFts17ER8a5HLUE18ayG");
@@ -672,6 +772,7 @@ function deriveX1RevOutgoingMsgPda(seq) {
 }
 
 export function encodeReverseSeq(slot, ixIndex = 0) {
+  if (ixIndex < 0 || ixIndex > 999) throw new Error("ixIndex must be in [0,999]");
   const baseSeq = BigInt(slot) * 1000n + BigInt(ixIndex);
   return (BigInt(CHAIN_PAIR_X1_TO_SOL) << 56n) | baseSeq;
 }
@@ -727,6 +828,38 @@ export async function buildReverseBurn({ connection, userPubkey, amountHuman, se
 }
 
 export async function runReverse({ connection, userPubkey, amountHuman, feeAmount = 0, feeWallet = null, allowLive = false, provider = null, onBuilt = () => {} }) {
+  // 0) X1 fee-payer preflight: the bare `AccountNotFound` on the X1 RPC was
+  //    the fee payer missing on X1 (same failure class as the forward hop on
+  //    Solana). Surface it as an actionable error BEFORE anything is built.
+  await assertX1FeePayer(connection, userPubkey);
+
+  // 1) X1 fee-wallet ATA prep: our 1% skim is a Token-2022 USDC.x transfer to
+  //    the FEE wallet's X1 ATA — which must EXIST for the transfer to work
+  //    (the step-1.2 root cause: "fee ATA missing on X1"). Create it
+  //    idempotently via the connected wallet (payer = user) BEFORE the burn is
+  //    built. allowLive:false still SIMULATES the ATA tx (fail-closed) but
+  //    broadcasts nothing — same no-touch promise as every other leg.
+  let prep = null;
+  if (feeAmount > 0 && feeWallet) {
+    prep = await ensureX1FeeWalletAta({
+      connection,
+      userPubkey,
+      feeWallet,
+      payer: userPubkey, // the user's connected wallet pays rent + signs
+    });
+    if (prep.needsCreation) {
+      if (allowLive) {
+        // Guarded: simulate on X1 (fail-closed), then wallet signs + broadcasts.
+        await sendX1AtaCreation(connection, prep.transaction, provider);
+      } else {
+        const prepSim = await simulateStage2(connection, prep.transaction);
+        if (!prepSim.ok) {
+          return { stage: "x1_fee_ata_simulation", success: false, sim: prepSim, prep, built: null };
+        }
+      }
+    }
+  }
+
   const built = await buildReverseBurn({ connection, userPubkey, amountHuman });
   
   // If a Teleporter fee is due, prepend a transfer instruction (1% USDC.x to fee wallet).
@@ -750,10 +883,10 @@ export async function runReverse({ connection, userPubkey, amountHuman, feeAmoun
   
   onBuilt();
   const sim = await simulateStage2(connection, built.transaction);
-  if (!sim.ok) return { stage: "simulation", success: false, sim, built };
-  if (!allowLive) return { stage: "simulated_ok", success: true, sim, built, sent: null };
+  if (!sim.ok) return { stage: "simulation", success: false, sim, built, prep };
+  if (!allowLive) return { stage: "simulated_ok", success: true, sim, built, sent: null, prep };
   const sig = await sendStage2ViaPhantom(connection, built.transaction, provider);
-  return { stage: "sent", success: true, sim, built, signature: sig };
+  return { stage: "sent", success: true, sim, built, signature: sig, prep };
 }
 
 // ── Warp API status polling ──

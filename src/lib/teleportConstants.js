@@ -54,6 +54,10 @@ export const EVM_CHAINS = Object.freeze(["eth", "bsc", "arb", "bas", "opt", "pol
 // ~11% of the journey at $10 and ~5% at $25, so $25 is the floor.
 export const X1_MIN = 25;
 
+// Minimum OUT of X1 (v1 mirror: X1_REVERSE_MIN). Same reasoning reversed —
+// the 1% skim + Warp's $1 must leave a meaningful net for the Solana→EVM leg.
+export const X1_REVERSE_MIN = 25;
+
 // Warp rejects bridges below this (USDC).
 export const WARP_MIN = 10;
 
