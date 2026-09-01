@@ -581,12 +581,15 @@ test("stage 1 sent but the Solana session can't sign → honest handoff (funds s
 // ════════════════════════════════════════════════════════════════════════════
 
 /** Mocked /api/lifi/quote for the REVERSE leg (SOL→EVM). $98 net on Solana →
- *  $97.02 delivered on Ethereum (toAmount in base units). */
-function mockReverseQuoteFetch() {
+ *  $97.02 delivered on Ethereum (toAmount in base units). Carries the
+ *  fromToken's LIVE priceUSD (real LiFi shape — the USD-aware min gate reads
+ *  it; default $1 so the stable regressions behave like the raw-count era). */
+function mockReverseQuoteFetch({ priceUSD = 1, fromAmount = "98000000", toAmount = "97020000" } = {}) {
   const calls = [];
   const lifiQuote = {
     id: "0xmock-reverse-quote",
-    estimate: { toAmount: "97020000", fromAmount: "98000000" },
+    estimate: { toAmount, fromAmount },
+    action: { fromToken: { priceUSD } },
   };
   const fetcher = mock.fn(async (url) => {
     calls.push(String(url));
@@ -1000,6 +1003,122 @@ test("REVERSE token: USDC.x default, wSOL.X now offered (SOL rail) — change ev
     // The stablecoin CHOICE lives on the destination side — never the X1 side.
     assert.ok(container.querySelector('[data-testid="to-token"]'), "destination token selector present in reverse");
   } finally {
+    unmount();
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  USD-AWARE REVERSE MINIMUM (the live-bug fix): the $25 floor is a USD
+//  VALUE — amount × the LIVE source price (LiFi fromToken.priceUSD, Coingecko
+//  fallback), never the raw token count. 0.3 wSOL.X ≈ $30 was blocked because
+//  0.3 < 25; 24 USDC.x ≈ $24 must still block. No price resolvable → fail-open.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Flip the reverse form to the given burn token and enter an amount. */
+function reverseWithToken(container, tokenSymbol, amountValue) {
+  click(container.querySelector('[data-testid="dir-reverse"]'));
+  const tokenSelect = container.querySelector('[data-testid="token"]');
+  act(() => {
+    tokenSelect.value = tokenSymbol;
+    tokenSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  setInput(container.querySelector('[data-testid="amount"]'), amountValue);
+  click(container.querySelector('[data-testid="get-quote"]'));
+}
+
+test("REVERSE USD min: 0.3 wSOL.X at live priceUSD 100 → $30 ≥ $25 — PASSES (the live bug, fixed)", async () => {
+  // REPRODUCTION: pre-fix `amt < X1_REVERSE_MIN` blocked this with
+  // "Bridge $25+ out of X1" because 0.3 < 25 — even though 0.3 wSOL.X ≈ $30.
+  const qf = mockReverseQuoteFetch({ priceUSD: 100, fromAmount: "296257500", toAmount: "29600000" });
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    reverseWithToken(container, "wSOL.X", "0.3");
+    await flush();
+
+    assert.equal(qf.calls.length, 1, "the LiFi leg is quoted FIRST (the gate reads its live price)");
+    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no floor error — the USD value clears the gate");
+    const box = container.querySelector('[data-testid="quote-box"]');
+    assert.ok(box, "quote proceeds — 0.3 wSOL.X ≈ $30 is a valid bridge");
+    assert.ok(container.querySelector('[data-testid="bridge-now"]'), "send button available");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("REVERSE USD min: 0.1 wSOL.X at the same live price → $10 < $25 — BLOCKED with the same message", async () => {
+  const qf = mockReverseQuoteFetch({ priceUSD: 100, fromAmount: "98752500", toAmount: "9800000" });
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    reverseWithToken(container, "wSOL.X", "0.1");
+    await flush();
+
+    const err = container.querySelector('[data-testid="form-error"]');
+    assert.ok(err && err.textContent.includes("Bridge $25+ out of X1"),
+      `same clear message, got: ${err?.textContent}`);
+    assert.equal(container.querySelector('[data-testid="quote-box"]'), null, "no quote — genuinely below the $25 USD floor");
+    assert.ok(container.querySelector('[data-testid="get-quote"]'), "back to idle — retry available");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("REVERSE USD min regression: 25 USDC.x at ~$1 → $25 ≥ $25 — PASSES (raw-count era behavior kept)", async () => {
+  const qf = mockReverseQuoteFetch(); // priceUSD defaults to 1
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    reverseWithToken(container, "USDC.x", "25");
+    await flush();
+
+    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no floor error");
+    assert.ok(container.querySelector('[data-testid="quote-box"]'), "25 USDC.x still quotes");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("REVERSE USD min regression: 24 USDC.x at ~$1 → $24 < $25 — BLOCKED (raw-count era behavior kept)", async () => {
+  const qf = mockReverseQuoteFetch();
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    reverseWithToken(container, "USDC.x", "24");
+    await flush();
+
+    const err = container.querySelector('[data-testid="form-error"]');
+    assert.ok(err && err.textContent.includes("Bridge $25+ out of X1"),
+      `same clear message, got: ${err?.textContent}`);
+    assert.equal(container.querySelector('[data-testid="quote-box"]'), null, "no quote below the floor");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("REVERSE USD min: NO price resolvable (LiFi price missing + fallback down) → FAILS OPEN, quote proceeds", async () => {
+  // The LiFi quote carries no priceUSD and the Coingecko fallback errors —
+  // the gate must NOT block a valid user on a missing price (the burn
+  // preflight still guards an actually-too-small amount).
+  const fetcher = mock.fn(async (url) => {
+    if (String(url).includes("coingecko")) throw new Error("price api down");
+    return {
+      ok: true,
+      json: async () => ({ id: "0xmock", estimate: { toAmount: "9700000", fromAmount: "98752500" }, action: { fromToken: {} } }),
+    };
+  });
+  mock.method(globalThis, "fetch", fetcher);
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    reverseWithToken(container, "wSOL.X", "0.1"); // would block at $10 IF a price were known — proves fail-open
+    await flush();
+
+    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no floor error — fail-open on the min gate");
+    const box = container.querySelector('[data-testid="quote-box"]');
+    assert.ok(box, "quote still proceeds when the price can't be resolved");
+    assert.ok(container.querySelector('[data-testid="bridge-now"]'), "send button available — the burn preflight is the real guard");
+  } finally {
+    mock.restoreAll();
     unmount();
   }
 });

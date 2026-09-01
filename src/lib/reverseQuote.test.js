@@ -13,6 +13,9 @@ import {
   computeReverseLegs,
   buildReverseLifiQuoteParams,
   deriveReverseQuote,
+  checkReverseMin,
+  resolveReversePriceUSD,
+  defaultPriceFetch,
 } from "./reverseQuote.js";
 import { FEE_RATES } from "./fees.ts";
 import { CHAINS, TOKENS } from "./teleportConstants.js";
@@ -251,4 +254,81 @@ test("deriveReverseQuote (wSOL.X): quoted leg shows the dest stable; unquoted le
   assert.equal(unquoted.recvToken, "WSOL", "honest handoff: WSOL rests on Solana");
   assert.equal(unquoted.recvChain, "Solana");
   assert.equal(unquoted.lifiQuoted, false);
+});
+
+// ── USD-AWARE MINIMUM (the live-bug fix): the $25 floor is a USD VALUE ──────
+// The old gate compared the RAW TOKEN COUNT (0.3 wSOL.X ≈ $30 blocked because
+// 0.3 < 25). checkReverseMin compares gross input × the LIVE source-token
+// price (LiFi's fromToken.priceUSD primary, Coingecko fallback, fail-open).
+
+test("checkReverseMin: 0.3 wSOL.X at priceUSD 100 → $30 ≥ $25 — PASSES (the live bug, fixed)", async () => {
+  const lifiData = { action: { fromToken: { priceUSD: 100 } } };
+  const r = await checkReverseMin({ amount: 0.3, token: "wSOL.X", lifiData });
+  assert.equal(r.blocked, false, "0.3 wSOL.X ≈ $30 must pass the $25 USD floor");
+  assert.equal(r.usdValue, 30, "USD value = gross × live price (0.3 × 100)");
+  assert.equal(r.priceUSD, 100, "price comes from the LiFi quote");
+});
+
+test("checkReverseMin: 0.1 wSOL.X at the same price → $10 < $25 — BLOCKED", async () => {
+  const lifiData = { action: { fromToken: { priceUSD: 100 } } };
+  const r = await checkReverseMin({ amount: 0.1, token: "wSOL.X", lifiData });
+  assert.equal(r.blocked, true, "0.1 wSOL.X ≈ $10 is genuinely below the floor");
+  assert.equal(r.usdValue, 10);
+});
+
+test("checkReverseMin: 25 USDC.x at ~$1 → $25 ≥ $25 — PASSES (stable regression unchanged)", async () => {
+  const lifiData = { action: { fromToken: { priceUSD: 1 } } };
+  const r = await checkReverseMin({ amount: 25, token: "USDC.x", lifiData });
+  assert.equal(r.blocked, false, "25 USDC.x ≈ $25 still clears the floor");
+});
+
+test("checkReverseMin: 24 USDC.x at ~$1 → $24 < $25 — BLOCKED (stable regression unchanged)", async () => {
+  const lifiData = { action: { fromToken: { priceUSD: 1 } } };
+  const r = await checkReverseMin({ amount: 24, token: "USDC.x", lifiData });
+  assert.equal(r.blocked, true, "24 USDC.x ≈ $24 is below the floor");
+});
+
+test("checkReverseMin: no LiFi price → Coingecko fallback used (never hardcoded)", async () => {
+  const lifiData = { action: { fromToken: {} } }; // quoted leg but NO priceUSD
+  const r = await checkReverseMin({
+    amount: 0.3, token: "wSOL.X", lifiData,
+    fetchPrice: async (id) => { assert.equal(id, "wrapped-solana"); return 100; },
+  });
+  assert.equal(r.blocked, false, "0.3 × fallback $100 = $30 → passes");
+  assert.equal(r.priceUSD, 100, "fallback price used");
+});
+
+test("checkReverseMin: LiFi price WINS — the fallback is never called when the quote carries a price", async () => {
+  let fallbackCalls = 0;
+  const r = await checkReverseMin({
+    amount: 24, token: "USDC.x",
+    lifiData: { action: { fromToken: { priceUSD: 1 } } },
+    fetchPrice: async () => { fallbackCalls += 1; return 999; },
+  });
+  assert.equal(r.blocked, true, "uses the LiFi price ($24 < $25), not the bogus fallback");
+  assert.equal(fallbackCalls, 0, "fallback not consulted — LiFi is the primary source");
+});
+
+test("checkReverseMin: BOTH price sources fail → FAILS OPEN (blocked=false, quote proceeds)", async () => {
+  const r = await checkReverseMin({
+    amount: 0.1, token: "wSOL.X",
+    lifiData: null, // leg unquoted → no LiFi price
+    fetchPrice: async () => { throw new Error("price api down"); },
+  });
+  assert.equal(r.blocked, false, "a missing price must never block a valid user");
+  assert.equal(r.usdValue, null);
+  assert.equal(r.priceUSD, null);
+});
+
+test("resolveReversePriceUSD: defaultPriceFetch parses the Coingecko simple-price shape", async () => {
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /api\.coingecko\.com\/api\/v3\/simple\/price/);
+    return { ok: true, json: async () => ({ "wrapped-solana": { usd: 102.34 } }) };
+  };
+  try {
+    assert.equal(await defaultPriceFetch("wrapped-solana"), 102.34);
+  } finally {
+    globalThis.fetch = prev;
+  }
 });

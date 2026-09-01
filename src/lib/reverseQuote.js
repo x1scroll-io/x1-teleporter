@@ -37,7 +37,7 @@
  * through determineRoute (see TeleportForm.jsx).
  */
 
-import { CHAINS, TOKENS } from "./teleportConstants.js";
+import { CHAINS, TOKENS, X1_REVERSE_MIN } from "./teleportConstants.js";
 import { quoteFees, FEE_RATES, LIFI_INTEGRATOR_ACCOUNT } from "./fees.ts";
 
 const USDC_DECIMALS = 6;
@@ -91,6 +91,80 @@ export function computeReverseLegs({ amount, token = "USDC.x" }) {
     amount,
   );
   return { skim, burnAmount, warpFee, netOnSolana, feeQuote };
+}
+
+/** Coingecko simple-price ids for the reverse SOURCE tokens (the Solana-side
+ *  landing token of the X1 burn — USDC or WSOL). Fallback ONLY: the LiFi
+ *  quote's fromToken.priceUSD is the primary price source. */
+const COINGECKO_IDS = { USDC: "usd-coin", WSOL: "wrapped-solana" };
+
+/**
+ * Resolve the LIVE USD price for the reverse SOURCE token — never hardcoded
+ * (the codebase's XNT-price rule: ALWAYS pull live).
+ *
+ * Primary: the LiFi quote's fromToken.priceUSD — the SOL→EVM leg's fromToken
+ * is exactly the token the Warp burn releases on Solana (USDC for a USDC.x
+ * burn, WSOL for a wSOL.X burn), 1:1 with the X1-side source (USDC.x / wSOL.X
+ * are Warp-wrapped twins of the Solana tokens). No extra request, no race.
+ *
+ * Fallback: Coingecko simple price for the Solana-side token (the app has no
+ * price util of its own — the LiFi price is the primary and Coingecko covers
+ * the gap when the quote is missing/erroring).
+ *
+ * @param {{token?: string, lifiData?: ?object, fetchPrice?: (id: string) =>
+ *          Promise<?number>}} args token = the X1 source ("USDC.x" |
+ *   "wSOL.X"); lifiData = the /api/lifi/quote response (may be null when the
+ *   leg couldn't be quoted); fetchPrice = DI'd live-price fetcher (tests
+ *   inject a fake; default: Coingecko).
+ * @returns {Promise<?number>} the source token's USD price, or null when BOTH
+ *   sources fail — the caller then FAILS OPEN on the min gate.
+ */
+export async function resolveReversePriceUSD({ token = "USDC.x", lifiData, fetchPrice = defaultPriceFetch }) {
+  const lifiPrice = lifiData?.action?.fromToken?.priceUSD;
+  if (lifiPrice != null && Number(lifiPrice) > 0) return Number(lifiPrice);
+  const id = COINGECKO_IDS[reverseSolanaToken(token)];
+  if (!id) return null;
+  try {
+    return await fetchPrice(id);
+  } catch {
+    return null; // a failed price lookup must never block a valid user
+  }
+}
+
+/** The default live-price fetch: Coingecko simple price (`{id: {usd: N}}`).
+ *  Returns null on any non-parseable response — resolveReversePriceUSD turns
+ *  that into the fail-open path. */
+export async function defaultPriceFetch(coingeckoId) {
+  const resp = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd`);
+  if (!resp.ok) return null;
+  const d = await resp.json();
+  const price = d?.[coingeckoId]?.usd;
+  return price != null && Number(price) > 0 ? Number(price) : null;
+}
+
+/**
+ * The USD-AWARE reverse minimum gate (the live-bug fix: the old check
+ * compared the RAW TOKEN COUNT to the $25 floor, so 0.3 wSOL.X ≈ $30 was
+ * blocked because 0.3 < 25).
+ *
+ * The $25 floor is a USD VALUE: gross input × the LIVE source-token price.
+ *   - USDC.x ≈ $1 → 25 units ≈ $25 (behavior unchanged for the stable)
+ *   - wSOL.X ≈ $100 → ~0.25 units already clears the floor
+ * FAILS OPEN when no live price resolves (LiFi + fallback both miss): a
+ * missing price must not block a valid user — the burn preflight (sim) still
+ * guards an actually-too-small amount.
+ *
+ * @param {{amount: number, token?: string, lifiData?: ?object, minUsd?:
+ *          number, fetchPrice?: (id: string) => Promise<?number>}} args
+ * @returns {Promise<{blocked: boolean, usdValue: ?number, priceUSD: ?number}>}
+ *   blocked = usdValue < minUsd; usdValue/priceUSD are null on the fail-open
+ *   path (no price resolvable).
+ */
+export async function checkReverseMin({ amount, token = "USDC.x", lifiData, minUsd = X1_REVERSE_MIN, fetchPrice = defaultPriceFetch }) {
+  const priceUSD = await resolveReversePriceUSD({ token, lifiData, fetchPrice });
+  if (priceUSD == null) return { blocked: false, usdValue: null, priceUSD: null }; // fail-open
+  const usdValue = amount * priceUSD;
+  return { blocked: usdValue < minUsd, usdValue, priceUSD };
 }
 
 /**
