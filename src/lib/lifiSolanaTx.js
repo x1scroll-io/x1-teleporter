@@ -95,13 +95,20 @@ export async function executeLiFiSolanaTx({
     throw new Error("Connect your Solana/X1 wallet to sign");
   }
 
-  const { VersionedTransaction, Connection } = await import("@solana/web3.js");
+  const { VersionedTransaction } = await import("@solana/web3.js");
+  const { createProxiedConnection } = await import("./proxiedConnection.js");
   const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   const vtx = VersionedTransaction.deserialize(raw);
   console.log("[Onward leg2] deserialized Solana tx, simulating…");
 
   // ── MANDATORY PRE-SEND SIMULATION (Step 1.3A, fail-closed) ──
-  const conn = new Connection(SOLANA_RPC, "confirmed");
+  // PROXIED transport (fix/proxy-solana-x1-rpc): the simulation read goes
+  // through the app's own /api/rpc/solana serverless function (the browser's
+  // direct Solana-RPC fetches were blocked in the user's network — the same
+  // block that broke the reverse stage-2 signing path). The broadcast below
+  // stays with the connected wallet / direct RPC (the shim routes
+  // sendRawTransaction straight to the real endpoint, unchanged).
+  const conn = await createProxiedConnection(SOLANA_RPC, "/api/rpc/solana");
   const sim = await simulateSolanaTx(conn, vtx);
   if (!sim.ok) {
     if (sim.simUnavailable) {

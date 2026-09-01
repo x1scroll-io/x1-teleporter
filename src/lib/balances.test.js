@@ -1,7 +1,14 @@
 /**
  * balances.test.js — per-chain balance readers: EVM eth_call balanceOf,
- * Solana USDC+WSOL via getTokenAccountsByOwner, X1 USDC.x+wSOL.X (same SVM
- * shape). All DI-able (fake provider / fake connection), all fail-soft.
+ * Solana USDC+WSOL via getParsedTokenAccountsByOwner, X1 USDC.x+wSOL.X (same
+ * SVM shape). All DI-able (fake provider / fake connection), all fail-soft.
+ *
+ * The SVM reader calls the PARSED variant (jsonParsed encoding) with
+ * PublicKey instances — real web3.js Connections require both (the raw
+ * getTokenAccountsByOwner hardcodes base64, whose response has no `.parsed`
+ * member, and calls `.toBase58()` on its args, so string addresses throw
+ * before any RPC round-trip — the live `Solana: —` / `X1: —` root cause,
+ * fix/proxy-solana-x1-rpc). The fakes below mirror that contract.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -14,6 +21,12 @@ import {
 } from "./balances.js";
 
 const EVM_ADDR = "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6";
+
+/** Valid base58 wallet fixtures — real Connections require
+ *  PublicKey-parseable addresses (the reader normalizes strings → PublicKey
+ *  before calling, so these must be real base58). */
+const SVM_WALLET = "So11111111111111111111111111111111111111112";
+const X1_WALLET = "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq";
 
 /** Fake EIP-1193 provider — records eth_call requests, returns canned hex. */
 function makeEvmProvider({ hex = "0x0", fail = false } = {}) {
@@ -31,13 +44,15 @@ function makeEvmProvider({ hex = "0x0", fail = false } = {}) {
   };
 }
 
-/** Fake SVM connection — records getTokenAccountsByOwner, returns canned
- *  parsed token accounts (the jsonParsed RPC shape). */
+/** Fake SVM connection — records getParsedTokenAccountsByOwner, returns
+ *  canned parsed token accounts (the jsonParsed RPC shape — the variant the
+ *  reader actually calls; getTokenAccountsByOwner hardcodes base64 and has
+ *  no `.parsed` to read). */
 function makeSvmConnection({ accountsByMint = {}, fail = false } = {}) {
   const calls = [];
   return {
     calls,
-    getTokenAccountsByOwner: async (wallet, { mint }) => {
+    getParsedTokenAccountsByOwner: async (wallet, { mint }) => {
       calls.push({ wallet: String(wallet), mint: String(mint) });
       if (fail) throw new Error("RPC unavailable");
       return { value: accountsByMint[String(mint)] || [] };
@@ -125,7 +140,7 @@ test("EVM: null hex response → null (fail-soft)", async () => {
   assert.equal(bal, null);
 });
 
-// ── Solana: USDC + WSOL via getTokenAccountsByOwner ────────────────────────
+// ── Solana: USDC + WSOL via getParsedTokenAccountsByOwner ──────────────────
 
 test("Solana: USDC + WSOL balances, decimals per mint (6 and 9)", async () => {
   const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -136,9 +151,9 @@ test("Solana: USDC + WSOL balances, decimals per mint (6 and 9)", async () => {
       [wsolMint]: [tokenAccount(300_000_000)], // 0.3 WSOL (9 dec)
     },
   });
-  const bals = await fetchSvmTokenBalances({ connection: conn, wallet: "solwallet", mints: SOLANA_MINTS });
+  const bals = await fetchSvmTokenBalances({ connection: conn, wallet: SVM_WALLET, mints: SOLANA_MINTS });
   assert.deepEqual(bals, { USDC: 5.2, WSOL: 0.3 });
-  // the connection was asked for the right mints
+  // the connection was asked for the right mints (as base58 strings)
   assert.deepEqual(
     conn.calls.map((c) => c.mint),
     [usdcMint, wsolMint],
@@ -154,7 +169,7 @@ test("Solana: multiple token accounts for one mint are summed", async () => {
       [wsolMint]: [],
     },
   });
-  const bals = await fetchSvmTokenBalances({ connection: conn, wallet: "solwallet", mints: SOLANA_MINTS });
+  const bals = await fetchSvmTokenBalances({ connection: conn, wallet: SVM_WALLET, mints: SOLANA_MINTS });
   assert.equal(bals.USDC, 5.2, "sums across every ATA for the mint");
   assert.equal(bals.WSOL, 0, "no account → 0, not null");
 });
@@ -162,18 +177,18 @@ test("Solana: multiple token accounts for one mint are summed", async () => {
 test("Solana: fail-soft — connection throws → null, missing connection/wallet → null", async () => {
   const failing = await fetchSvmTokenBalances({
     connection: makeSvmConnection({ fail: true }),
-    wallet: "solwallet",
+    wallet: SVM_WALLET,
     mints: SOLANA_MINTS,
   });
   assert.equal(failing, null, "RPC failure → null, no throw");
-  assert.equal(await fetchSvmTokenBalances({ connection: null, wallet: "solwallet", mints: SOLANA_MINTS }), null);
+  assert.equal(await fetchSvmTokenBalances({ connection: null, wallet: SVM_WALLET, mints: SOLANA_MINTS }), null);
   assert.equal(await fetchSvmTokenBalances({ connection: makeSvmConnection(), wallet: null, mints: SOLANA_MINTS }), null);
-  assert.equal(await fetchSvmTokenBalances({ connection: makeSvmConnection(), wallet: "solwallet", mints: [] }), null);
+  assert.equal(await fetchSvmTokenBalances({ connection: makeSvmConnection(), wallet: SVM_WALLET, mints: [] }), null);
 });
 
 // ── X1: USDC.x + wSOL.X (Token-2022, same SVM RPC shape) ───────────────────
 
-test("X1: USDC.x + wSOL.X balances via the same getTokenAccountsByOwner pattern", async () => {
+test("X1: USDC.x + wSOL.X balances via the same getParsedTokenAccountsByOwner pattern", async () => {
   const usdcxMint = "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq";
   const wsolxMint = "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8";
   const conn = makeSvmConnection({
@@ -182,7 +197,7 @@ test("X1: USDC.x + wSOL.X balances via the same getTokenAccountsByOwner pattern"
       [wsolxMint]: [tokenAccount(300_000_000)], // 0.3 wSOL.X (9 dec)
     },
   });
-  const bals = await fetchSvmTokenBalances({ connection: conn, wallet: "x1wallet", mints: X1_MINTS });
+  const bals = await fetchSvmTokenBalances({ connection: conn, wallet: X1_WALLET, mints: X1_MINTS });
   assert.deepEqual(bals, { "USDC.x": 27.59, "wSOL.X": 0.3 });
   assert.deepEqual(
     conn.calls.map((c) => c.mint),
@@ -194,7 +209,7 @@ test("X1: USDC.x + wSOL.X balances via the same getTokenAccountsByOwner pattern"
 test("X1: fail-soft — X1 RPC down → null, never blocks", async () => {
   const bals = await fetchSvmTokenBalances({
     connection: makeSvmConnection({ fail: true }),
-    wallet: "x1wallet",
+    wallet: X1_WALLET,
     mints: X1_MINTS,
   });
   assert.equal(bals, null);

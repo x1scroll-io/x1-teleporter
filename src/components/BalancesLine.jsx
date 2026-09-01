@@ -39,14 +39,20 @@ import {
   formatBalance,
 } from "../lib/balances.js";
 
-/** Default connection factory: real web3.js Connections for Solana + X1.
+/** Default connection factory: real web3.js Connections for Solana + X1
+ *  whose HTTP transport is routed through the app's OWN serverless RPC
+ *  proxies (/api/rpc/solana + /api/rpc/x1 — fix/proxy-solana-x1-rpc).
+ *  The live Balances-line symptom was `Solana: —` / `X1: —` while EVM
+ *  worked: the browser's DIRECT fetches to the Solana/X1 RPCs failed in the
+ *  user's network. Same-origin /api/rpc/* eliminates the browser-network
+ *  variable (the same pattern that fixed the Warp release poll).
  *  DI-able via props so tests inject fakes (no network). Lazy: only built
  *  when a Solana/X1 wallet is connected and a read is actually needed. */
 export async function defaultCreateConnections() {
-  const { Connection } = await import("@solana/web3.js");
+  const { createProxiedConnection } = await import("../lib/proxiedConnection.js");
   return {
-    sol: new Connection(SOLANA_RPC, "confirmed"),
-    x1: new Connection(X1_RPC, "confirmed"),
+    sol: await createProxiedConnection(SOLANA_RPC, "/api/rpc/solana"),
+    x1: await createProxiedConnection(X1_RPC, "/api/rpc/x1"),
   };
 }
 

@@ -7,8 +7,10 @@
  * The reader is created once (per wallet address) and reused — the
  * @solana/web3.js Connection is lazily created on first use and shared.
  * `connection` may be injected (the app's existing Connection); otherwise a
- * Connection is built from VITE_SOLANA_RPC (same default RPC ladder as
- * Teleporter.jsx).
+ * PROXIED Connection is built (fix/proxy-solana-x1-rpc): the HTTP transport
+ * POSTs to the app's own /api/rpc/solana serverless function instead of the
+ * raw RPC, so the read works even when the browser's network blocks the
+ * Solana RPC directly (the live `Solana: —` / blocked stage-2 symptom).
  *
  * PURE OF WINDOW: no injected globals, no DOM — runs under node --test with
  * a mocked Connection.
@@ -37,9 +39,11 @@ export function createSolBalanceReader({ rpcUrl, connection, web3 } = {}) {
   const getConnection = () => {
     if (connection) return Promise.resolve(connection);
     if (!connPromise) {
-      connPromise = Promise.resolve(
-        web3 ?? import("@solana/web3.js"),
-      ).then(({ Connection }) => new Connection(rpcUrl ?? DEFAULT_SOLANA_RPC, "confirmed"));
+      connPromise = import("../proxiedConnection.js").then(({ createProxiedConnection }) =>
+        createProxiedConnection(rpcUrl ?? DEFAULT_SOLANA_RPC, "/api/rpc/solana", {
+          web3: web3 ?? undefined,
+        }),
+      );
     }
     return connPromise;
   };

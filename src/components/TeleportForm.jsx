@@ -63,14 +63,21 @@ import BalancesLine from "./BalancesLine.jsx";
  * as a forwarded value, so the gate stays testable and visible.
  */
 export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive, destToken = "USDC.x" }) {
-  const { Connection, PublicKey } = await import("@solana/web3.js");
+  const { PublicKey } = await import("@solana/web3.js");
+  const { createProxiedConnection } = await import("../lib/proxiedConnection.js");
   const { runStage2 } = await import("../warpBridge.js");
-  const connection = new Connection(SOLANA_RPC, "confirmed");
+  // PROXIED transports (fix/proxy-solana-x1-rpc): the browser's DIRECT
+  // fetches to the Solana/X1 RPCs failed in the user's network (the live
+  // `Solana: —`/`X1: —` symptom). Reads + simulation now go through the
+  // app's own /api/rpc/* serverless functions; write broadcasts stay with
+  // the connected wallet (the shim routes sendTransaction/sendRawTransaction
+  // straight to the real RPC, unchanged).
+  const connection = await createProxiedConnection(SOLANA_RPC, "/api/rpc/solana");
   // X1 RPC for the destination prep: runStage2 creates the recipient's token
   // ATA on X1 (USDC.x or wSOL.X — idempotent, payer = the connected wallet)
   // before the Solana bridge_out, so Warp's guardian bridge_in_v2 finds the
   // ATA already there.
-  const x1Connection = new Connection(X1_RPC, "confirmed");
+  const x1Connection = await createProxiedConnection(X1_RPC, "/api/rpc/x1");
   return runStage2({
     connection,
     x1Connection,
@@ -95,12 +102,14 @@ export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive, 
  * is therefore gross − skim, exactly what the quote box showed.
  */
 export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allowLive, token = "USDC.x" }) {
-  const { Connection, PublicKey } = await import("@solana/web3.js");
+  const { PublicKey } = await import("@solana/web3.js");
+  const { createProxiedConnection } = await import("../lib/proxiedConnection.js");
   const { runReverse, SKIM_BPS } = await import("../warpBridge.js");
-  // X1 RPC: the burn executes on X1 mainnet (SVM-compatible) — sim + send
-  // both go through this connection (the PR #30 deterministic-broadcast
-  // pattern: signTransaction + app broadcast via the chain RPC).
-  const connection = new Connection(X1_RPC, "confirmed");
+  // PROXIED transport (fix/proxy-solana-x1-rpc): the X1 burn's reads +
+  // simulation go through the app's own /api/rpc/x1 serverless function
+  // (the browser's direct X1-RPC fetches were blocked in the user's
+  // network); the broadcast stays with the connected wallet / direct RPC.
+  const connection = await createProxiedConnection(X1_RPC, "/api/rpc/x1");
   const skim = (amountHuman * Number(SKIM_BPS)) / 10_000; // 1% of the gross
   return runReverse({
     connection,

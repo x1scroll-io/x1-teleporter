@@ -1001,9 +1001,14 @@ export default function Teleporter() {
         return (Number(raw) / 10 ** tk.decimals).toFixed(2);
       }
       if (c.walletType === "solana" && solWallet?.addr) {
-        // SPL balance via getTokenAccountsByOwner, with multi-RPC fallback so a
-        // single endpoint 403/429 doesn't make it falsely show 0.00.
-        const rpcs = [SOLANA_RPC, "https://berty-633y20-fast-mainnet.helius-rpc.com",
+        // SPL balance via getTokenAccountsByOwner (jsonParsed), with multi-RPC
+        // fallback so a single endpoint 403/429 doesn't make it falsely show
+        // 0.00. PROXIED FIRST (fix/proxy-solana-x1-rpc): the browser's direct
+        // Solana-RPC fetches failed in the user's network (the live
+        // `Solana: —` / blocked stage-2 symptom), so the first rung is the
+        // app's own same-origin /api/rpc/solana serverless function; the
+        // direct public endpoints stay as fallbacks if the proxy is down.
+        const rpcs = ["/api/rpc/solana", SOLANA_RPC, "https://berty-633y20-fast-mainnet.helius-rpc.com",
                       "https://solana-rpc.publicnode.com",
                       "https://rpc.ankr.com/solana", "https://solana.drpc.org"].filter(Boolean);
         const body = JSON.stringify({
@@ -1455,9 +1460,14 @@ export default function Teleporter() {
         const sol = solWallet?.provider || listSolProviders()[0]?.provider || null;
         if (!sol?.publicKey) { flash("Connect your Solana/X1 wallet to finish the X1 hop", "err"); setPhase("quoted"); return; }
         if (solWallet?.demo) { flash("Connect a real wallet (not demo) to bridge", "err"); setPhase("quoted"); return; }
-        const { Connection, PublicKey } = await import("@solana/web3.js");
+        const { PublicKey } = await import("@solana/web3.js");
+        const { createProxiedConnection } = await import("./lib/proxiedConnection.js");
         const { runStage2 } = await import("./warpBridge.js");
-        const connection = new Connection(SOLANA_RPC, "confirmed");
+        // PROXIED transport (fix/proxy-solana-x1-rpc): reads + simulation
+        // go through the app's own /api/rpc/solana; write broadcasts stay
+        // with the connected wallet (the shim routes sends straight to the
+        // real RPC, unchanged).
+        const connection = await createProxiedConnection(SOLANA_RPC, "/api/rpc/solana");
         // Stage 2 bridges what LiFi actually delivered to Solana (solanaAmount),
         // NOT the original input — leg 1 took fees, so less arrived.
         const amountHuman = quote?.solanaAmount ?? pending?.solanaAmount ?? quote?.amount ?? pending?.amount;
@@ -1507,7 +1517,7 @@ export default function Teleporter() {
           setPhase("relaying");
           flash(`bridge_out sent. Watching guardians + relay… (${sig?.slice(0,8)}…)`, "info");
           const { pollWarpStatus, verifyX1Mint } = await import("./warpBridge.js");
-          const { Connection } = await import("@solana/web3.js");
+          const { createProxiedConnection } = await import("./lib/proxiedConnection.js");
           const seq = res.built?.seq;
 
           let completed = false;
@@ -1523,9 +1533,11 @@ export default function Teleporter() {
           // Watch X1 DIRECTLY for the mint — the status API sometimes never
           // returns "complete" even after the mint lands, which is exactly what
           // left "Minted on X1" hanging. The evt_in PDA is on-chain truth.
+          // (PROXIED transport: the getAccountInfo read goes through the app's
+          // own /api/rpc/x1 — fix/proxy-solana-x1-rpc.)
           const mintWatcher = (async () => {
             if (!seq) return;
-            const x1conn = new Connection(X1_RPC, "confirmed");
+            const x1conn = await createProxiedConnection(X1_RPC, "/api/rpc/x1");
             for (let i = 0; i < 60 && !completed; i++) {
               const chk = await verifyX1Mint(x1conn, seq); // eslint-disable-line no-await-in-loop
               if (chk.minted) { finish(null, true); return; }
@@ -1703,9 +1715,13 @@ export default function Teleporter() {
           setBridgeStage(0); setDestTx(null); setWarpStatus(null); setPhase("relaying");
           const sol = solWallet?.provider || listSolProviders()[0]?.provider || null;
           if (!sol?.publicKey) { flash("Connect your X1 wallet to bridge from X1", "err"); setPhase("quoted"); return; }
-          const { Connection, PublicKey } = await import("@solana/web3.js");
+          const { PublicKey } = await import("@solana/web3.js");
+          const { createProxiedConnection } = await import("./lib/proxiedConnection.js");
           const { runReverse, pollWarpStatus } = await import("./warpBridge.js");
-          const connection = new Connection(X1_RPC, "confirmed");
+          // PROXIED transport (fix/proxy-solana-x1-rpc): the X1 burn's reads
+          // + simulation go through the app's own /api/rpc/x1 serverless
+          // function; the broadcast stays with the connected wallet.
+          const connection = await createProxiedConnection(X1_RPC, "/api/rpc/x1");
           let amountHuman = quote?.amount ?? pending?.amount;
           // Deduct Teleporter 1% fee before burning (fee charged on Warp bridge_out).
           // The UI already showed the net amount to receive, so we skim it here.

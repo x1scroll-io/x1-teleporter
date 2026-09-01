@@ -8,10 +8,10 @@
  *   EVM    — eth_call balanceOf(token, wallet) on the connected EIP-1193
  *            provider. Decimals come from TOKENS (USDC 6, USDT 6, DAI 18 —
  *            BSC's USDC/USDT are 18 — handled correctly per chain).
- *   Solana — getTokenAccountsByOwner for the USDC + WSOL mints (both live
- *            there; the Warp leg locks whichever the burn released).
- *   X1     — getTokenAccountsByOwner for the USDC.x + wSOL.X mints (Token-2022,
- *            same RPC shape as Solana — SVM-compatible).
+ *   Solana — getParsedTokenAccountsByOwner for the USDC + WSOL mints (both
+ *            live there; the Warp leg locks whichever the burn released).
+ *   X1     — getParsedTokenAccountsByOwner for the USDC.x + wSOL.X mints
+ *            (Token-2022, same RPC shape as Solana — SVM-compatible).
  *
  * Every reader takes its transport as a parameter (provider / connection) so
  * tests inject fakes — no network, no DOM. The component (BalancesLine.jsx)
@@ -19,9 +19,24 @@
  */
 
 import { TOKENS } from "./teleportConstants.js";
+import { PublicKey } from "@solana/web3.js";
 
 /** balanceOf(address) selector — the only EVM read the balance line needs. */
 const BALANCE_OF_SIG = "0x70a08231";
+
+/**
+ * Normalize a wallet/mint value to a PublicKey. Real web3.js Connections
+ * require PublicKey INSTANCES for getParsedTokenAccountsByOwner (the raw
+ * method calls `.toBase58()` on both args — a plain string throws
+ * `ownerAddress.toBase58 is not a function` before any RPC round-trip,
+ * which is exactly how the live Balances line showed `Solana: —` / `X1: —`
+ * even with a healthy network). Accepts either form; fakes in tests accept
+ * the resulting PublicKey fine (String(pk) === the base58 address).
+ */
+function toPublicKey(v) {
+  if (v instanceof PublicKey) return v;
+  return new PublicKey(v);
+}
 
 /**
  * Read a wallet's balance of an ERC-20 token via eth_call.
@@ -53,23 +68,32 @@ export async function fetchEvmTokenBalance({ provider, wallet, token }) {
 
 /**
  * Read a wallet's balances of several SPL/Token-2022 mints on an SVM chain
- * (Solana or X1) via getTokenAccountsByOwner. Sums across every token account
- * for a mint (a wallet can hold the same mint in multiple ATAs).
+ * (Solana or X1) via getParsedTokenAccountsByOwner. Sums across every token
+ * account for a mint (a wallet can hold the same mint in multiple ATAs).
  *
- * @param {{connection: ?object, wallet: ?string, mints: Array<{symbol: string,
+ * WHY getParsedTokenAccountsByOwner (NOT getTokenAccountsByOwner): the
+ * un-parsed variant hardcodes `encoding: "base64"` server-side — the
+ * response's `data` is a base64 blob with NO `.parsed` member, so reading
+ * `data.parsed.info.tokenAmount.amount` would silently sum zero. The parsed
+ * variant requests `jsonParsed` and returns exactly the shape this reader
+ * consumes (same SVM RPC shape on X1 for the Token-2022 mints).
+ *
+ * @param {{connection: ?object, wallet: ?string|PublicKey, mints: Array<{symbol: string,
  *          mint: string, decimals: number}>}} args
- *   connection = an object exposing getTokenAccountsByOwner (real web3.js
- *   Connection, or a fake in tests). mints = [{ symbol, mint, decimals }].
+ *   connection = an object exposing getParsedTokenAccountsByOwner (real
+ *   web3.js Connection, or a fake in tests). mints = [{ symbol, mint,
+ *   decimals }].
  * @returns {Promise<?Object<string, number>>} { symbol: humanUnits } for each
  *   mint, or null when the connection/wallet is missing or ANY RPC read fails
  *   — fail-soft, never throws.
  */
 export async function fetchSvmTokenBalances({ connection, wallet, mints }) {
-  if (!connection?.getTokenAccountsByOwner || !wallet || !mints?.length) return null;
+  if (!connection?.getParsedTokenAccountsByOwner || !wallet || !mints?.length) return null;
   const out = {};
   try {
+    const owner = toPublicKey(wallet);
     for (const m of mints) {
-      const { value } = await connection.getTokenAccountsByOwner(wallet, { mint: m.mint });
+      const { value } = await connection.getParsedTokenAccountsByOwner(owner, { mint: toPublicKey(m.mint) });
       let total = 0n;
       for (const acc of value || []) {
         const amt = acc?.account?.data?.parsed?.info?.tokenAmount?.amount;
