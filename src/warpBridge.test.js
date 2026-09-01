@@ -19,6 +19,7 @@ import { Transaction, PublicKey, SystemProgram, Keypair } from "@solana/web3.js"
 import {
   simulateStage2,
   sendStage2ViaPhantom,
+  sendX1AtaCreation,
   buildStage2,
   runStage2,
   ensureX1RecipientAta,
@@ -199,6 +200,68 @@ test("sendStage2ViaPhantom falls back to signAndSendTransaction when signTransac
   const sig = await sendStage2ViaPhantom(conn, makeLegacyTx(), wallet);
   assert.equal(sig, "wallet-sig");
   assert.deepEqual(wallet.calls.map((c) => c.method), ["signAndSendTransaction"]);
+});
+
+// ── X1 ATA-creation send (Step 1) ──
+// sendX1AtaCreation must mirror sendStage2ViaPhantom: PREFER signTransaction +
+// app-side broadcast through the X1 connection (a wallet pointed at Solana
+// mainnet cannot broadcast an X1 tx itself — the app must send it through the
+// X1 RPC), with signAndSendTransaction only as a fallback. These pin the live
+// failure "Connected wallet can't sign the X1 account-creation transaction":
+// the wallet COULD sign — the function just never tried the signTransaction
+// path.
+test("sendX1AtaCreation prefers signTransaction + app broadcast through the X1 connection", async () => {
+  const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
+  const wallet = mockWallet({ keypairs: [K1] });
+  const tx = makeLegacyTx();
+
+  const sig = await sendX1AtaCreation(conn, tx, wallet);
+  assert.equal(sig, "raw-sig");
+
+  // Order matters: fresh blockhash → simulation of that exact tx → sign → app broadcast.
+  assert.deepEqual(conn.calls, ["getLatestBlockhash", "simulateTransaction", "sendRawTransaction", "confirmTransaction"]);
+  assert.deepEqual(wallet.calls.map((c) => c.method), ["signTransaction"]);
+  // The simulated tx is the same object that gets signed, with the fresh blockhash.
+  assert.equal(tx.recentBlockhash, "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx");
+  assert.equal(wallet.calls[0].tx, tx);
+});
+
+test("sendX1AtaCreation is fail-closed: a rejected simulation blocks the send without asking the wallet to sign", async () => {
+  const conn = mockConnection({
+    simResult: {
+      value: {
+        err: { InstructionError: [0, "Custom"] },
+        logs: ["Program log: Error: insufficient funds"],
+      },
+    },
+  });
+  const wallet = mockWallet();
+  await assert.rejects(
+    () => sendX1AtaCreation(conn, makeLegacyTx(), wallet),
+    (err) => err instanceof SimulationError && err.code === "solana-sim-failed",
+  );
+  assert.ok(
+    !wallet.calls.some((c) => c.method === "signTransaction" || c.method === "signAndSendTransaction"),
+    "wallet must not be asked to sign a tx whose simulation failed",
+  );
+  assert.ok(!conn.calls.includes("sendRawTransaction"), "must not broadcast a tx whose simulation failed");
+});
+
+test("sendX1AtaCreation falls back to signAndSendTransaction when signTransaction is unavailable", async () => {
+  const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
+  const wallet = mockWallet();
+  delete wallet.signTransaction;
+  const sig = await sendX1AtaCreation(conn, makeLegacyTx(), wallet);
+  assert.equal(sig, "wallet-sig");
+  assert.deepEqual(wallet.calls.map((c) => c.method), ["signAndSendTransaction"]);
+});
+
+test("sendX1AtaCreation throws the no-wallet error when no provider is available", async () => {
+  const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
+  await assert.rejects(
+    () => sendX1AtaCreation(conn, makeLegacyTx(), null),
+    /No Solana\/X1 wallet found to sign the X1 account-creation tx/,
+  );
 });
 
 // ── Step 1.3C fee-unification guard ──
@@ -423,6 +486,8 @@ function mockStage2Connections({ feePayerExists = true, x1AtaExists = true, simO
     async getAccountInfo() { calls.x1.push("getAccountInfo"); return x1AtaExists ? { lamports: 2_039_280 } : null; },
     async getLatestBlockhash() { calls.x1.push("getLatestBlockhash"); return { blockhash: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", lastValidBlockHeight: 99 }; },
     async simulateTransaction() { calls.x1.push("simulateTransaction"); return { value: { err: null, logs: [] } }; },
+    async sendRawTransaction() { calls.x1.push("sendRawTransaction"); return "x1-raw-sig"; },
+    async confirmTransaction() { calls.x1.push("confirmTransaction"); return { value: { err: null } }; },
   };
   return { sol, x1, calls };
 }
@@ -469,8 +534,12 @@ test("runStage2 (live mode): X1 ATA broadcast via the wallet, then the Solana le
   });
   assert.equal(res.stage, "sent");
   assert.equal(res.success, true);
-  // X1 ATA tx was signed + broadcast through the wallet (X1 network).
-  assert.ok(wallet.calls.some((c) => c.method === "signAndSendTransaction"), "X1 ATA tx signed+broadcast by wallet");
+  // X1 ATA tx: signed via signTransaction + broadcast through the X1 connection
+  // (deterministic chain — a wallet pointed at Solana mainnet can't broadcast
+  // an X1 tx itself; signAndSendTransaction would target the wrong network).
+  assert.ok(wallet.calls.some((c) => c.method === "signTransaction"), "wallet signed the X1 ATA tx");
+  assert.ok(x1.calls.includes("sendRawTransaction"), "X1 ATA tx broadcast through the X1 connection");
+  assert.ok(x1.calls.includes("confirmTransaction"), "X1 ATA tx confirmed on the X1 connection");
   // Solana leg broadcast via OUR connection (deterministic chain).
   assert.ok(sol.calls.includes("sendRawTransaction"));
   assert.equal(res.signature, "raw-sig");
