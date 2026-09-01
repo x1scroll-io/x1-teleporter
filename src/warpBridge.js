@@ -390,11 +390,39 @@ export async function ensureX1RecipientAta({ connection, userPubkey, payer = nul
 // Guarded broadcast of the X1 ATA-creation tx: simulate on the X1 RPC first
 // (fail-closed — a rejection or an unreachable RPC blocks the send), then let
 // the connected wallet sign + broadcast on the X1 network.
+//
+// Mirrors sendStage2ViaPhantom: PREFER signTransaction + app-side broadcast
+// through the SAME connection the tx was simulated against (the X1 RPC at the
+// call site). A wallet pointed at Solana mainnet cannot broadcast an X1
+// transaction itself — signAndSendTransaction would send it to Solana where
+// the X1 accounts don't exist and the RPC rejects it. A fresh blockhash is
+// applied at the last moment to avoid RPC-sync "Blockhash not found" errors.
 export async function sendX1AtaCreation(connection, transaction, provider) {
   const p = provider ||
     (typeof window !== "undefined" ? window.solana || window.phantom?.solana : null);
   if (!p) throw new Error("No Solana/X1 wallet found to sign the X1 account-creation tx");
+
+  // Fresh blockhash applied BEFORE the guarded send, so the simulation gates
+  // the EXACT transaction that gets signed + broadcast (same as Stage 2).
+  try {
+    const r = await connection.getLatestBlockhash("confirmed");
+    transaction.recentBlockhash = r.blockhash;
+    transaction.lastValidBlockHeight = r.lastValidBlockHeight;
+    if (transaction.signatures) transaction.signatures = [];
+  } catch { /* wallet will supply one */ }
+
   return guardedSendSolanaTx(connection, transaction, async () => {
+    if (typeof p.signTransaction === "function") {
+      // Deterministic broadcast: WE send through the connection the blockhash
+      // and simulation came from, so the tx lands on the X1 network regardless
+      // of which network the wallet is currently pointed at.
+      const signed = await p.signTransaction(transaction);
+      const sig = await connection.sendRawTransaction(signed.serialize(), { maxRetries: 3 });
+      await connection.confirmTransaction(sig, "confirmed");
+      return sig;
+    }
+
+    // Fallback: let the wallet broadcast via its own RPC (wallet already on X1).
     if (typeof p.signAndSendTransaction === "function") {
       const res = await p.signAndSendTransaction(transaction);
       return res?.signature || res;
