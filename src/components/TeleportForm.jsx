@@ -61,13 +61,14 @@ import { FEE_WALLETS } from "../lib/fees.ts";
  * The form passes `allowLive: WARP_LIVE_SEND` — the flag is read here only
  * as a forwarded value, so the gate stays testable and visible.
  */
-export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive }) {
+export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive, destToken = "USDC.x" }) {
   const { Connection, PublicKey } = await import("@solana/web3.js");
   const { runStage2 } = await import("../warpBridge.js");
   const connection = new Connection(SOLANA_RPC, "confirmed");
-  // X1 RPC for the destination prep: runStage2 creates the recipient's USDC.x
-  // ATA on X1 (idempotent, payer = the connected wallet) before the Solana
-  // bridge_out, so Warp's guardian bridge_in_v2 finds the ATA already there.
+  // X1 RPC for the destination prep: runStage2 creates the recipient's token
+  // ATA on X1 (USDC.x or wSOL.X — idempotent, payer = the connected wallet)
+  // before the Solana bridge_out, so Warp's guardian bridge_in_v2 finds the
+  // ATA already there.
   const x1Connection = new Connection(X1_RPC, "confirmed");
   return runStage2({
     connection,
@@ -77,6 +78,7 @@ export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive }
     amountHuman,
     allowLive, // WARP_LIVE_SEND gate — passed by the form (never hardcoded)
     provider: solAdapter,
+    destToken, // the X1 destination token — drives the Solana source (USDC | WSOL)
   });
 }
 
@@ -91,7 +93,7 @@ export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive }
  * USDC.x transfer to FEE_WALLETS.X1 and burns the remainder. The burn amount
  * is therefore gross − skim, exactly what the quote box showed.
  */
-export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allowLive }) {
+export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allowLive, token = "USDC.x" }) {
   const { Connection, PublicKey } = await import("@solana/web3.js");
   const { runReverse, SKIM_BPS } = await import("../warpBridge.js");
   // X1 RPC: the burn executes on X1 mainnet (SVM-compatible) — sim + send
@@ -103,10 +105,11 @@ export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allo
     connection,
     userPubkey: solAdapter.publicKey,
     amountHuman: amountHuman - skim, // bridge_out burns the net
-    feeAmount: skim,                 // 1% USDC.x skim to OUR X1 fee wallet
+    feeAmount: skim,                 // 1% skim to OUR X1 fee wallet (in the token's own units)
     feeWallet: new PublicKey(FEE_WALLETS.X1),
     allowLive, // WARP_LIVE_SEND gate — passed by the form (never hardcoded)
     provider: solAdapter,
+    token, // "USDC.x" | "wSOL.X" — mint/decimals/fee account for the burn
   });
 }
 
@@ -121,7 +124,7 @@ export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allo
  * is only reachable after a REAL burn released USDC on Solana (stage 1 is the
  * gated step).
  */
-export async function defaultReverseStage2Runner({ solAdapter, evmAddress, to, toTokenSymbol = "USDC", netOnSolana, onStatus = () => {} }) {
+export async function defaultReverseStage2Runner({ solAdapter, evmAddress, to, toTokenSymbol = "USDC", netOnSolana, onStatus = () => {}, token = "USDC.x" }) {
   const { executeLiFiSolanaTx } = await import("../lib/lifiSolanaTx.js");
   const built = buildReverseLifiQuoteParams({
     to,
@@ -129,6 +132,7 @@ export async function defaultReverseStage2Runner({ solAdapter, evmAddress, to, t
     netOnSolana,
     fromAddress: solAdapter.publicKey?.toBase58 ? solAdapter.publicKey.toBase58() : String(solAdapter.publicKey),
     toAddress: evmAddress, // the connected EVM session's address (no placeholders)
+    token, // "USDC.x" → LiFi fromToken USDC (6 dec); "wSOL.X" → fromToken WSOL (9 dec)
   });
   if (!built) throw new Error("No route for the selected destination chain");
   onStatus("Quoting the Solana → " + to + " leg…");
@@ -255,10 +259,14 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   const [to, setTo] = useState("eth"); // reverse destination (EVM chains)
   // The user's chosen stable: the SOURCE token on the forward leg (EVM → X1,
   // what they send in) and the DESTINATION token on the reverse leg (X1 → EVM,
-  // what they receive). The X1 side is ALWAYS USDC.x (the burn mint — fixed,
-  // never user-selectable). Options come from TOKENS[chain] (USDC/USDT/DAI as
+  // what they receive). Options come from TOKENS[chain] (USDC/USDT/DAI as
   // defined per chain — e.g. base has no USDT, sol has no DAI).
   const [token, setToken] = useState("USDC");
+  // The X1 side is user-selectable too (both tokens are bridged by Warp):
+  // reverseToken = the X1 source for the reverse burn (USDC.x | wSOL.X),
+  // destToken = the X1 destination for the forward hop (USDC.x | wSOL.X).
+  const [reverseToken, setReverseToken] = useState("USDC.x");
+  const [destToken, setDestToken] = useState("USDC.x");
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle|quoting|quoted|bridging|step2|relaying|handoff|done
@@ -284,7 +292,9 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
 
   // changeToken restores the user's stablecoin choice: forward picks what they
   // send in on the source EVM chain; reverse picks what they receive on the
-  // destination EVM chain. The X1 side stays USDC.x in both directions.
+  // destination EVM chain. The X1-side tokens are user-selectable too —
+  // changeReverseToken picks the reverse burn source (USDC.x | wSOL.X),
+  // changeDestToken the forward X1 destination (USDC.x | wSOL.X).
   const changeToken = (t) => {
     setToken(t); setQuote(null); setError(null); setPhase("idle");
   };
@@ -302,6 +312,8 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     if (!TOKENS[c]?.[token]) setToken(Object.keys(TOKENS[c] || {})[0] || "USDC");
     setQuote(null); setError(null); setPhase("idle");
   };
+  const changeReverseToken = (t) => { setReverseToken(t); setQuote(null); setError(null); setPhase("idle"); };
+  const changeDestToken = (t) => { setDestToken(t); setQuote(null); setError(null); setPhase("idle"); };
   const changeAmount = (v) => { setAmount(v); setQuote(null); setError(null); setPhase("idle"); };
   const reset = () => {
     setPhase("idle"); setQuote(null); setError(null); setStatus(null);
@@ -320,6 +332,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       from, token, amount: amt,
       fromAddress: evmSession.address,
       toAddress: solSession.address,
+      destToken, // USDC.x default; wSOL.X lands WSOL on Solana for the Warp leg
     });
     if (!built) { setError("No route for the selected chain/token"); return; }
     setPhase("quoting");
@@ -327,7 +340,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       const resp = await fetch(`/api/lifi/quote?${built.qs}`);
       const d = await resp.json();
       if (d?.error || d?.message) { setError(d.message || d.error); setPhase("idle"); return; }
-      const derived = deriveQuoteFromLifi({ data: d, from, token, amount: amt });
+      const derived = deriveQuoteFromLifi({ data: d, from, token, amount: amt, destToken });
       setQuote({ amount: amt, ...derived, lifiData: d });
       setPhase("quoted");
     } catch (e) {
@@ -386,6 +399,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         solAdapter,
         amountHuman: quote.solanaAmount ?? quote.amount, // bridge what LiFi DELIVERED
         allowLive: WARP_LIVE_SEND, // the gate: real Warp broadcasts only when VITE_WARP_LIVE_SEND=true
+        destToken, // the X1 destination token (USDC.x | wSOL.X)
       });
       if (!res.success) {
         // Step 1.3A fail-closed: a failed simulation (or one we couldn't run)
@@ -434,18 +448,22 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     if (!evmReady) { setError("Connect your EVM wallet to get a quote"); return; }
     setPhase("quoting");
     try {
-      // The stage-1 math is deterministic (1% skim + Warp's $1 — fees.ts);
-      // the LiFi SOL→EVM leg is quoted LIVE on the net that will land on
-      // Solana. If the leg can't be quoted, the quote is still honest: stage 1
-      // (the X1 burn) is fully priced and the Solana→EVM hop becomes the
-      // handoff stage (funds rest safely on Solana).
-      const legs = computeReverseLegs({ amount: amt });
+      // The stage-1 math is deterministic (1% skim + the Warp fee — the token
+      // drives the fee shape: USDC.x flat $1, wSOL.X 25 bps — fees.ts + live
+      // Warp config); the LiFi SOL→EVM leg is quoted LIVE on the net that will
+      // land on Solana (USDC 6-dec for a USDC.x burn, WSOL 9-dec for a wSOL.X
+      // burn — LiFi quotes WSOL→EVM stables directly, no Jupiter swap). If the
+      // leg can't be quoted, the quote is still honest: stage 1 (the X1 burn)
+      // is fully priced and the Solana→EVM hop becomes the handoff stage
+      // (funds rest safely on Solana).
+      const legs = computeReverseLegs({ amount: amt, token: reverseToken });
       const built = buildReverseLifiQuoteParams({
         to,
         toTokenSymbol: token, // the selected destination stable (USDC/USDT/DAI)
         netOnSolana: legs.netOnSolana,
         fromAddress: solSession.address,
         toAddress: evmSession.address,
+        token: reverseToken,
       });
       let lifiData = null;
       if (built) {
@@ -453,7 +471,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         const d = await resp.json();
         if (!(d?.error || d?.message) && d?.estimate?.toAmount) lifiData = d;
       }
-      const derived = deriveReverseQuote({ data: lifiData, to, token, amount: amt });
+      const derived = deriveReverseQuote({ data: lifiData, to, amount: amt, token: reverseToken, toToken: token });
       setQuote({ amount: amt, to, toToken: token, ...derived, lifiData });
       setPhase("quoted");
     } catch (e) {
@@ -483,6 +501,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         solAdapter,
         amountHuman: quote.amount, // gross — the runner skims 1% + burns the net
         allowLive: WARP_LIVE_SEND, // the gate: real burns only when VITE_WARP_LIVE_SEND=true
+        token: reverseToken,       // "USDC.x" | "wSOL.X" — the burn's mint/decimals/fee account
       });
       if (!res.success) {
         if (res.sim?.simUnavailable) {
@@ -586,6 +605,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         toTokenSymbol: quote.toToken || "USDC", // deliver the SELECTED destination stable
         netOnSolana: quote.solanaAmount ?? quote.legs?.netOnSolana,
         onStatus: (msg) => setStatus(msg),
+        token: reverseToken, // drives the LiFi fromToken (USDC | WSOL) + decimals
       });
       setStage1Hash(txHash); // reuse the slot — it's the final leg hash
       setPhase("done");
@@ -628,7 +648,15 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         <span style={S.rowCol}>
           <span style={S.label}>To</span>
           <select data-testid="to-chain" value="x1" onChange={() => {}} style={S.select} aria-label="Destination chain (fixed: X1)">
-            <option value="x1" style={{ background: "#0a1019" }}>X1 {CHAINS.x1.glyph} · USDC.x</option>
+            <option value="x1" style={{ background: "#0a1019" }}>X1 {CHAINS.x1.glyph}</option>
+          </select>
+        </span>
+        <span style={S.rowCol}>
+          <span style={S.label}>Receive</span>
+          <select data-testid="x1-token" value={destToken} onChange={(e) => changeDestToken(e.target.value)} style={S.select} aria-label="Token on X1">
+            {tokensFor("x1").map((t) => (
+              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
+            ))}
           </select>
         </span>
       </div>
@@ -656,7 +684,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
           />
         </span>
       </div>
-      <div style={S.hint}>Bridge ${X1_MIN}+ into X1 to get started (the flat $1 Warp fee would be ~11% of a $10 bridge).</div>
+      <div style={S.hint}>Bridge ${X1_MIN}+ into X1 to get started — land as USDC.x (flat $1 Warp fee) or wSOL.X (0.25% Warp fee).</div>
 
       {/* wallet guidance — honest, never a silent dead-end; actionable
           (opens the connect modal) when the tab wires onConnectWallet */}
@@ -713,8 +741,8 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       ) : phase === "step2" ? (
         <>
           <div style={S.box}>
-            <b>Stage 1 sent</b> — {stage1Hash ? `tx ${String(stage1Hash).slice(0, 10)}…` : ""} your USDC is on its way to Solana.
-            Approve Stage 2 to mint USDC.x on X1. If you stop here, your funds rest safely as USDC on Solana.
+            <b>Stage 1 sent</b> — {stage1Hash ? `tx ${String(stage1Hash).slice(0, 10)}…` : ""} your {destToken === "wSOL.X" ? "WSOL" : "USDC"} is on its way to Solana.
+            Approve Stage 2 to mint {destToken} on X1. If you stop here, your funds rest safely as {destToken === "wSOL.X" ? "WSOL" : "USDC"} on Solana.
           </div>
           <button data-testid="bridge-step2" style={step2Busy ? { ...S.cta, ...S.ctaDisabled } : S.cta} onClick={executeStage2} disabled={step2Busy}>
             {step2Busy ? "Bridging to X1…" : "Step 2 of 2 — finish the hop to X1"}
@@ -750,7 +778,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         <div data-testid="done" style={{ ...S.box, ...S.boxOk }}>
           {confirmMode
             ? <>✓ Simulation passed — <b>not sent</b> (live Warp sends are OFF; set VITE_WARP_LIVE_SEND=true to arm).</>
-            : <>✓ Bridge complete — USDC.x on X1.</>}
+            : <>✓ Bridge complete — {quote?.recvToken || destToken} on X1.</>}
           <button data-testid="reset" style={S.ghostBtn} onClick={reset}>Bridge again</button>
         </div>
       ) : null}
@@ -767,7 +795,15 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         <span style={S.rowCol}>
           <span style={S.label}>From</span>
           <select data-testid="from-chain" value="x1" onChange={() => {}} style={S.select} aria-label="Source chain (fixed: X1)">
-            <option value="x1" style={{ background: "#0a1019" }}>X1 {CHAINS.x1.glyph} · USDC.x</option>
+            <option value="x1" style={{ background: "#0a1019" }}>X1 {CHAINS.x1.glyph}</option>
+          </select>
+        </span>
+        <span style={S.rowCol}>
+          <span style={S.label}>Burn</span>
+          <select data-testid="x1-token" value={reverseToken} onChange={(e) => changeReverseToken(e.target.value)} style={S.select} aria-label="Token burned on X1">
+            {tokensFor("x1").map((t) => (
+              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
+            ))}
           </select>
         </span>
         <span style={S.rowCol}>
@@ -789,12 +825,14 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         </span>
       </div>
 
-      {/* token + amount — token fixed to USDC.x (the burn mint) */}
+      {/* token + amount — the X1 burn token (USDC.x | wSOL.X) */}
       <div style={S.row}>
         <span style={S.rowCol}>
           <span style={S.label}>Token</span>
-          <select data-testid="token" value="USDC.x" onChange={() => {}} style={S.select} aria-label="Token (fixed: USDC.x)">
-            <option value="USDC.x" style={{ background: "#0a1019" }}>USDC.x</option>
+          <select data-testid="token" value={reverseToken} onChange={(e) => changeReverseToken(e.target.value)} style={S.select} aria-label="Token to burn on X1">
+            {tokensFor("x1").map((t) => (
+              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
+            ))}
           </select>
         </span>
         <span style={{ ...S.rowCol, flex: 1 }}>
@@ -809,7 +847,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
           />
         </span>
       </div>
-      <div style={S.hint}>Bridge ${X1_REVERSE_MIN}+ out of X1 — USDC.x burns on X1, {token} lands on {CHAINS[to].name} via Solana.</div>
+      <div style={S.hint}>Bridge ${X1_REVERSE_MIN}+ out of X1 — {reverseToken} burns on X1, {reverseToken === "wSOL.X" ? "WSOL" : "USDC"} lands on Solana, then LiFi carries it to {CHAINS[to].name} as {token}.</div>
 
       {/* wallet guidance — honest, never a silent dead-end; actionable when
           the tab wires onConnectWallet */}
@@ -835,7 +873,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
             <div className="quote-box" data-testid="quote-box" style={S.quoteBox}>
               <div style={S.quoteRow}>
                 <span style={S.quoteKey}>You send</span>
-                <span style={S.quoteVal}>{quote.amount} USDC.x on X1</span>
+                <span style={S.quoteVal}>{quote.amount} {reverseToken} on X1</span>
               </div>
               {(quote.feeLines || []).map((l) => (
                 <div key={l.id} data-testid={`fee-line-${l.id}`} style={S.quoteRow}>
@@ -849,7 +887,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
               </div>
               {!quote.lifiQuoted && (
                 <div style={S.note} data-testid="reverse-lifi-note">
-                  The Solana → {CHAINS[quote.to].name} leg couldn't be quoted right now — stage 1 (the X1 burn) still works; your USDC will rest safely on Solana and you can finish the hop later.
+                  The Solana → {CHAINS[quote.to].name} leg couldn't be quoted right now — stage 1 (the X1 burn) still works; your {reverseToken === "wSOL.X" ? "WSOL" : "USDC"} will rest safely on Solana and you can finish the hop later.
                 </div>
               )}
               <div style={S.steps}>
@@ -869,7 +907,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         </button>
       ) : phase === "relaying" ? (
         <div data-testid="relaying" style={S.box}>
-          <b>X1 burn sent</b> {warpSig ? `(${String(warpSig).slice(0, 10)}…)` : ""} — USDC.x is burning on X1; the Warp guardians release USDC on Solana.
+          <b>X1 burn sent</b> {warpSig ? `(${String(warpSig).slice(0, 10)}…)` : ""} — {reverseToken} is burning on X1; the Warp guardians release {reverseToken === "wSOL.X" ? "WSOL" : "USDC"} on Solana.
           {releaseNote && <div data-testid="release-note" style={{ marginTop: 6 }}>{releaseNote}</div>}
           {!polling && !String(releaseNote || "").includes("Released") && warpSig && (
             <button data-testid="check-release" style={S.ghostBtn} onClick={() => pollRelease(warpSig)}>
@@ -881,8 +919,8 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       ) : phase === "step2" ? (
         <>
           <div style={S.box}>
-            <b>USDC released on Solana ✓</b> — now finish the hop — {quote?.recvToken || token} on {CHAINS[quote?.to || to].name} — via LiFi.
-            If you stop here, your funds rest safely as USDC on Solana.
+            <b>{reverseToken === "wSOL.X" ? "WSOL" : "USDC"} released on Solana ✓</b> — now finish the hop — {quote?.recvToken || token} on {CHAINS[quote?.to || to].name} — via LiFi.
+            If you stop here, your funds rest safely as {reverseToken === "wSOL.X" ? "WSOL" : "USDC"} on Solana.
           </div>
           <button data-testid="bridge-step2" style={step2Busy ? { ...S.cta, ...S.ctaDisabled } : S.cta} onClick={executeReverseStage2} disabled={step2Busy}>
             {step2Busy ? "Bridging to " + CHAINS[quote?.to || to].name + "…" : "Step 2 of 2 — finish the hop to " + CHAINS[quote?.to || to].name}
@@ -898,7 +936,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
           )}
           {handoffReason === "lifi" && (
             <>
-              <b>Your USDC is safe on Solana</b>{stage1Hash ? ` (final leg tx ${String(stage1Hash).slice(0, 10)}…)` : ""}.
+              <b>Your {reverseToken === "wSOL.X" ? "WSOL" : "USDC"} is safe on Solana</b>{stage1Hash ? ` (final leg tx ${String(stage1Hash).slice(0, 10)}…)` : ""}.
               The Solana → {CHAINS[quote?.to || to].name} hop didn't complete.{" "}
               {canStage2 && (
                 <button data-testid="retry-stage2" style={{ ...S.ghostBtn, marginTop: 0, width: "auto", padding: "4px 12px" }} onClick={executeReverseStage2} disabled={step2Busy}>

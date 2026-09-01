@@ -92,7 +92,8 @@ test("buildReverseLifiQuoteParams: destination stable is the USER'S CHOICE — U
   assert.equal(built.qs.get("toToken"), TOKENS.eth.USDT.address, "the SELECTED destination token (USDT), not hardcoded USDC");
   assert.equal(built.qs.get("fromToken"), TOKENS.sol.USDC.address, "source stays Solana USDC (the Warp release)");
   assert.equal(built.qs.get("fromAmount"), "98000000", "source-side amount stays USDC 6 decimals");
-  assert.equal(built.decimals, 6, "USDT destination decimals = 6");
+  assert.equal(built.decimals, 6, "the amount math is 6-dec (USDC source)");
+  assert.equal(built.toDecimals, 6, "USDT destination decimals = 6");
 });
 
 test("buildReverseLifiQuoteParams: DAI destination → DAI address + 18 decimals (source stays USDC 6)", () => {
@@ -101,7 +102,8 @@ test("buildReverseLifiQuoteParams: DAI destination → DAI address + 18 decimals
   });
   assert.ok(built, "params built for DAI");
   assert.equal(built.qs.get("toToken"), TOKENS.eth.DAI.address, "the SELECTED destination token (DAI)");
-  assert.equal(built.decimals, 18, "DAI destination decimals = 18 (from TOKENS, never hardcoded USDC)");
+  assert.equal(built.toDecimals, 18, "DAI destination decimals = 18 (from TOKENS, never hardcoded USDC)");
+  assert.equal(built.decimals, 6, "the fromAmount math stays USDC 6-dec (the source side)");
 });
 
 test("buildReverseLifiQuoteParams: token NOT on the destination chain → null (base has no USDT)", () => {
@@ -158,7 +160,7 @@ test("deriveReverseQuote: destination name reflects the chosen EVM chain", () =>
 });
 
 test("deriveReverseQuote: USDT destination → recvToken USDT, 6-decimal toAmount", () => {
-  const q = deriveReverseQuote({ data: { estimate: { toAmount: "97020000" } }, to: "eth", token: "USDT", amount: 100 });
+  const q = deriveReverseQuote({ data: { estimate: { toAmount: "97020000" } }, to: "eth", amount: 100, toToken: "USDT" });
   assert.equal(q.recvToken, "USDT", "you-receive names the SELECTED destination stable");
   assert.equal(q.out, 97.02, "USDT is 6 decimals — same scale as USDC");
   assert.equal(q.recvChain, "Ethereum");
@@ -167,15 +169,86 @@ test("deriveReverseQuote: USDT destination → recvToken USDT, 6-decimal toAmoun
 test("deriveReverseQuote: DAI destination → 18-decimal toAmount converted by TOKENS decimals", () => {
   // 97.02 DAI in base units (18 decimals) — the conversion MUST use DAI's
   // decimals from TOKENS, not the hardcoded USDC 6.
-  const q = deriveReverseQuote({ data: { estimate: { toAmount: "97020000000000000000" } }, to: "eth", token: "DAI", amount: 100 });
+  const q = deriveReverseQuote({ data: { estimate: { toAmount: "97020000000000000000" } }, to: "eth", amount: 100, toToken: "DAI" });
   assert.equal(q.recvToken, "DAI");
   assert.equal(q.out, 97.02, "DAI 18-decimal toAmount lands at the same human number");
 });
 
-test("deriveReverseQuote: handoff (no LiFi quote) still reports Solana USDC regardless of the chosen destination token", () => {
-  const q = deriveReverseQuote({ data: null, to: "bas", token: "DAI", amount: 100 });
+test("deriveReverseQuote: handoff (no LiFi quote) still reports the Solana landing token regardless of the chosen destination token", () => {
+  const q = deriveReverseQuote({ data: null, to: "bas", amount: 100, toToken: "DAI" });
   assert.equal(q.lifiQuoted, false);
   assert.equal(q.recvToken, "USDC", "the honest handoff names the USDC that actually lands on Solana");
   assert.equal(q.recvChain, "Solana");
   assert.equal(q.out, 98);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  WSOL / wSOL.X — the SOL rail (feat/wsol-path). The Warp token registry
+//  charges wSOL.X a 25 bps PERCENTAGE fee (flat 0) instead of USDC.x's flat
+//  $1 (live config, verified on-chain: gross 0.11 → fee 0.000275 → net
+//  0.109725). The stage-2 LiFi leg therefore quotes WSOL (9 dec) → EVM
+//  directly — LiFi handles So111… as fromToken (relaydepository wSOL→USDC,
+//  verified live Sep 2026) — NO Jupiter swap needed.
+// ════════════════════════════════════════════════════════════════════════════
+
+test("computeReverseLegs (wSOL.X): 1% skim on source, burn = net, Warp fee = 25 bps of the bridge gross (not the flat $1)", () => {
+  const legs = computeReverseLegs({ amount: 100, token: "wSOL.X" });
+  assert.equal(legs.skim, 1, "1% of 100 wSOL.X");
+  assert.equal(legs.burnAmount, 99, "bridge_out burns the net (post-skim)");
+  assert.equal(legs.warpFee, 99 * 0.0025, "25 bps of the 99 bridge gross — NOT the flat $1");
+  assert.equal(legs.netOnSolana, 99 - 99 * 0.0025, "net released on Solana = gross − 25bps");
+  // Fee lines: warp-skim (Teleporter 1%) + warp-pct (third-party 0.25%) — no flat $1 line.
+  const ids = legs.feeQuote.feeLines.map((l) => l.id).sort();
+  assert.deepEqual(ids, ["warp-pct", "warp-skim"]);
+  const pct = legs.feeQuote.feeLines.find((l) => l.id === "warp-pct");
+  assert.equal(pct.party, "third-party", "Warp's pct fee is a third-party pass-through, never a Teleporter fee");
+  assert.equal(pct.amountUsd, 100 * 0.0025, "display line = 0.25% of the source (the deterministic math uses the post-skim gross)");
+  assert.equal(legs.feeQuote.teleporterFeeUsd, 1, "Teleporter take stays exactly 1% once");
+});
+
+test("computeReverseLegs: USDC.x keeps the flat $1 (warp-flat) — token-aware fee shape", () => {
+  const legs = computeReverseLegs({ amount: 100, token: "USDC.x" });
+  assert.equal(legs.warpFee, 1, "flat $1 for USDC.x");
+  assert.equal(legs.netOnSolana, 98, "100 − 1% − $1");
+  const ids = legs.feeQuote.feeLines.map((l) => l.id).sort();
+  assert.deepEqual(ids, ["warp-flat", "warp-skim"]);
+});
+
+test("buildReverseLifiQuoteParams (wSOL.X): fromToken = WSOL (So111…), fromAmount in 9 decimals — LiFi-direct, no Jupiter swap", () => {
+  const built = buildReverseLifiQuoteParams({
+    to: "eth", netOnSolana: 98.7525, fromAddress: SOL_ADDR, toAddress: EVM_ADDR, token: "wSOL.X",
+  });
+  assert.ok(built, "params built");
+  const qs = built.qs;
+  assert.equal(qs.get("fromChain"), "SOL");
+  assert.equal(qs.get("fromToken"), "So11111111111111111111111111111111111111112", "LiFi fromToken = WSOL (LiFi quotes wSOL→EVM stables directly)");
+  assert.equal(qs.get("toToken"), TOKENS.eth.USDC.address);
+  assert.equal(qs.get("fromAmount"), "98752500000", "net on Solana in 9-dec base units (WSOL)");
+  assert.equal(built.decimals, 9, "the LiFi amount math is 9-dec end to end");
+  assert.equal(qs.get("x1Class"), "1", "x1-class marker intact");
+  assert.equal(qs.has("fee"), false, "x1-class quote OMITS the fee key entirely");
+});
+
+test("buildReverseLifiQuoteParams (USDC.x): fromToken stays USDC, fromAmount in 6 decimals (back-compat)", () => {
+  const built = buildReverseLifiQuoteParams({
+    to: "eth", netOnSolana: 98, fromAddress: SOL_ADDR, toAddress: EVM_ADDR, token: "USDC.x",
+  });
+  assert.ok(built);
+  assert.equal(built.qs.get("fromToken"), TOKENS.sol.USDC.address);
+  assert.equal(built.qs.get("fromAmount"), "98000000", "6 decimals");
+  assert.equal(built.decimals, 6);
+});
+
+test("deriveReverseQuote (wSOL.X): quoted leg shows the dest stable; unquoted leg honestly shows WSOL on Solana", () => {
+  const lifiData = { estimate: { toAmount: "509843200" } }; // 509.84 USDC at 6 dec
+  const quoted = deriveReverseQuote({ data: lifiData, to: "eth", amount: 500, token: "wSOL.X" });
+  assert.equal(quoted.recvToken, "USDC", "dest stable");
+  assert.equal(quoted.recvChain, "Ethereum");
+  assert.ok(Math.abs(quoted.out - 509.8432) < 1e-9, "toAmount decoded at the dest stable's 6 decimals");
+  assert.equal(quoted.solanaAmount, quoted.legs.netOnSolana, "stage 2 bridges the deterministic WSOL net");
+
+  const unquoted = deriveReverseQuote({ data: null, to: "eth", amount: 500, token: "wSOL.X" });
+  assert.equal(unquoted.recvToken, "WSOL", "honest handoff: WSOL rests on Solana");
+  assert.equal(unquoted.recvChain, "Solana");
+  assert.equal(unquoted.lifiQuoted, false);
 });

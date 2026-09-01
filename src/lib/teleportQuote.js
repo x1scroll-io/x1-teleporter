@@ -33,19 +33,24 @@ import { quoteFees, LIFI_INTEGRATOR_ACCOUNT } from "./fees.ts";
  *   null when the chain/token is unknown or a needed wallet address is
  *   missing (no placeholders — the caller surfaces the connect prompt).
  */
-export function buildLifiQuoteParams({ from, token, amount, fromAddress, toAddress, slippage = 0.5 }) {
+export function buildLifiQuoteParams({ from, token, amount, fromAddress, toAddress, slippage = 0.5, destToken = "USDC.x" }) {
   const fromChain = CHAINS[from]?.lifiKey;
   const fromToken = TOKENS[from]?.[token]?.address;
   const decimals = TOKENS[from]?.[token]?.decimals;
   if (!fromChain || !fromToken || !decimals) return null;
   if (!fromAddress || !toAddress) return null; // NO PLACEHOLDERS — real connected wallets only
 
+  // The X1 destination token drives the Solana-side LANDING token for the
+  // LiFi leg: USDC.x ← Solana USDC (6 dec); wSOL.X ← Solana WSOL (9 dec —
+  // LiFi quotes EVM→SOL WSOL directly, Sep 2026, so no Jupiter swap is
+  // needed; the Warp leg then locks WSOL and the guardians mint wSOL.X).
+  const solanaLanding = destToken === "wSOL.X" ? "WSOL" : "USDC";
   const rawAmount = BigInt(Math.floor(amount * 10 ** decimals)).toString();
   const qs = new URLSearchParams({
     fromChain,
     toChain: CHAINS.sol.lifiKey,        // EVM → Solana (leg 1 of the X1 hop)
     fromToken,
-    toToken: TOKENS.sol.USDC.address,   // lands as USDC on Solana
+    toToken: TOKENS.sol[solanaLanding].address,   // lands as USDC or WSOL on Solana
     fromAmount: rawAmount,
     fromAddress,
     toAddress,                           // explicit — required for cross-VM routes
@@ -81,16 +86,23 @@ export function buildLifiQuoteParams({ from, token, amount, fromAddress, toAddre
  *            recvChain: string, solanaAmount: number, steps: Array}}
  * @throws {Error} when the response is malformed (no estimate.toAmount).
  */
-export function deriveQuoteFromLifi({ data, from, token, amount }) {
+export function deriveQuoteFromLifi({ data, from, token, amount, destToken = "USDC.x" }) {
   if (!data?.estimate?.toAmount) {
     throw new Error("Malformed quote response — no estimate.toAmount");
   }
-  // LiFi delivers USDC on Solana — 6 decimals (Solana USDC).
-  const outDecimals = TOKENS.sol.USDC.decimals;
+  // LiFi delivers the Solana-side landing token — USDC (6 dec) or WSOL
+  // (9 dec when the X1 destination is wSOL.X).
+  const solanaLanding = destToken === "wSOL.X" ? "WSOL" : "USDC";
+  const outDecimals = TOKENS.sol[solanaLanding].decimals;
   const out = parseFloat(data.estimate.toAmount) / 10 ** outDecimals;
   // POLICY quote: x1-class fees are computed on what LiFi DELIVERED (the
-  // stage-2 skim base is leg-1-delivered), not the original input.
-  const route = { from, to: "x1", routeType: "x1", amount };
+  // stage-2 skim base is leg-1-delivered), not the original input. The Warp
+  // fee component is token-aware too (wSOL.X charges 25 bps, not the flat $1
+  // — live Warp config, verified on-chain).
+  const route = {
+    from, to: "x1", routeType: "x1", amount,
+    ...(destToken === "wSOL.X" ? { warpFeeBps: 25 } : {}),
+  };
   const qf = quoteFees(route, out);
   return {
     out,
@@ -98,7 +110,7 @@ export function deriveQuoteFromLifi({ data, from, token, amount }) {
     teleporterFeeUsd: qf.teleporterFeeUsd,
     thirdPartyFeeUsd: qf.thirdPartyFeeUsd,
     net: qf.netUsd,
-    recvToken: "USDC.x",
+    recvToken: destToken,   // USDC.x or wSOL.X — what the guardians mint on X1
     recvChain: "X1",
     solanaAmount: out, // stage 2 (Warp) bridges THIS, not the original input
     steps: [
