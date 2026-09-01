@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WARP_LIVE_SEND build pin — deterministic, preview-only arming.
+// WARP_LIVE_SEND build pin — deterministic, allowlist-gated arming.
 //
 // WHY: Vercel's project env (VITE_WARP_LIVE_SEND=true, Preview scope) is not
 // reliably reaching `import.meta.env` in the compiled bundle (a known
@@ -14,14 +14,23 @@ import react from "@vitejs/plugin-react";
 // production deploys from `main`). Documented system env var:
 // https://vercel.com/docs/environment-variables/system-environment-variables
 //
-// SAFETY BOUNDARY (non-negotiable): production (ref === "main") MUST compile
-// WARP_LIVE_SEND:false. The rule is inverse-safe — default false, armed ONLY
-// when the ref is a known non-main branch. Local builds without the Vercel
-// ref also stay at the safety default. flags.ts logic and its defaults are
-// untouched; this only pins the env INPUT that Vite bakes into the bundle.
+// SAFETY BOUNDARY (non-negotiable): arming is DELIBERATE. Only the branches
+// listed in WARP_ARMED_BRANCHES may compile WARP_LIVE_SEND:true — currently
+// just `v2`, the hop-test branch. Everything else — `main` (production),
+// any other feature/fix/docs branch, and local builds with no Vercel ref —
+// compiles WARP_LIVE_SEND:false. Adding a branch to the allowlist is an
+// explicit maintainer act, never an implicit side effect of creating a
+// branch/PR: a random future branch preview CANNOT silently send real money.
+// flags.ts logic and its defaults are untouched; this only pins the env
+// INPUT that Vite bakes into the bundle.
 // ─────────────────────────────────────────────────────────────────────────────
+// Only these branches may compile with live sends armed. Everything else
+// (including main) compiles WARP_LIVE_SEND:"false". Arming is DELIBERATE:
+// adding a branch here is an explicit act by a maintainer.
+const WARP_ARMED_BRANCHES = new Set(["v2"]);
 const gitRef = process.env.VERCEL_GIT_COMMIT_REF;
-const warpLiveSend = gitRef !== undefined && gitRef !== "main" ? "true" : "false";
+const warpLiveSend =
+  gitRef !== undefined && WARP_ARMED_BRANCHES.has(gitRef) ? "true" : "false";
 
 export default defineConfig({
   plugins: [react()],
