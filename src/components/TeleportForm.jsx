@@ -43,7 +43,7 @@
 
 import { useState } from "react";
 import {
-  CHAINS, TOKENS, EVM_CHAINS, X1_MIN, X1_REVERSE_MIN, WARP_BRIDGE_URL, SOLANA_RPC, X1_RPC, tokensFor,
+  CHAINS, EVM_CHAINS, X1_MIN, X1_REVERSE_MIN, WARP_BRIDGE_URL, SOLANA_RPC, X1_RPC,
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
@@ -251,7 +251,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   const [direction, setDirection] = useState("forward");
   const [from, setFrom] = useState("eth");
   const [to, setTo] = useState("eth"); // reverse destination (EVM chains)
-  const [token, setToken] = useState("USDC");
+  const [token] = useState("USDC"); // LOCKED: read-only — the bridge moves ONLY USDC/USDC.x
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle|quoting|quoted|bridging|step2|relaying|handoff|done
@@ -275,13 +275,14 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     setReverseStage(0); setReleaseNote(null); setHandoffReason(null);
   };
 
+  // NOTE: token is LOCKED to USDC (product policy — the bridge moves ONLY
+  // USDC/USDC.x; no USDT, no DAI). There is deliberately NO changeToken: the
+  // forward select renders a fixed value and the token state never changes.
   const changeFrom = (c) => {
     setFrom(c);
-    if (!TOKENS[c]?.[token]) setToken(Object.keys(TOKENS[c] || {})[0] || "USDC");
     setQuote(null); setError(null); setPhase("idle");
   };
   const changeTo = (c) => { setTo(c); setQuote(null); setError(null); setPhase("idle"); };
-  const changeToken = (t) => { setToken(t); setQuote(null); setError(null); setPhase("idle"); };
   const changeAmount = (v) => { setAmount(v); setQuote(null); setError(null); setPhase("idle"); };
   const reset = () => {
     setPhase("idle"); setQuote(null); setError(null); setStatus(null);
@@ -443,6 +444,10 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
 
   async function executeReverseStage1() {
     if (!quote) return;
+    // Double-fire guard: a burn/poll/auto-fired stage 2 is in flight — never
+    // start a second burn (the busy/polling flags are the single source of
+    // truth for the whole reverse journey).
+    if (polling || step2Busy) return;
     setError(null); setStatus(null);
     const solAdapter = await resolveSolanaAdapter(solSession);
     if (!solAdapter) {
@@ -515,6 +520,13 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         setReleaseNote("Released on Solana ✓");
         setReverseStage(5);
         setPhase("step2"); // unlock the LiFi Solana→EVM leg
+        // AUTO-FIRE: the release is confirmed on Solana — continue the
+        // journey IMMEDIATELY (LiFi Solana→EVM), no manual stage-2 click.
+        // One continuous flow: burn → guardians signing → released → LiFi
+        // sending → done. Failure lands in the handoff state with a Retry
+        // button (executeReverseStage2 is the retry path) — exactly ONE auto
+        // attempt, never a loop (the step2Busy guard serializes re-entry).
+        await executeReverseStage2();
       } else if (res?.terminal) {
         setError("The Warp release failed terminally — your USDC.x is safe on X1. Contact support.");
         setHandoffReason("terminal");
@@ -534,17 +546,18 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   }
 
   async function executeReverseStage2() {
-    if (!quote) return;
+    if (!quote || step2Busy) return; // one LiFi send at a time (auto-fire or manual retry)
     setError(null); setStatus(null);
+    setStep2Busy(true);
     const solAdapter = await resolveSolanaAdapter(solSession);
     if (!solAdapter) {
       setError("Connect your Solana/X1 wallet to finish the hop");
       setHandoffReason("lifi");
       setPhase("handoff");
+      setStep2Busy(false);
       return;
     }
     setPhase("bridging");
-    setStep2Busy(true);
     try {
       const txHash = await reverseStage2Runner({
         solAdapter,
@@ -603,10 +616,8 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       <div style={S.row}>
         <span style={S.rowCol}>
           <span style={S.label}>Token</span>
-          <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} style={S.select}>
-            {tokensFor(from).map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
+          <select data-testid="token" value="USDC" onChange={() => {}} style={S.select} aria-label="Token (fixed: USDC)">
+            <option value="USDC" style={{ background: "#0a1019" }}>USDC</option>
           </select>
         </span>
         <span style={{ ...S.rowCol, flex: 1 }}>

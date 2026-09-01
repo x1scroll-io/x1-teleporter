@@ -712,7 +712,7 @@ test("REVERSE stage 1 gated by WARP_LIVE_SEND: runner receives allowLive=false (
   }
 });
 
-test("REVERSE stage 1 live: burn sent → Warp release poll confirms → stage 2 unlock (LiFi Solana→EVM)", async () => {
+test("REVERSE AUTO-FIRE: release poll resolves ok:true → stage-2 runner invoked AUTOMATICALLY (no click), net = what landed on Solana", async () => {
   const qf = mockReverseQuoteFetch();
   const fakeRunner1 = async () => ({ stage: "sent", success: true, signature: "burn-sig-123" });
   const pollStages = [];
@@ -723,27 +723,6 @@ test("REVERSE stage 1 live: burn sent → Warp release poll confirms → stage 2
     pollStages.push("polled:" + sig);
     return { ok: true, destinationTx: "release-tx-456" };
   };
-  const { container, unmount } = renderForm(FORM_PROPS({ reverseStage1Runner: fakeRunner1, releasePoller: fakePoller }));
-  try {
-    await reverseQuote(container);
-    click(container.querySelector('[data-testid="bridge-now"]'));
-    await flush();
-
-    assert.deepEqual(pollStages, ["polled:burn-sig-123"], "release poller called with the burn signature");
-    const step2 = container.querySelector('[data-testid="bridge-step2"]');
-    assert.ok(step2 && step2.textContent.includes("Step 2 of 2") && step2.textContent.includes("Ethereum"),
-      `stage 2 unlocked after the release, got: ${step2?.textContent}`);
-    assert.ok(step2.textContent.includes("finish the hop to Ethereum"), "honest next-step label");
-  } finally {
-    qf.restore();
-    unmount();
-  }
-});
-
-test("REVERSE stage 2: LiFi Solana→EVM leg executes with the deterministic net → done on the destination chain", async () => {
-  const qf = mockReverseQuoteFetch();
-  const fakeRunner1 = async () => ({ stage: "sent", success: true, signature: "burn-sig" });
-  const fakePoller = async () => ({ ok: true, destinationTx: "release-tx" });
   const stage2Calls = [];
   const fakeRunner2 = async (args) => {
     stage2Calls.push(args);
@@ -758,14 +737,15 @@ test("REVERSE stage 2: LiFi Solana→EVM leg executes with the deterministic net
     await reverseQuote(container);
     click(container.querySelector('[data-testid="bridge-now"]'));
     await flush();
-    click(container.querySelector('[data-testid="bridge-step2"]'));
-    await flush();
 
-    assert.equal(stage2Calls.length, 1, "stage-2 runner invoked once");
+    assert.deepEqual(pollStages, ["polled:burn-sig-123"], "release poller called with the burn signature");
+    assert.equal(stage2Calls.length, 1, "stage-2 runner invoked AUTOMATICALLY — no manual click");
     assert.equal(stage2Calls[0].to, "eth");
     assert.equal(stage2Calls[0].evmAddress, EVM_ADDR, "destination = the connected EVM wallet");
     assert.equal(stage2Calls[0].netOnSolana, 98, "bridges the net that LANDED on Solana (100 − 1% − $1)");
-
+    // The journey is ONE continuous flow (burn → guardians → released → LiFi
+    // → done) — no manual stage-2 button remains in the auto-fired flow.
+    assert.equal(container.querySelector('[data-testid="bridge-step2"]'), null, "no manual stage-2 button in the auto-fired flow");
     const done = container.querySelector('[data-testid="done"]');
     assert.ok(done && done.textContent.includes("USDC on Ethereum"),
       `done state on the destination chain, got: ${done?.textContent}`);
@@ -775,11 +755,15 @@ test("REVERSE stage 2: LiFi Solana→EVM leg executes with the deterministic net
   }
 });
 
-test("REVERSE stage 2 failure → honest handoff: USDC safe on Solana, retry available, never a silent dead-end", async () => {
+test("REVERSE AUTO-FIRE failure: auto-fired stage 2 fails → error + Retry button, EXACTLY ONE auto attempt (no retry loop)", async () => {
   const qf = mockReverseQuoteFetch();
   const fakeRunner1 = async () => ({ stage: "sent", success: true, signature: "burn-sig" });
   const fakePoller = async () => ({ ok: true, destinationTx: "release-tx" });
-  const fakeRunner2 = async () => { throw new Error("No LiFi route for this pair"); };
+  let stage2Attempts = 0;
+  const fakeRunner2 = async () => {
+    stage2Attempts += 1;
+    throw new Error("No LiFi route for this pair");
+  };
   const { container, unmount } = renderForm(FORM_PROPS({
     reverseStage1Runner: fakeRunner1,
     releasePoller: fakePoller,
@@ -789,9 +773,8 @@ test("REVERSE stage 2 failure → honest handoff: USDC safe on Solana, retry ava
     await reverseQuote(container);
     click(container.querySelector('[data-testid="bridge-now"]'));
     await flush();
-    click(container.querySelector('[data-testid="bridge-step2"]'));
-    await flush();
 
+    assert.equal(stage2Attempts, 1, "exactly ONE auto attempt — the auto-fire never loops");
     const handoff = container.querySelector('[data-testid="handoff"]');
     assert.ok(handoff && handoff.textContent.includes("safe on Solana"),
       `honest handoff, got: ${handoff?.textContent}`);
@@ -799,8 +782,79 @@ test("REVERSE stage 2 failure → honest handoff: USDC safe on Solana, retry ava
     assert.ok(err && err.textContent.includes("No LiFi route"), `surfaced reason, got: ${err?.textContent}`);
     assert.ok(container.querySelector('[data-testid="retry-stage2"]'), "retry affordance present");
     assert.ok(container.querySelector('[data-testid="reset"]'), "reset present");
+
+    // No auto-retry: after the dust settles, still exactly one attempt.
+    await flush();
+    await flush();
+    assert.equal(stage2Attempts, 1, "no infinite auto-retry — still one attempt after further flushes");
+
+    // The manual Retry path still works — the user finishes the hop by hand.
+    click(container.querySelector('[data-testid="retry-stage2"]'));
+    await flush();
+    assert.equal(stage2Attempts, 2, "manual Retry re-invokes the stage-2 runner");
+    assert.ok(container.querySelector('[data-testid="retry-stage2"]'), "retry affordance remains after the manual retry fails");
   } finally {
     qf.restore();
+    unmount();
+  }
+});
+
+test("FORWARD token locked: USDC only — no USDT/DAI options rendered, change events are no-ops", () => {
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    const tokenSelect = container.querySelector('[data-testid="token"]');
+    assert.ok(tokenSelect, "token picker present");
+    assert.equal(tokenSelect.value, "USDC", "forward token fixed to USDC");
+    assert.equal(tokenSelect.getAttribute("aria-label"), "Token (fixed: USDC)", "aria-label names the lock");
+    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC"], "only USDC is offered");
+    assert.equal(tokenSelect.textContent.includes("USDT"), false, "USDT not rendered");
+    assert.equal(tokenSelect.textContent.includes("DAI"), false, "DAI not rendered");
+
+    // A change event cannot move the token (onChange is a no-op + controlled value).
+    act(() => {
+      tokenSelect.value = "USDT";
+      tokenSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(tokenSelect.value, "USDC", "token stays USDC after a USDT change event");
+    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no error — the no-op is silent");
+
+    // Switching the from-chain keeps the token locked at USDC.
+    const fromSelect = container.querySelector('[data-testid="from-chain"]');
+    act(() => {
+      fromSelect.value = "bsc";
+      fromSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(container.querySelector('[data-testid="token"]').value, "USDC", "token still USDC after switching the from-chain");
+  } finally {
+    unmount();
+  }
+});
+
+test("REVERSE token locked: USDC.x fixed — change events are no-ops, X1 source offers no token choice", () => {
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    click(container.querySelector('[data-testid="dir-reverse"]'));
+    const tokenSelect = container.querySelector('[data-testid="token"]');
+    assert.ok(tokenSelect, "token picker present in reverse");
+    assert.equal(tokenSelect.value, "USDC.x", "reverse token fixed to USDC.x");
+    assert.equal(tokenSelect.getAttribute("aria-label"), "Token (fixed: USDC.x)", "aria-label names the lock");
+    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC.x"], "only USDC.x offered");
+    assert.equal(tokenSelect.textContent.includes("USDT"), false, "USDT not rendered");
+    assert.equal(tokenSelect.textContent.includes("DAI"), false, "DAI not rendered");
+
+    act(() => {
+      tokenSelect.value = "DAI";
+      tokenSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(tokenSelect.value, "USDC.x", "token stays USDC.x after a DAI change event");
+
+    // The reverse FROM selector (the X1 leg) is fixed too — no token choice there.
+    const fromSelect = container.querySelector('[data-testid="from-chain"]');
+    assert.equal(fromSelect.value, "x1", "reverse source fixed to X1");
+    assert.match(fromSelect.textContent, /USDC\.x/, "X1 source shows USDC.x only");
+    assert.equal(fromSelect.textContent.includes("USDT"), false, "no USDT on the X1 source");
+    assert.equal(fromSelect.textContent.includes("DAI"), false, "no DAI on the X1 source");
+  } finally {
     unmount();
   }
 });
