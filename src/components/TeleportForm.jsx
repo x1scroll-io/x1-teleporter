@@ -47,7 +47,7 @@ import {
   TOKENS, tokensFor,
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
-import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
+import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs, checkReverseMin } from "../lib/reverseQuote.js";
 import { executeLiFiEvmTx } from "../lib/teleportExecute.js";
 import { resolveEvmProvider, resolveSolanaAdapter, solanaSessionCanSign } from "../lib/wallet/sessionProviders.js";
 import { SimulationError } from "../lib/simulateTx.js";
@@ -443,7 +443,6 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     setError(null); setStatus(null);
     const amt = parseFloat(amount);
     if (!amount || !(amt > 0)) { setError("Enter an amount"); return; }
-    if (amt < X1_REVERSE_MIN) { setError(`Bridge $${X1_REVERSE_MIN}+ out of X1 to get started`); return; }
     if (!solReady) { setError("Connect your Solana/X1 wallet to get a quote"); return; }
     if (!evmReady) { setError("Connect your EVM wallet to get a quote"); return; }
     setPhase("quoting");
@@ -470,6 +469,20 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         const resp = await fetch(`/api/lifi/quote?${built.qs}`);
         const d = await resp.json();
         if (!(d?.error || d?.message) && d?.estimate?.toAmount) lifiData = d;
+      }
+      // USD-AWARE minimum (the live-bug fix — the old check compared the RAW
+      // TOKEN COUNT to the $25 floor, so 0.3 wSOL.X ≈ $30 was blocked because
+      // 0.3 < 25). The floor is a USD VALUE: gross input × the LIVE source
+      // price (LiFi's fromToken.priceUSD — the token the SOL→EVM leg carries,
+      // 1:1 with the X1 source — or the Coingecko fallback; never hardcoded).
+      // Fails OPEN when no price resolves: a missing price must not block a
+      // valid user — the burn preflight still guards an actually-too-small
+      // amount. The quote runs FIRST so the gate uses the freshest price.
+      const minCheck = await checkReverseMin({ amount: amt, token: reverseToken, lifiData });
+      if (minCheck.blocked) {
+        setError(`Bridge $${X1_REVERSE_MIN}+ out of X1 to get started`);
+        setPhase("idle");
+        return;
       }
       const derived = deriveReverseQuote({ data: lifiData, to, amount: amt, token: reverseToken, toToken: token });
       setQuote({ amount: amt, to, toToken: token, ...derived, lifiData });
