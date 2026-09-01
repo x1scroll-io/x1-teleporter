@@ -59,10 +59,24 @@ function renderWithProvider(element, initialState) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
+  // BridgeCard → TeleportTab → TeleportForm: inject the no-op balancesDeps
+  // so the bridge-flow tests stay hermetic (the balance line itself is
+  // covered with DI'd fetchers in BalancesLine.test.jsx).
+  const el = React.cloneElement(element, {
+    formProps: {
+      balancesDeps: {
+        priceFetcher: async () => null,
+        evmBalanceFetcher: async () => null,
+        solBalanceFetcher: async () => null,
+        x1BalanceFetcher: async () => null,
+        createConnections: async () => ({ sol: null, x1: null }),
+      },
+    },
+  });
   act(() => {
     root.render(
       React.createElement(WalletProvider, { discovery: FAKE_DISCOVERY, initialState },
-        element),
+        el),
     );
   });
   return {
@@ -167,6 +181,16 @@ function mockQuoteFetch() {
 const FORM_PROPS = (over = {}) => ({
   evmSession: { status: "connected", address: EVM_ADDR, provider: makeEvmProvider() },
   solSession: { status: "connected", address: SOL_ADDR, provider: makeSolAdapter() },
+  // BalancesLine (wallet balances + live USD) is DI-able: these tests pin the
+  // bridge flow, not balances — no-op fetchers keep them hermetic (no RPC,
+  // no Coingecko). The balance line itself is covered in BalancesLine.test.jsx.
+  balancesDeps: {
+    priceFetcher: async () => null,
+    evmBalanceFetcher: async () => null,
+    solBalanceFetcher: async () => null,
+    x1BalanceFetcher: async () => null,
+    createConnections: async () => ({ sol: null, x1: null }),
+  },
   ...over,
 });
 
@@ -195,6 +219,63 @@ test("the bridge-form-placeholder is GONE — the real form renders after connec
     assert.ok(evmOptions.includes("eth") && evmOptions.includes("bsc") && evmOptions.includes("arb"),
       "from-chain lists EVM chains (the hop's route)");
     assert.equal(container.querySelector('[data-testid="to-chain"]').value, "x1", "destination fixed to X1");
+  } finally {
+    unmount();
+  }
+});
+
+// ── BALANCE LINE: wallet balances + live USD inside the real form ──────────
+// The form mounts BalancesLine under the Amount field. With DI'd fetchers it
+// shows what the connected wallets hold + its USD worth — Mr. Esters'
+// directive ("bridge should have values of what is in the users wallets").
+
+test("balance line renders inside the form: EVM + Solana + X1 balances with live USD", async () => {
+  const { container, unmount } = renderForm(FORM_PROPS({
+    balancesDeps: {
+      priceFetcher: async () => ({ USDC: 1.0, USDT: 1.0, DAI: 1.0, WSOL: 102.0, "USDC.x": 1.0, "wSOL.X": 102.0 }),
+      evmBalanceFetcher: async () => 27.59,
+      solBalanceFetcher: async () => ({ USDC: 5.2, WSOL: 0.3 }),
+      x1BalanceFetcher: async () => ({ "USDC.x": 27.59, "wSOL.X": 0.3 }),
+      createConnections: async () => ({ sol: { fake: true }, x1: { fake: true } }),
+    },
+  }));
+  try {
+    await flush();
+    const line = container.querySelector('[data-testid="balances-line"]');
+    assert.ok(line, "the balance line renders inside the bridge form");
+    assert.ok(line.textContent.includes("Balances"), "labeled Balances");
+    const evm = container.querySelector('[data-testid="balance-evm"]');
+    assert.ok(evm && evm.textContent.includes("27.59 USDC ($27.59)"), `EVM side + USD, got: ${evm?.textContent}`);
+    const sol = container.querySelector('[data-testid="balance-sol"]');
+    assert.ok(sol && sol.textContent.includes("5.2 USDC ($5.20)") && sol.textContent.includes("0.3 WSOL ($30.60)"),
+      `Solana USDC+WSOL + USD, got: ${sol?.textContent}`);
+    const x1 = container.querySelector('[data-testid="balance-x1"]');
+    assert.ok(x1 && x1.textContent.includes("27.59 USDC.x ($27.59)") && x1.textContent.includes("0.3 wSOL.X ($30.60)"),
+      `X1 USDC.x+wSOL.X + USD, got: ${x1?.textContent}`);
+  } finally {
+    unmount();
+  }
+});
+
+test("balance line fail-soft inside the form: dead RPCs show —, form still works", async () => {
+  const { container, unmount } = renderForm(FORM_PROPS({
+    balancesDeps: {
+      priceFetcher: async () => null,
+      evmBalanceFetcher: async () => { throw new Error("eth_call down"); },
+      solBalanceFetcher: async () => { throw new Error("RPC down"); },
+      x1BalanceFetcher: async () => { throw new Error("RPC down"); },
+      createConnections: async () => ({ sol: {}, x1: {} }),
+    },
+  }));
+  try {
+    await flush(); // must NOT throw
+    const line = container.querySelector('[data-testid="balances-line"]');
+    assert.ok(line, "balance line still renders");
+    assert.ok(container.querySelector('[data-testid="balance-evm"]').textContent.includes("—"), "EVM side —");
+    assert.ok(container.querySelector('[data-testid="balance-sol"]').textContent.includes("—"), "Solana side —");
+    assert.ok(container.querySelector('[data-testid="balance-x1"]').textContent.includes("—"), "X1 side —");
+    // the bridge form itself is untouched — quote button still there
+    assert.ok(container.querySelector('[data-testid="get-quote"]'), "form still fully functional");
   } finally {
     unmount();
   }

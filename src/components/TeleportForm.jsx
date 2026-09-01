@@ -41,7 +41,7 @@
  * reason + Retry.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CHAINS, EVM_CHAINS, X1_MIN, X1_REVERSE_MIN, WARP_BRIDGE_URL, SOLANA_RPC, X1_RPC,
   TOKENS, tokensFor,
@@ -54,6 +54,7 @@ import { SimulationError } from "../lib/simulateTx.js";
 import { LiFiApprovalValidationError } from "../lib/lifiApproval.js";
 import { WARP_LIVE_SEND } from "../lib/flags.ts";
 import { FEE_WALLETS } from "../lib/fees.ts";
+import BalancesLine from "./BalancesLine.jsx";
 
 /**
  * The real stage-2 (Warp Solana→X1) runner. Default for the form; tests
@@ -250,7 +251,7 @@ const PLACEHOLDER_EVM = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
  *   connect the modal is gone, so the form's "connect your wallet" prompts
  *   must be able to bring it back.
  */
-export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, reverseStage1Runner = defaultReverseStage1Runner, reverseStage2Runner = defaultReverseStage2Runner, releasePoller = defaultReleasePoller, onConnectWallet }) {
+export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, reverseStage1Runner = defaultReverseStage1Runner, reverseStage2Runner = defaultReverseStage2Runner, releasePoller = defaultReleasePoller, onConnectWallet, balancesDeps = {} }) {
   // direction: "forward" = EVM → X1 (the proven on-ramp), "reverse" = X1 → EVM
   // (the off-ramp: Warp burn X1→Solana, then LiFi Solana→EVM). The forward
   // flow is byte-identical in behavior — the toggle only adds the reverse path.
@@ -280,6 +281,9 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   const [releaseNote, setReleaseNote] = useState(null); // Warp release poll progress text
   const [polling, setPolling] = useState(false);
   const [handoffReason, setHandoffReason] = useState(null); // reverse handoff: burn|lifi|terminal
+  // Bumped after a bridge completes — BalancesLine refetches so the user sees
+  // the post-bridge wallet state (what's left, and what it's now worth).
+  const [balanceRefresh, setBalanceRefresh] = useState(0);
 
   const evmReady = Boolean(evmSession?.address);
   const solReady = Boolean(solSession?.address);
@@ -319,7 +323,15 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     setPhase("idle"); setQuote(null); setError(null); setStatus(null);
     setWarpSig(null); setStage1Hash(null); setConfirmMode(false); setStep2Busy(false);
     setReverseStage(0); setReleaseNote(null); setPolling(false); setHandoffReason(null);
+    setBalanceRefresh((n) => n + 1); // bridge done → show the post-bridge wallet state
   };
+
+  // Manual refresh after a bridge completes: when the journey reaches the
+  // "done" phase the wallets changed, so bump the balance line's refresh
+  // signal (reset() also bumps, covering "Bridge again").
+  useEffect(() => {
+    if (phase === "done") setBalanceRefresh((n) => n + 1);
+  }, [phase]);
 
   async function getQuote() {
     setError(null); setStatus(null);
@@ -684,6 +696,22 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
           />
         </span>
       </div>
+      {/* wallet balances with live USD values — what the connected wallets
+          actually hold, and what it's worth, before bridging (Mr. Esters'
+          directive). Fail-soft: "—" per side, never blocks the form. */}
+      <BalancesLine
+        direction="forward"
+        from={from}
+        to={to}
+        token={token}
+        reverseToken={reverseToken}
+        destToken={destToken}
+        amount={amount}
+        evmSession={evmSession}
+        solSession={solSession}
+        refreshSignal={balanceRefresh}
+        {...balancesDeps}
+      />
       <div style={S.hint}>Bridge ${X1_MIN}+ into X1 to get started — land as USDC.x (flat $1 Warp fee) or wSOL.X (0.25% Warp fee).</div>
 
       {/* wallet guidance — honest, never a silent dead-end; actionable
@@ -847,6 +875,21 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
           />
         </span>
       </div>
+      {/* wallet balances with live USD values — reverse: X1 burn source
+          (USDC.x/wSOL.X), Solana landing (USDC/WSOL), EVM destination. */}
+      <BalancesLine
+        direction="reverse"
+        from={from}
+        to={to}
+        token={token}
+        reverseToken={reverseToken}
+        destToken={destToken}
+        amount={amount}
+        evmSession={evmSession}
+        solSession={solSession}
+        refreshSignal={balanceRefresh}
+        {...balancesDeps}
+      />
       <div style={S.hint}>Bridge ${X1_REVERSE_MIN}+ out of X1 — {reverseToken} burns on X1, {reverseToken === "wSOL.X" ? "WSOL" : "USDC"} lands on Solana, then LiFi carries it to {CHAINS[to].name} as {token}.</div>
 
       {/* wallet guidance — honest, never a silent dead-end; actionable when

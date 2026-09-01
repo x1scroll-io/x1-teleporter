@@ -47,7 +47,7 @@ const S = {
   placeholder: { padding: 16, color: "#7d8aa0", fontSize: 14 },
 };
 
-export default function BridgeCard({ initialTab = "teleport", flags = { THORCHAIN } }) {
+export default function BridgeCard({ initialTab = "teleport", flags = { THORCHAIN }, formProps = {} }) {
   const [tab, setTab] = useState(initialTab);
   const thorchainEnabled = flags.THORCHAIN === true;
   return (
@@ -69,7 +69,7 @@ export default function BridgeCard({ initialTab = "teleport", flags = { THORCHAI
         ))}
       </nav>
       {tab === "teleport" ? (
-        <TeleportTab />
+        <TeleportTab formProps={formProps} />
       ) : tab === "thorchain" ? (
         thorchainEnabled ? <THORChainTab /> : <div className="placeholder-tab" role="tabpanel" data-testid="thorchain-tab" style={S.placeholder}>{PLACEHOLDERS.thorchain}</div>
       ) : (
