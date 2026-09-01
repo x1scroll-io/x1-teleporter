@@ -33,6 +33,7 @@ import {
   WARP_ACCOUNTS,
   WARP_PROGRAM_ID,
   USDC_MINT,
+  pollWarpStatus,
 } from "./warpBridge.js";
 import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { SimulationError } from "./lib/simulateTx.js";
@@ -952,4 +953,107 @@ test("assertX1UsdcBalance: sufficient balance resolves with the checked amounts"
   assert.equal(res.ok, true);
   assert.equal(res.available, 50_000_000n);
   assert.equal(res.required, 25_000_000n);
+});
+
+// ── pollWarpStatus: Warp release-polling detection (fix/warp-poll-desttxsig) ──
+// The live Warp API nests the transaction under `transaction` and names the
+// destination release sig `destTxSig`. The poller previously read top-level
+// fields only and never looked for `destTxSig`, so a COMPLETED reverse leg
+// (X1 burn executed, guardians released on Solana) was never detected and the
+// UI sat on "Guardians signing" forever. These tests pin the fix.
+
+const POLL_SIG =
+  "2YrCSbPjVGYnd3YggvVVtLfUUYwtGTunq2tWTUv9fyRB891T8ptNeDt9JmKaBxxrt5TfgMWcyCD9yFCxPnNJkVuc";
+const DEST_SIG =
+  "2LsDtErwXZaipeS9SE2ruN7EwFNr4hftBnnHqojSzqmWvnJRsxXvjzHG9sV2RAvbK8g2FLEuReBahBsTTaLrBEGG";
+
+// Stub global fetch for the two Warp endpoints the poller hits:
+//   {api}/transactions/{sig}/signatures?from=…  and  {api}/transactions/{sig}?from=…
+function mockWarpFetch({ statusBody, sigsBody = { signatures: [{ guardian: "g1" }] }, statusOk = true } = {}) {
+  const calls = [];
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.includes("/signatures?")) {
+      return { ok: true, status: 200, async json() { return sigsBody; } };
+    }
+    return { ok: statusOk, status: statusOk ? 200 : 404, async json() { return statusBody; } };
+  };
+  return { calls, restore: () => { globalThis.fetch = origFetch; } };
+}
+
+test("pollWarpStatus: detects completion on the REAL Warp API shape — { transaction: { status: \"executed\", destTxSig } }", async () => {
+  const mock = mockWarpFetch({
+    statusBody: {
+      transaction: {
+        txSig: POLL_SIG, from: "x1", to: "sol", status: "executed",
+        token: "USDC", amount: "28700000",
+        signaturesCollected: 7, signaturesRequired: 5,
+        destTxSig: DEST_SIG, destSlot: "443400608",
+      },
+      signatures: [{ guardian: "g1" }],
+    },
+  });
+  try {
+    const stages = [];
+    const res = await pollWarpStatus(POLL_SIG, {
+      api: "https://api.bridge.mainnet.x1.xyz", from: "x1",
+      intervalMs: 5, maxMs: 2000,
+      onUpdate: (s, d) => stages.push([s, d]),
+    });
+    assert.equal(res.ok, true);
+    assert.equal(res.destinationTx, DEST_SIG);
+    const complete = stages.find(([s]) => s === "complete");
+    assert.ok(complete, "complete stage fired");
+    assert.equal(complete[1].destinationTx, DEST_SIG);
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: nested transaction.destinationTxSignature variant also completes", async () => {
+  const mock = mockWarpFetch({ statusBody: { transaction: { status: "executed", destinationTxSignature: DEST_SIG } } });
+  try {
+    const res = await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 2000 });
+    assert.equal(res.ok, true);
+    assert.equal(res.destinationTx, DEST_SIG);
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: top-level { status: \"executed\", destTxSig } variant also completes", async () => {
+  const mock = mockWarpFetch({ statusBody: { status: "executed", destTxSig: DEST_SIG } });
+  try {
+    const res = await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 2000 });
+    assert.equal(res.ok, true);
+    assert.equal(res.destinationTx, DEST_SIG);
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: reverse-leg polling hits the API with from=x1 on BOTH endpoints", async () => {
+  const mock = mockWarpFetch({ statusBody: { transaction: { status: "executed", destTxSig: DEST_SIG } } });
+  try {
+    await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 2000 });
+    const statusUrls = mock.calls.filter((u) => !u.includes("/signatures?"));
+    const sigUrls = mock.calls.filter((u) => u.includes("/signatures?"));
+    assert.ok(statusUrls.length > 0, "status endpoint polled");
+    assert.ok(statusUrls.every((u) => u.includes("from=x1")), `status URLs use from=x1: ${statusUrls.join(", ")}`);
+    assert.ok(sigUrls.length > 0, "signatures endpoint polled");
+    assert.ok(sigUrls.every((u) => u.includes("from=x1")), `signatures URLs use from=x1: ${sigUrls.join(", ")}`);
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: status \"executed\" alone is terminal-complete (no dest sig required)", async () => {
+  const mock = mockWarpFetch({ statusBody: { transaction: { status: "executed", signaturesCollected: 7, signaturesRequired: 5 } } });
+  try {
+    const res = await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 2000 });
+    assert.equal(res.ok, true);
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: a pending status does NOT complete early — keeps polling until timeout", async () => {
+  const mock = mockWarpFetch({ statusBody: { transaction: { status: "pending", signaturesCollected: 3, signaturesRequired: 5 } } });
+  try {
+    const res = await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 60 });
+    assert.equal(res.ok, false);
+    assert.equal(res.timedOut, true);
+  } finally { mock.restore(); }
 });
