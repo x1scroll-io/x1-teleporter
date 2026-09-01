@@ -1192,13 +1192,27 @@ export async function fetchWarpLimits(api = WARP_API.mainnet) {
 
 // Poll for guardian signatures + final status. onUpdate(stage, detail) is called
 // as state changes. Returns the terminal result. 404 before sigs is NORMAL.
-export async function pollWarpStatus(sourceSig, { api = WARP_API.mainnet, from = "sol", onUpdate = () => {}, maxMs = 180000, intervalMs = 4000 } = {}) {
+//
+// SAME-ORIGIN (fix/proxy-warp-poll): the poll fetches the app's OWN serverless
+// proxy (/api/warp/status + /api/warp/signatures) instead of the Warp API
+// directly from the browser. The live reverse flow was stuck at "Still
+// awaiting the release" while server-side every burn showed status
+// "executed" + destTxSig — the direct browser→Warp-API fetch was the
+// non-deterministic variable (CORS/cache/browser-network) that could not be
+// reproduced from the server. The proxy removes it: the poll is now a
+// same-origin fetch to the app's backend, exactly like /api/lifi/quote.
+// `api` is the ORIGIN-RELATIVE base ("" = same origin); kept as a param so
+// tests can inject a base or a fake fetch. The completion-detection logic
+// below (nested `transaction` shape, destTxSig, executed/complete/success,
+// fail/terminal) is unchanged from fix/warp-poll-desttxsig (#34).
+export async function pollWarpStatus(sourceSig, { api = "", from = "sol", onUpdate = () => {}, maxMs = 180000, intervalMs = 4000 } = {}) {
   const start = Date.now();
   let sawSigs = false;
+  const enc = (v) => encodeURIComponent(String(v));
   while (Date.now() - start < maxMs) {
     // 1) signatures endpoint — tells us guardian quorum progress
     try {
-      const sresp = await fetch(`${api}/transactions/${sourceSig}/signatures?from=${from}`);
+      const sresp = await fetch(`${api}/api/warp/signatures?sig=${enc(sourceSig)}&from=${enc(from)}`);
       if (sresp.ok) {
         const sj = await sresp.json();
         const sigs = Array.isArray(sj) ? sj : (sj.signatures || []);
@@ -1210,7 +1224,7 @@ export async function pollWarpStatus(sourceSig, { api = WARP_API.mainnet, from =
 
     // 2) status endpoint — detection, submitter status, destination tx, final
     try {
-      const tresp = await fetch(`${api}/transactions/${sourceSig}?from=${from}`);
+      const tresp = await fetch(`${api}/api/warp/status?sig=${enc(sourceSig)}&from=${enc(from)}`);
       if (tresp.ok) {
         const tj = await tresp.json();
         onUpdate("status", tj);
@@ -1230,6 +1244,12 @@ export async function pollWarpStatus(sourceSig, { api = WARP_API.mainnet, from =
           onUpdate("failed", { raw: tj });
           return { ok: false, terminal: true, raw: tj };
         }
+      } else if (tresp.status === 404) {
+        // Before the relay detects the burn the status endpoint 404s — same
+        // as the signatures endpoint. That is "still awaiting guardians",
+        // NOT an error: keep polling (the proxy passes upstream 404s through
+        // verbatim, so this branch is the normal pre-detection state).
+        onUpdate("awaiting_guardians", { note: "no status yet (404 is normal)" });
       }
     } catch (e) { onUpdate("poll_error", { where: "status", msg: e.message }); }
 
