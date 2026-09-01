@@ -830,28 +830,28 @@ test("FORWARD token locked: USDC only — no USDT/DAI options rendered, change e
   }
 });
 
-test("REVERSE token locked: USDC.x fixed — change events are no-ops, X1 source offers no token choice", () => {
+test("REVERSE token: USDC.x default, wSOL.X now offered (SOL rail) — change events switch the burn token", () => {
   const { container, unmount } = renderForm(FORM_PROPS());
   try {
     click(container.querySelector('[data-testid="dir-reverse"]'));
     const tokenSelect = container.querySelector('[data-testid="token"]');
     assert.ok(tokenSelect, "token picker present in reverse");
-    assert.equal(tokenSelect.value, "USDC.x", "reverse token fixed to USDC.x");
-    assert.equal(tokenSelect.getAttribute("aria-label"), "Token (fixed: USDC.x)", "aria-label names the lock");
-    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC.x"], "only USDC.x offered");
+    assert.equal(tokenSelect.value, "USDC.x", "reverse token defaults to USDC.x");
+    assert.equal(tokenSelect.getAttribute("aria-label"), "Token to burn on X1", "aria-label names the burn token");
+    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC.x", "wSOL.X"], "USDC.x + wSOL.X offered (both bridged by Warp)");
     assert.equal(tokenSelect.textContent.includes("USDT"), false, "USDT not rendered");
     assert.equal(tokenSelect.textContent.includes("DAI"), false, "DAI not rendered");
 
     act(() => {
-      tokenSelect.value = "DAI";
+      tokenSelect.value = "wSOL.X";
       tokenSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
-    assert.equal(tokenSelect.value, "USDC.x", "token stays USDC.x after a DAI change event");
+    assert.equal(container.querySelector('[data-testid="token"]').value, "wSOL.X", "token switches to wSOL.X");
 
-    // The reverse FROM selector (the X1 leg) is fixed too — no token choice there.
+    // The reverse FROM selector (the X1 leg) offers the same two bridged tokens.
     const fromSelect = container.querySelector('[data-testid="from-chain"]');
     assert.equal(fromSelect.value, "x1", "reverse source fixed to X1");
-    assert.match(fromSelect.textContent, /USDC\.x/, "X1 source shows USDC.x only");
+    assert.deepEqual(Array.from(container.querySelector('[data-testid="x1-token"]').options).map((o) => o.value), ["USDC.x", "wSOL.X"], "X1 source offers USDC.x + wSOL.X");
     assert.equal(fromSelect.textContent.includes("USDT"), false, "no USDT on the X1 source");
     assert.equal(fromSelect.textContent.includes("DAI"), false, "no DAI on the X1 source");
   } finally {

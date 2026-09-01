@@ -114,6 +114,7 @@ export type FeeComponentId =
   | "lifi-integrator"    // LiFi's integrator fee on a LiFi leg — the Teleporter fee on same-chain routes; 0 on x1-class routes
   | "warp-skim"          // our 1% pre-bridge skim — the Teleporter fee on x1-class routes
   | "warp-flat"          // the Warp program's own flat $1 (third-party pass-through, labeled "Warp bridge fee")
+  | "warp-pct"           // the Warp program's percentage fee (third-party pass-through — used when the token charges bps instead of a flat fee, e.g. wSOL.X 25bps)
   | "thorchain-affiliate" // the THORChain PROTOCOL affiliate fee paid to our THORName (third-party — NEVER a Teleporter fee)
   | "escape-hatch-skim"; // the escape-hatch skim (future, 5% — named exception, rescue product)
 
@@ -161,6 +162,14 @@ export interface FeeRoute {
    *  PROTOCOL fee paid to our THORName — it never counts toward Teleporter's
    *  1% (see the class docs). Tests vary this; production reads config. */
   affiliateBps?: number;
+  /** Opt-in Warp percentage-fee override (bps) — when set, the Warp bridge
+   *  fee component becomes a RATE (third-party pass-through) instead of the
+   *  flat $1: the Warp token registry charges some tokens a percentage fee
+   *  (e.g. wSOL.X = 25 bps, flat 0) instead of the USDC.x flat $1. NEVER a
+   *  Teleporter fee — same third-party pass-through semantics as warp-flat,
+   *  labeled "Warp bridge fee (x.x%)". Computed on the post-skim bridge
+   *  gross (what Warp actually charges against, on-chain). */
+  warpFeeBps?: number;
   /** Opt-in non-X1 bridge integration (future). When true, computeFee throws. */
   nonX1Bridge?: boolean;
 }
@@ -381,18 +390,33 @@ function x1HopFee(route: FeeRoute): FeeStructure {
     rt === "x1" ? "leg-1-delivered" : "source",
   ));
 
-  // The Warp bridge's own flat $1 — collected by the Warp program (not us),
+  // The Warp bridge's own fee — collected by the Warp program (not us),
   // deducted inside BridgeOut on-chain. THIRD-PARTY pass-through, labeled
-  // "Warp bridge fee" (never "Teleporter fee"). Passthrough in every quote.
-  components.push(flatComponent(
-    "warp-flat",
-    "Warp bridge fee",
-    FEE_RATES.WARP_FLAT_USD,
-    "third-party",
-    "warp-program",
-    "bridge",
-    "on-chain",
-  ));
+  // "Warp bridge fee" (never "Teleporter fee"). Two shapes, token-driven
+  // (live Warp config): USDC.x charges a flat $1 (warp-flat); wSOL.X charges
+  // a 25 bps percentage (warp-pct) — the bps override switches the component.
+  if (route.warpFeeBps && route.warpFeeBps > 0) {
+    components.push(rateComponent(
+      "warp-pct",
+      `Warp bridge fee (${(route.warpFeeBps / 100).toFixed(2)}%)`,
+      route.warpFeeBps / 10_000,
+      "third-party",
+      "warp-program",
+      "bridge",
+      "on-chain",
+      "source",
+    ));
+  } else {
+    components.push(flatComponent(
+      "warp-flat",
+      "Warp bridge fee",
+      FEE_RATES.WARP_FLAT_USD,
+      "third-party",
+      "warp-program",
+      "bridge",
+      "on-chain",
+    ));
+  }
 
   return makeStructure(
     "x1-hop",
