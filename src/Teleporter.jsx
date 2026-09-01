@@ -1506,7 +1506,7 @@ export default function Teleporter() {
           setBridgeStage((s) => Math.max(s, 2)); // "Bridge-out sent" done
           setPhase("relaying");
           flash(`bridge_out sent. Watching guardians + relay… (${sig?.slice(0,8)}…)`, "info");
-          const { pollWarpStatus, verifyX1Mint, WARP_API } = await import("./warpBridge.js");
+          const { pollWarpStatus, verifyX1Mint } = await import("./warpBridge.js");
           const { Connection } = await import("@solana/web3.js");
           const seq = res.built?.seq;
 
@@ -1534,7 +1534,6 @@ export default function Teleporter() {
           })();
 
           const result = await pollWarpStatus(sig, {
-            api: WARP_API.mainnet,
             from: "sol",
             onUpdate: (stage, detail) => {
               setWarpStatus({ stage, detail });
@@ -1705,7 +1704,7 @@ export default function Teleporter() {
           const sol = solWallet?.provider || listSolProviders()[0]?.provider || null;
           if (!sol?.publicKey) { flash("Connect your X1 wallet to bridge from X1", "err"); setPhase("quoted"); return; }
           const { Connection, PublicKey } = await import("@solana/web3.js");
-          const { runReverse, WARP_API, pollWarpStatus } = await import("./warpBridge.js");
+          const { runReverse, pollWarpStatus } = await import("./warpBridge.js");
           const connection = new Connection(X1_RPC, "confirmed");
           let amountHuman = quote?.amount ?? pending?.amount;
           // Deduct Teleporter 1% fee before burning (fee charged on Warp bridge_out).
@@ -1742,7 +1741,7 @@ export default function Teleporter() {
             // timers: "Guardians signed" / "Released on Solana" must NEVER show
             // unless the bridge actually reports guardian sigs and a dest tx.
             const poll = await pollWarpStatus(sig, {
-              api: WARP_API.mainnet, from: "x1", maxMs: 300000,
+              from: "x1", maxMs: 300000,
               onUpdate: (stage, detail) => {
                 setWarpStatus({ stage, detail });
                 if (stage === "status") setBridgeStage((s) => Math.max(s, 3));               // detected on X1

@@ -992,6 +992,9 @@ function mockWarpFetch({ statusBody, sigsBody = { signatures: [{ guardian: "g1" 
 }
 
 test("pollWarpStatus: detects completion on the REAL Warp API shape — { transaction: { status: \"executed\", destTxSig } }", async () => {
+  // REGRESSION PIN for fix/warp-poll-desttxsig (#34) — now polled over the
+  // same-origin proxy (/api/warp/*, fix/proxy-warp-poll): the nested
+  // `transaction` shape with `destTxSig` must STILL complete the poll.
   const mock = mockWarpFetch({
     statusBody: {
       transaction: {
@@ -1006,7 +1009,7 @@ test("pollWarpStatus: detects completion on the REAL Warp API shape — { transa
   try {
     const stages = [];
     const res = await pollWarpStatus(POLL_SIG, {
-      api: "https://api.bridge.mainnet.x1.xyz", from: "x1",
+      from: "x1",
       intervalMs: 5, maxMs: 2000,
       onUpdate: (s, d) => stages.push([s, d]),
     });
@@ -1033,6 +1036,44 @@ test("pollWarpStatus: top-level { status: \"executed\", destTxSig } variant also
     const res = await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 2000 });
     assert.equal(res.ok, true);
     assert.equal(res.destinationTx, DEST_SIG);
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: polls the SAME-ORIGIN proxy paths — never the external Warp API host", async () => {
+  const mock = mockWarpFetch({
+    statusBody: { transaction: { status: "executed", destTxSig: DEST_SIG } },
+  });
+  try {
+    await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 2000 });
+    assert.ok(mock.calls.length >= 2, `both endpoints polled: ${mock.calls.join(", ")}`);
+    for (const u of mock.calls) {
+      assert.ok(u.startsWith("/api/warp/"), `same-origin proxy path: ${u}`);
+      assert.ok(!u.includes("api.bridge.mainnet.x1.xyz"), `no direct Warp API fetch: ${u}`);
+    }
+    assert.ok(mock.calls.some((u) => u.startsWith("/api/warp/status?")), "status proxy polled");
+    assert.ok(mock.calls.some((u) => u.startsWith("/api/warp/signatures?")), "signatures proxy polled");
+    assert.ok(mock.calls.every((u) => u.includes("from=x1")), `from=x1 forwarded on every poll: ${mock.calls.join(", ")}`);
+    assert.ok(mock.calls.every((u) => u.includes(`sig=${POLL_SIG}`)), "sig forwarded on every poll");
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: upstream 404 (proxy pass-through) is awaiting_guardians, NOT an exception", async () => {
+  // The proxy passes upstream 404s through verbatim — before the relay
+  // detects the burn BOTH endpoints 404. The poller must treat that as
+  // "still awaiting guardians" and keep polling, never throw or surface
+  // poll_error.
+  const mock = mockWarpFetch({ statusOk: false, statusBody: { error: "not found" } });
+  try {
+    const stages = [];
+    const res = await pollWarpStatus(POLL_SIG, {
+      from: "x1", intervalMs: 5, maxMs: 60,
+      onUpdate: (s, d) => stages.push([s, d]),
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.timedOut, true);
+    const awaiting = stages.filter(([s]) => s === "awaiting_guardians");
+    assert.ok(awaiting.length >= 2, `awaiting_guardians fired for both endpoints: ${JSON.stringify(stages)}`);
+    assert.ok(!stages.some(([s]) => s === "poll_error"), "404 must not surface as poll_error");
   } finally { mock.restore(); }
 });
 

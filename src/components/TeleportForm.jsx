@@ -146,14 +146,14 @@ export async function defaultReverseStage2Runner({ solAdapter, evmAddress, to, t
 
 /**
  * The real REVERSE release poller: after the X1 burn is broadcast, the Warp
- * guardians release USDC on Solana. Polls the Warp status API (from=x1) and
- * reports progress via onUpdate; resolves { ok, destinationTx } when the
- * release is confirmed. Default for the form; tests inject a fake.
+ * guardians release USDC on Solana. Polls the app's OWN serverless proxy
+ * (/api/warp/* — same-origin, deterministic; fix/proxy-warp-poll) with
+ * from=x1 and reports progress via onUpdate; resolves { ok, destinationTx }
+ * when the release is confirmed. Default for the form; tests inject a fake.
  */
 export async function defaultReleasePoller(sig, { onUpdate = () => {} } = {}) {
-  const { pollWarpStatus, WARP_API } = await import("../warpBridge.js");
+  const { pollWarpStatus } = await import("../warpBridge.js");
   return pollWarpStatus(sig, {
-    api: WARP_API.mainnet,
     from: "x1", // reverse direction: source chain is X1
     maxMs: 300_000,
     onUpdate,
