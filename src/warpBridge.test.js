@@ -34,8 +34,16 @@ import {
   WARP_PROGRAM_ID,
   USDC_MINT,
   pollWarpStatus,
+  X1_WSOLX_MINT,
+  WSOL_MINT,
+  X1_WSOLX_FEE_ACCOUNT,
+  X1_REVERSE_TOKENS,
+  X1_FORWARD_TOKENS,
+  toBaseUnits,
+  fromBaseUnits,
+  deriveVaultAccounts,
 } from "./warpBridge.js";
-import { TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { SimulationError } from "./lib/simulateTx.js";
 import { FEE_RATES } from "./lib/fees.ts";
 
@@ -1056,4 +1064,274 @@ test("pollWarpStatus: a pending status does NOT complete early — keeps polling
     assert.equal(res.ok, false);
     assert.equal(res.timedOut, true);
   } finally { mock.restore(); }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  WSOL / wSOL.X — the SOL rail (feat/wsol-path). Ground truth: live Warp
+//  config (api.bridge.mainnet.x1.xyz/config, Sep 2026): wSOL.X is a WRAPPED
+//  Token-2022 mint on X1 (JDqX4…, 9 dec, flat 0, 25 bps pct fee,
+//  feeCollectorAta 9Tdid7tM…) and WSOL is NATIVE on Solana (So111…, 9 dec,
+//  same 25 bps, feeCollectorAta GxfLqezi…). Verified against live mainnet
+//  wSOL.X burns: the X1 bridge_out is the SAME 12-account shape as the USDC.x
+//  burn (program-self in the optional vault slots — NO mint_authority account;
+//  that PDA belongs to the RECEIVE-side bridge_in_v2). The account-spec
+//  correction (mint_authority NOT in bridge_out) was verified against the
+//  current program's IDL + a live wSOL.X burn tx (5rUiHoLE12L5…: gross 0.11
+//  wSOL.X → 0.000275 fee = exactly 25 bps → net release 0.109725).
+// ════════════════════════════════════════════════════════════════════════════
+
+// wSOL.X-aware X1 connection mock (mirrors mockX1Connection, mint-swapped).
+function mockX1ConnectionWsol({ userPubkey = USER, feePayerExists = true, feeAtaExists = false, simOk = true, wsolBalance = 1_000_000_000_000n, wsolBalanceExists = true } = {}) {
+  const calls = [];
+  const connection = {
+    calls,
+    async getAccountInfo(pk) {
+      calls.push("getAccountInfo");
+      if (pk.equals(userPubkey)) return feePayerExists ? { lamports: 5_000_000 } : null;
+      const userAta = getAssociatedTokenAddressSync(X1_WSOLX_MINT, userPubkey, true, TOKEN_2022_PROGRAM_ID);
+      if (pk.equals(userAta)) return wsolBalanceExists ? { lamports: 2_039_280 } : null;
+      const feeAta = getAssociatedTokenAddressSync(X1_WSOLX_MINT, FEE_WALLET, true, TOKEN_2022_PROGRAM_ID);
+      if (pk.equals(feeAta)) return feeAtaExists ? { lamports: 2_039_280 } : null;
+      return null;
+    },
+    async getTokenAccountBalance(pk) {
+      calls.push("getTokenAccountBalance");
+      const userAta = getAssociatedTokenAddressSync(X1_WSOLX_MINT, userPubkey, true, TOKEN_2022_PROGRAM_ID);
+      if (!pk.equals(userAta)) throw new Error("mock: unexpected token account");
+      if (!wsolBalanceExists) throw new Error("AccountNotFound");
+      return { value: { amount: String(wsolBalance), decimals: 9, uiAmount: Number(wsolBalance) / 1e9 } };
+    },
+    async getSlot() { calls.push("getSlot"); return 123_456_789; },
+    async getLatestBlockhash() { calls.push("getLatestBlockhash"); return { blockhash: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", lastValidBlockHeight: 99 }; },
+    async simulateTransaction() {
+      calls.push("simulateTransaction");
+      return simOk ? { value: { err: null, logs: ["Program log: Instruction: BridgeOut"], unitsConsumed: 12345 } } : { value: { err: { InstructionError: [0, "Custom"] }, logs: ["Program log: Error: insufficient funds"] } };
+    },
+    async sendRawTransaction() { calls.push("sendRawTransaction"); return "x1-wsol-burn-sig"; },
+    async confirmTransaction() { calls.push("confirmTransaction"); return { value: { err: null } }; },
+  };
+  return connection;
+}
+
+test("wSOL.X burn: buildReverseBurn uses 9-dec amounts + the wSOL.X mint/registry/ATA/fee account (mint_authority NOT in bridge_out — verified against live wSOL.X burns + the current IDL)", async () => {
+  const built = await buildReverseBurn({
+    connection: mockBuildConnection(),
+    userPubkey: USER,
+    amountHuman: 25, // 25 wSOL.X (9 decimals)
+    mint: X1_WSOLX_MINT,
+    decimals: 9,
+    feeAccount: X1_WSOLX_FEE_ACCOUNT,
+  });
+  const ix = built.transaction.instructions.find((i) => i.programId.equals(WARP_PROGRAM_ID));
+  assert.ok(ix, "bridge_out instruction present");
+  assert.equal(ix.keys.length, 12, "wSOL.X burn = the SAME 12-account shape as USDC.x (verified on-chain)");
+
+  const userWsolxAta = getAssociatedTokenAddressSync(X1_WSOLX_MINT, USER, true, TOKEN_2022_PROGRAM_ID);
+  const enc = (s) => new TextEncoder().encode(s);
+  const u64le = (v) => { const b = new Uint8Array(8); let n = BigInt(v); for (let i = 0; i < 8; i++) { b[i] = Number(n & 0xffn); n >>= 8n; } return b; };
+  const [config] = PublicKey.findProgramAddressSync([enc("config")], WARP_PROGRAM_ID);
+  const [tokenRegistry] = PublicKey.findProgramAddressSync([enc("token_registry"), X1_WSOLX_MINT.toBytes()], WARP_PROGRAM_ID);
+  const [outgoingMsg] = PublicKey.findProgramAddressSync([enc("evt_out"), u64le(built.seq)], WARP_PROGRAM_ID);
+
+  const expected = [
+    config,                    // 0 config
+    tokenRegistry,             // 1 token_registry (wSOL.X registry PDA)
+    outgoingMsg,               // 2 outgoing_msg
+    USER,                      // 3 sender (signer)
+    userWsolxAta,              // 4 user's wSOL.X ATA (Token-2022 burn source)
+    X1_WSOLX_MINT,             // 5 wSOL.X mint (burned)
+    WARP_PROGRAM_ID,           // 6 program self (optional vault slot — Anchor fills nulls with the program ID)
+    WARP_PROGRAM_ID,           // 7 program self (optional vault_token_account slot)
+    new PublicKey("7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2Jig7j"), // 8 fee collector wallet
+    X1_WSOLX_FEE_ACCOUNT,      // 9 wSOL.X fee collector ATA (9Tdid7tM… — live config)
+    TOKEN_2022_PROGRAM_ID,     // 10 Token-2022 program (wSOL.X is Token-2022)
+    SystemProgram.programId,   // 11 system program
+  ];
+  for (let i = 0; i < 12; i++) {
+    const key = ix.keys[i];
+    assert.ok(key.pubkey.equals(expected[i]), `slot ${i}: expected ${expected[i].toBase58()}, got ${key.pubkey.toBase58()}`);
+  }
+  assert.ok(!ix.keys.some((k) => k.pubkey.toBase58().startsWith("GiTfQ")), "NO mint_authority PDA in bridge_out (that PDA belongs to bridge_in_v2, the receive side)");
+
+  // 9-dec amount math: 25 wSOL.X = 25_000_000_000 base units.
+  const amountLE = ix.data.slice(16, 24);
+  let amt = 0n; for (let i = 7; i >= 0; i--) amt = (amt << 8n) | BigInt(amountLE[i]);
+  assert.equal(amt, 25_000_000_000n, "burn amount = 25 wSOL.X in 9-dec base units");
+  assert.equal(ix.data.length, 24, "disc + seq + amount");
+  assert.deepEqual([...ix.data.slice(0, 8)], [27, 194, 57, 119, 215, 165, 247, 150], "current program's BridgeOut discriminator");
+});
+
+test("toBaseUnits/fromBaseUnits: token-aware decimals — 9 for wSOL.X/WSOL, 6 for USDC.x/USDC", () => {
+  assert.equal(toBaseUnits(25, 9), 25_000_000_000n, "25 wSOL.X → 9-dec base");
+  assert.equal(toBaseUnits(25, 6), 25_000_000n, "25 USDC.x → 6-dec base");
+  assert.equal(toBaseUnits(25), 25_000_000n, "default stays 6-dec (back-compat)");
+  assert.equal(fromBaseUnits(25_000_000_000n, 9), 25, "9-dec base → 25 human");
+  assert.equal(fromBaseUnits(25_000_000n, 6), 25, "6-dec base → 25 human");
+  assert.equal(fromBaseUnits(25_000_000n), 25, "default stays 6-dec");
+});
+
+test("ensureX1FeeWalletAta: builds an idempotent wSOL.X ATA create for the fee wallet (payer = user) when missing", async () => {
+  const conn = mockX1ConnectionWsol({ feeAtaExists: false });
+  const res = await ensureX1FeeWalletAta({
+    connection: conn, userPubkey: USER, feeWallet: FEE_WALLET, payer: USER,
+    mint: X1_WSOLX_MINT, decimals: 9,
+  });
+  assert.equal(res.needsCreation, true);
+  assert.ok(res.instruction, "bundled create instruction returned");
+  const expectedAta = getAssociatedTokenAddressSync(X1_WSOLX_MINT, FEE_WALLET, true, TOKEN_2022_PROGRAM_ID);
+  assert.ok(res.ata.equals(expectedAta), "fee wallet's wSOL.X ATA");
+  const createIx = res.instruction;
+  assert.ok(createIx.keys.some((k) => k.pubkey.equals(expectedAta)), "create targets the fee wallet's wSOL.X ATA");
+  assert.ok(createIx.keys.some((k) => k.pubkey.equals(FEE_WALLET)), "owner = the fee wallet");
+  assert.ok(createIx.keys.some((k) => k.pubkey.equals(X1_WSOLX_MINT)), "mint = wSOL.X");
+});
+
+test("ensureX1FeeWalletAta: no-op when the fee wallet's wSOL.X ATA already exists", async () => {
+  const conn = mockX1ConnectionWsol({ feeAtaExists: true });
+  const res = await ensureX1FeeWalletAta({
+    connection: conn, userPubkey: USER, feeWallet: FEE_WALLET, payer: USER,
+    mint: X1_WSOLX_MINT, decimals: 9,
+  });
+  assert.equal(res.needsCreation, false);
+});
+
+test("runReverse (wSOL.X, sim mode): bundled fee-ATA create → 9-dec skim transfer → burn in ONE tx; WARP_LIVE_SEND gate holds (nothing broadcast)", async () => {
+  const conn = mockX1ConnectionWsol({ feeAtaExists: false, wsolBalance: 5_000_000_000_000n }); // 5000 wSOL.X
+  const wallet = {
+    publicKey: USER,
+    calls: [],
+    async signTransaction(tx) { this.calls.push({ method: "signTransaction" }); return tx; },
+    async signAndSendTransaction() { this.calls.push({ method: "signAndSendTransaction" }); return "sig"; },
+  };
+  const res = await runReverse({
+    connection: conn, userPubkey: USER,
+    amountHuman: 99, // burn gross (post-skim)
+    feeAmount: 1,    // 1% skim of a 100 wSOL.X gross, in wSOL.X
+    feeWallet: FEE_WALLET,
+    allowLive: false, // the WARP_LIVE_SEND gate — must hold
+    provider: wallet,
+    token: "wSOL.X",
+  });
+  assert.equal(res.stage, "simulated_ok", "simulated only — live sends are OFF");
+  assert.equal(res.success, true);
+  assert.equal(wallet.calls.length, 0, "wallet never asked to sign in sim mode");
+
+  const ixs = res.built.transaction.instructions;
+  const burnIx = ixs.find((i) => i.programId.equals(WARP_PROGRAM_ID));
+  assert.ok(burnIx, "bridge_out present");
+  // create → skim transfer → burn (3 instructions: the create + transfer + bridge_out).
+  assert.equal(ixs.length, 3, "create (fee ATA) + skim transfer + burn in ONE tx");
+  const transferIx = ixs[1];
+  assert.ok(transferIx.keys.some((k) => k.pubkey.equals(
+    getAssociatedTokenAddressSync(X1_WSOLX_MINT, FEE_WALLET, true, TOKEN_2022_PROGRAM_ID),
+  )), "skim transfer targets the fee wallet's wSOL.X ATA");
+  const amountLE = burnIx.data.slice(16, 24);
+  let amt = 0n; for (let i = 7; i >= 0; i--) amt = (amt << 8n) | BigInt(amountLE[i]);
+  assert.equal(amt, 99_000_000_000n, "burn amount = 99 wSOL.X in 9-dec base units");
+});
+
+test("runReverse (wSOL.X, live mode): ONE guarded send through the X1 connection when WARP_LIVE_SEND allows", async () => {
+  const userKp = Keypair.generate();
+  const conn = mockX1ConnectionWsol({ userPubkey: userKp.publicKey, feeAtaExists: true, wsolBalance: 5_000_000_000_000n });
+  const wallet = mockWallet({ keypairs: [userKp] });
+  const res = await runReverse({
+    connection: conn, userPubkey: userKp.publicKey,
+    amountHuman: 99,
+    feeAmount: 1,
+    feeWallet: FEE_WALLET,
+    allowLive: true, // armed
+    provider: wallet,
+    token: "wSOL.X",
+  });
+  assert.equal(res.stage, "sent", "live burn broadcast");
+  assert.equal(res.signature, "x1-wsol-burn-sig");
+  assert.ok(wallet.calls.some((c) => c.method === "signTransaction"), "wallet signed via signTransaction");
+  assert.ok(conn.calls.includes("simulateTransaction"), "fail-closed sim ran before the send");
+  assert.ok(conn.calls.includes("sendRawTransaction"), "broadcast through the X1 connection");
+  assert.equal(conn.calls.filter((c) => c === "sendRawTransaction").length, 1, "single broadcast");
+  // The burn amount stays 9-dec: 99 wSOL.X = 99_000_000_000 base.
+  const burn = res.built.transaction.instructions.find((i) => i.programId.equals(WARP_PROGRAM_ID));
+  let amt = 0n; const amountLE = burn.data.slice(16, 24);
+  for (let i = 7; i >= 0; i--) amt = (amt << 8n) | BigInt(amountLE[i]);
+  assert.equal(amt, 99_000_000_000n, "burn amount in 9-dec wSOL.X base units");
+});
+
+test("buildStage2 (destToken=wSOL.X): WSOL source mint, per-mint vault PDAs, GxfLqezi fee account, 9-dec skim, bundled fee-ATA create when the fee wallet's WSOL ATA is missing", async () => {
+  // A connection that reports the fee wallet's WSOL ATA as MISSING (verified on
+  // mainnet: Ewi8CcePvnomV87z5pUpasVbhKBn4Xh61rMnbY4KP8Hf does not exist).
+  const feeWsolAta = getAssociatedTokenAddressSync(WSOL_MINT, FEE_WALLET);
+  const conn = {
+    async getSlot() { return 123_456_789; },
+    async getLatestBlockhash() { return { blockhash: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", lastValidBlockHeight: 99 }; },
+    async getAccountInfo(pk) {
+      if (pk.equals(feeWsolAta)) return null; // fee wallet's WSOL ATA missing
+      return { lamports: 10_000_000 };
+    },
+  };
+  const built = await buildStage2({
+    connection: conn,
+    userPubkey: USER,
+    feeWalletSvm: FEE_WALLET,
+    amountHuman: 25, // 25 WSOL (9 decimals)
+    destToken: "wSOL.X",
+  });
+  const ixs = built.transaction.instructions;
+  // compute budget + fee-ATA create + skim transfer + bridge_out
+  assert.equal(ixs.length, 4, "compute budget + fee-ATA create + skim transfer + bridge_out");
+  const createIx = ixs[1];
+  assert.ok(createIx.keys.some((k) => k.pubkey.equals(feeWsolAta)), "idempotent create for the fee wallet's WSOL ATA bundled first");
+  assert.equal(built.feeAtaCreated, true, "fee ATA create was bundled");
+
+  const burnIx = ixs.find((i) => i.programId.equals(WARP_PROGRAM_ID));
+  assert.ok(burnIx, "bridge_out present");
+  const enc = (s) => new TextEncoder().encode(s);
+  const [vault] = PublicKey.findProgramAddressSync([enc("vault"), WSOL_MINT.toBytes()], WARP_PROGRAM_ID);
+  const vaultAta = getAssociatedTokenAddressSync(WSOL_MINT, vault, true, TOKEN_PROGRAM_ID);
+  const userWsolAta = getAssociatedTokenAddressSync(WSOL_MINT, USER);
+  const expected = [
+    WARP_ACCOUNTS.config,
+    WARP_ACCOUNTS.tokenRegistry,
+    built.outgoing_msg,
+    USER,
+    userWsolAta,
+    WSOL_MINT,                                   // source mint = WSOL (native, spl-token v1)
+    vault,                                       // vault PDA ["vault", WSOL] (9ZFmvmJk… on mainnet)
+    vaultAta,                                    // vault WSOL token account
+    WARP_ACCOUNTS.feePda,
+    new PublicKey("GxfLqeziL8wrUF31H1thWVAHkqzPodoqbwZeoDTRAkyU"), // Solana wSOL fee collector ATA (live config)
+    TOKEN_PROGRAM_ID,                            // spl-token v1 (WSOL is native)
+    SystemProgram.programId,
+  ];
+  for (let i = 0; i < 12; i++) {
+    assert.ok(burnIx.keys[i].pubkey.equals(expected[i]), `slot ${i}: expected ${expected[i].toBase58()}, got ${burnIx.keys[i].pubkey.toBase58()}`);
+  }
+  // 9-dec skim math: 25 WSOL gross → 0.25 skim → 24.75 bridge amount.
+  const amountLE = burnIx.data.slice(16, 24);
+  let amt = 0n; for (let i = 7; i >= 0; i--) amt = (amt << 8n) | BigInt(amountLE[i]);
+  assert.equal(amt, 24_750_000_000n, "bridge amount = 24.75 WSOL (25 − 1% skim) in 9-dec base");
+});
+
+test("deriveVaultAccounts: WSOL vault derivation matches the live mainnet PDA (9ZFmvmJk…) and the USDC derivation equals WARP_ACCOUNTS.vault", () => {
+  const { vault: wsolVault } = deriveVaultAccounts(WSOL_MINT, TOKEN_PROGRAM_ID);
+  assert.equal(wsolVault.toBase58(), "9ZFmvmJkSpSuesGfSXj5VftVSDQpPNpFzu1vFi3yYeTG", "WSOL vault PDA verified on Solana mainnet");
+  const { vault: usdcVault, vaultTokenAccount: usdcVaultAta } = deriveVaultAccounts(USDC_MINT, TOKEN_PROGRAM_ID);
+  assert.ok(usdcVault.equals(WARP_ACCOUNTS.vault), "USDC vault derivation = the known mainnet vault (C6byAvMf…)");
+  assert.ok(usdcVaultAta.equals(WARP_ACCOUNTS.vaultTokenAccount), "USDC vault ATA derivation = the known mainnet vault ATA (H3E5ywp…)");
+});
+
+test("X1_REVERSE_TOKENS / X1_FORWARD_TOKENS: ground-truth mints + fee accounts from the live Warp config", () => {
+  // Reverse (X1 → Solana) — the burn side.
+  assert.equal(X1_REVERSE_TOKENS["USDC.x"].mint.toBase58(), "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq");
+  assert.equal(X1_REVERSE_TOKENS["USDC.x"].decimals, 6);
+  assert.equal(X1_REVERSE_TOKENS["USDC.x"].feeAccount.toBase58(), "4uRFjqVU5ZKkp7hQLx3Lm3YeWFts17ER8a5HLUE18ayG");
+  assert.equal(X1_REVERSE_TOKENS["wSOL.X"].mint.toBase58(), "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8");
+  assert.equal(X1_REVERSE_TOKENS["wSOL.X"].decimals, 9);
+  assert.equal(X1_REVERSE_TOKENS["wSOL.X"].feeAccount.toBase58(), "9Tdid7tM1bKv8hMyiTDLfB2LhfCGoaBv5GoezQzW2VP9");
+  // Forward (Solana → X1) — the lock side.
+  assert.equal(X1_FORWARD_TOKENS["USDC.x"].sourceMint.toBase58(), "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+  assert.equal(X1_FORWARD_TOKENS["USDC.x"].destMint.toBase58(), "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq");
+  assert.equal(X1_FORWARD_TOKENS["wSOL.X"].sourceMint.toBase58(), "So11111111111111111111111111111111111111112");
+  assert.equal(X1_FORWARD_TOKENS["wSOL.X"].destMint.toBase58(), "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8");
+  assert.equal(X1_FORWARD_TOKENS["wSOL.X"].feeAccount.toBase58(), "GxfLqeziL8wrUF31H1thWVAHkqzPodoqbwZeoDTRAkyU");
+  assert.equal(X1_FORWARD_TOKENS["wSOL.X"].decimals, 9);
 });

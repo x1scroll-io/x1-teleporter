@@ -973,26 +973,30 @@ test("REVERSE stage-2 delivers the SELECTED destination token: the auto-fired Li
   }
 });
 
-test("X1 side stays USDC.x in BOTH directions — the burn mint is never user-selectable", () => {
+test("REVERSE token: USDC.x default, wSOL.X now offered (SOL rail) — change events switch the burn token", () => {
   const { container, unmount } = renderForm(FORM_PROPS());
   try {
-    // FORWARD: the destination is fixed to X1 · USDC.x.
-    const toSelect = container.querySelector('[data-testid="to-chain"]');
-    assert.equal(toSelect.value, "x1", "forward destination fixed to X1");
-    assert.match(toSelect.textContent, /USDC\.x/, "forward destination names USDC.x");
-    assert.equal(toSelect.textContent.includes("USDT"), false, "no USDT on the X1 side");
-    assert.equal(toSelect.textContent.includes("DAI"), false, "no DAI on the X1 side");
-
-    // REVERSE: the SOURCE is fixed to X1 · USDC.x and the token row is USDC.x.
     click(container.querySelector('[data-testid="dir-reverse"]'));
+    const tokenSelect = container.querySelector('[data-testid="token"]');
+    assert.ok(tokenSelect, "token picker present in reverse");
+    assert.equal(tokenSelect.value, "USDC.x", "reverse token defaults to USDC.x");
+    assert.equal(tokenSelect.getAttribute("aria-label"), "Token to burn on X1", "aria-label names the burn token");
+    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC.x", "wSOL.X"], "USDC.x + wSOL.X offered (both bridged by Warp)");
+    assert.equal(tokenSelect.textContent.includes("USDT"), false, "USDT not rendered");
+    assert.equal(tokenSelect.textContent.includes("DAI"), false, "DAI not rendered");
+
+    act(() => {
+      tokenSelect.value = "wSOL.X";
+      tokenSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(container.querySelector('[data-testid="token"]').value, "wSOL.X", "token switches to wSOL.X");
+
+    // The reverse FROM selector (the X1 leg) offers the same two bridged tokens.
     const fromSelect = container.querySelector('[data-testid="from-chain"]');
     assert.equal(fromSelect.value, "x1", "reverse source fixed to X1");
-    assert.match(fromSelect.textContent, /USDC\.x/, "reverse source names USDC.x");
+    assert.deepEqual(Array.from(container.querySelector('[data-testid="x1-token"]').options).map((o) => o.value), ["USDC.x", "wSOL.X"], "X1 source offers USDC.x + wSOL.X");
     assert.equal(fromSelect.textContent.includes("USDT"), false, "no USDT on the X1 source");
     assert.equal(fromSelect.textContent.includes("DAI"), false, "no DAI on the X1 source");
-    const tokenSelect = container.querySelector('[data-testid="token"]');
-    assert.equal(tokenSelect.value, "USDC.x", "reverse token row fixed to USDC.x");
-    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC.x"], "only USDC.x offered on the X1 side");
     // The stablecoin CHOICE lives on the destination side — never the X1 side.
     assert.ok(container.querySelector('[data-testid="to-token"]'), "destination token selector present in reverse");
   } finally {

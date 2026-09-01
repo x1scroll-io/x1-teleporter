@@ -169,11 +169,11 @@ export function deriveOutgoingMsgPda(seq) {
   return pda;
 }
 
-export function toBaseUnits(humanUsdc) {
-  return BigInt(Math.round(Number(humanUsdc) * 10 ** USDC_DECIMALS));
+export function toBaseUnits(humanUsdc, decimals = USDC_DECIMALS) {
+  return BigInt(Math.round(Number(humanUsdc) * 10 ** decimals));
 }
-export function fromBaseUnits(base) {
-  return Number(base) / 10 ** USDC_DECIMALS;
+export function fromBaseUnits(base, decimals = USDC_DECIMALS) {
+  return Number(base) / 10 ** decimals;
 }
 
 function encodeBridgeOutData(seq, amountGross) {
@@ -348,18 +348,32 @@ export function deriveX1UsdcxAta(userPubkey) {
   );
 }
 
-export async function ensureX1RecipientAta({ connection, userPubkey, payer = null }) {
+export function deriveX1WsolxAta(userPubkey) {
+  return getAssociatedTokenAddressSync(
+    X1_WSOLX_MINT, userPubkey, true, TOKEN_2022_PROGRAM_ID,
+  );
+}
+
+/** Derive the X1 recipient ATA for a bridged-in token (USDC.x or wSOL.X). */
+export function deriveX1TokenAta(userPubkey, mint = X1_USDCX_MINT) {
+  const mintPk = mint instanceof PublicKey ? mint : new PublicKey(mint);
+  return getAssociatedTokenAddressSync(mintPk, userPubkey, true, TOKEN_2022_PROGRAM_ID);
+}
+
+export async function ensureX1RecipientAta({ connection, userPubkey, payer = null, mint = X1_USDCX_MINT }) {
   if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
   if (payer && !(payer instanceof PublicKey)) payer = new PublicKey(payer);
   const payerPk = payer || userPubkey; // the connected wallet pays rent + signs
-  const ata = deriveX1UsdcxAta(userPubkey);
+  const mintPk = mint instanceof PublicKey ? mint : new PublicKey(mint);
+  const sym = mintPk.equals(X1_WSOLX_MINT) ? "wSOL.X" : "USDC.x";
+  const ata = deriveX1TokenAta(userPubkey, mintPk);
 
   let info = null;
   try {
     info = await connection.getAccountInfo(ata);
   } catch (e) {
     throw new Error(
-      `Could not check your X1 USDC.x account (${ata.toBase58()}): ${e?.message || e}. ` +
+      `Could not check your X1 ${sym} account (${ata.toBase58()}): ${e?.message || e}. ` +
       `Retry when the X1 RPC is reachable.`,
     );
   }
@@ -368,14 +382,14 @@ export async function ensureX1RecipientAta({ connection, userPubkey, payer = nul
   // Idempotent create — plain create would throw "account already exists" if a
   // retry fires after the ATA got made (trading AccountNotFound for
   // AccountAlreadyExists). Payer = the user's connected wallet (its adapter
-  // signs); the ATA is owned by the user, mint = USDC.x (Token-2022).
+  // signs); the ATA is owned by the user, mint = USDC.x / wSOL.X (Token-2022).
   const tx = new Transaction();
   tx.add(
     createAssociatedTokenAccountIdempotentInstruction(
       payerPk, // payer (rent + fee)
       ata,     // associated token account to create/ensure
       userPubkey, // owner
-      X1_USDCX_MINT, // mint (USDC.x, Token-2022)
+      mintPk,  // mint (USDC.x / wSOL.X, Token-2022)
       TOKEN_2022_PROGRAM_ID, // token program
     ),
   );
@@ -432,42 +446,73 @@ export async function sendX1AtaCreation(connection, transaction, provider) {
 }
 
 // Build the full Stage-2 transaction
+// destToken = the X1 destination token ("USDC.x" | "wSOL.X") — drives the
+// Solana-side SOURCE mint (USDC | WSOL), the decimals (6 | 9), the Warp fee
+// collector ATA (per-token, live config) and the vault PDAs (native path).
 export async function buildStage2({
   connection,
   userPubkey,
   feeWalletSvm,
   amountHuman,
   seq,
+  destToken = "USDC.x",
 }) {
   if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
   if (!(feeWalletSvm instanceof PublicKey)) feeWalletSvm = new PublicKey(feeWalletSvm);
 
-  const grossAll = toBaseUnits(amountHuman);
+  const fwd = X1_FORWARD_TOKENS[destToken] || X1_FORWARD_TOKENS["USDC.x"];
+  const { sourceMint, decimals, feeAccount, minBase } = fwd;
+
+  const grossAll = toBaseUnits(amountHuman, decimals);
   const skimBase = (grossAll * SKIM_BPS) / 10_000n;
   const bridgeBase = grossAll - skimBase;
 
-  if (bridgeBase < 10n * ONE_USDC) {
+  if (bridgeBase < minBase) {
     throw new Error(
-      `After 1% skim, ${fromBaseUnits(bridgeBase)} USDC is below Warp's $10 minimum.`
+      `After 1% skim, ${fromBaseUnits(bridgeBase, decimals)} ${destToken === "wSOL.X" ? "WSOL" : "USDC"} is below the Warp minimum.`
     );
   }
 
-  const userUsdcAta = await getAssociatedTokenAddress(USDC_MINT, userPubkey);
-  const feeUsdcAta = await getAssociatedTokenAddress(USDC_MINT, feeWalletSvm);
+  const userTokenAta = await getAssociatedTokenAddress(sourceMint, userPubkey);
+  const feeTokenAta = await getAssociatedTokenAddress(sourceMint, feeWalletSvm);
 
   const theSeq = seq ?? (await fetchSeq(connection));
   const outgoingMsgPda = deriveOutgoingMsgPda(theSeq);
+  // Vault path (native tokens — both USDC and WSOL are native/locked on
+  // Solana). The WSOL vault PDA 9ZFmvmJk… exists on mainnet; the USDC vault
+  // derivation must equal WARP_ACCOUNTS.vault (asserted in tests).
+  const { vault, vaultTokenAccount } = deriveVaultAccounts(sourceMint, TOKEN_PROGRAM_ID);
 
   const tx = new Transaction();
 
   // 1) Compute budget
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 60_000 }));
 
-  // 2) Our 1% skim
+  // 2) Our 1% skim — the fee wallet's SOURCE-token ATA must exist. USDC's
+  //    exists (long-lived fee wallet); WSOL's does NOT yet (verified on
+  //    mainnet) — bundle the idempotent create FIRST when missing so the
+  //    forward leg never dead-ends on a missing fee ATA (the same-chain
+  //    analog of the reverse leg's ensureX1FeeWalletAta bundling).
+  let feeAtaCreated = false;
+  try {
+    const feeAtaInfo = await connection.getAccountInfo(feeTokenAta);
+    if (!feeAtaInfo) {
+      tx.add(
+        createAssociatedTokenAccountIdempotentInstruction(
+          userPubkey,   // payer (rent + fee — the user)
+          feeTokenAta,  // the fee wallet's source-token ATA
+          feeWalletSvm, // owner = the fee wallet
+          sourceMint,
+          TOKEN_PROGRAM_ID,
+        ),
+      );
+      feeAtaCreated = true;
+    }
+  } catch { /* RPC hiccup — the transfer will surface it; never block on this */ }
   tx.add(
     createTransferInstruction(
-      userUsdcAta,
-      feeUsdcAta,
+      userTokenAta,
+      feeTokenAta,
       userPubkey,
       skimBase,
       [],
@@ -488,12 +533,12 @@ export async function buildStage2({
     token_registry: WARP_ACCOUNTS.tokenRegistry,
     outgoing_msg: outgoingMsgPda,
     sender: userPubkey,
-    sender_token_account: userUsdcAta,
-    token_mint: USDC_MINT,
-    vault: WARP_ACCOUNTS.vault,
-    vault_token_account: WARP_ACCOUNTS.vaultTokenAccount,
+    sender_token_account: userTokenAta,
+    token_mint: sourceMint,
+    vault,
+    vault_token_account: vaultTokenAccount,
     fee_collector: WARP_ACCOUNTS.feePda,
-    fee_collector_token_account: WARP_ACCOUNTS.feeCollectorAta,
+    fee_collector_token_account: feeAccount, // per-token (6ob9XW… USDC / GxfLqezi… WSOL)
     token_program: TOKEN_PROGRAM_ID,
     system_program: SystemProgram.programId,
   };
@@ -517,7 +562,7 @@ export async function buildStage2({
   const { blockhash } = await connection.getLatestBlockhash("confirmed");
   tx.recentBlockhash = blockhash;
 
-  return { transaction: tx, skimBase, bridgeBase, seq: theSeq, outgoing_msg: outgoingMsgPda };
+  return { transaction: tx, skimBase, bridgeBase, seq: theSeq, outgoing_msg: outgoingMsgPda, destToken, feeAtaCreated };
 }
 
 // Simulation gate for Stage 2 (Step 1.3A). Delegates to src/lib/simulateTx.js
@@ -589,6 +634,7 @@ export async function runStage2({
   provider = null,
   x1Connection = null, // X1 RPC — enables the recipient-ATA prep (Warp v2 spec step 1)
   createX1Ata = true,
+  destToken = "USDC.x", // the X1 destination token ("USDC.x" | "wSOL.X")
 }) {
   // 0) Fee-payer preflight (Solana): the bare `AccountNotFound` from the live
   //    hop was the fee payer missing on Solana — surface it as an actionable
@@ -596,16 +642,19 @@ export async function runStage2({
   await assertSolanaFeePayer(connection, userPubkey);
 
   // 1) X1 destination prep: bridge_in_v2 (guardians) requires the recipient's
-  //    USDC.x ATA to already exist on X1. Create it idempotently via the
-  //    connected wallet (payer = user) BEFORE the Solana leg locks funds.
-  //    allowLive:false still SIMULATES the ATA tx (fail-closed) but broadcasts
-  //    nothing — same no-touch promise as the Solana leg.
+  //    token ATA (USDC.x or wSOL.X — both Token-2022) to already exist on X1.
+  //    Create it idempotently via the connected wallet (payer = user) BEFORE
+  //    the Solana leg locks funds. allowLive:false still SIMULATES the ATA tx
+  //    (fail-closed) but broadcasts nothing — same no-touch promise as the
+  //    Solana leg.
+  const fwd = X1_FORWARD_TOKENS[destToken] || X1_FORWARD_TOKENS["USDC.x"];
   let prep = null;
   if (x1Connection && createX1Ata) {
     prep = await ensureX1RecipientAta({
       connection: x1Connection,
       userPubkey,
       payer: userPubkey, // the user's connected wallet pays rent + signs
+      mint: fwd.destMint, // USDC.x / wSOL.X recipient ATA
     });
     if (prep.needsCreation) {
       if (allowLive) {
@@ -625,6 +674,7 @@ export async function runStage2({
     userPubkey,
     feeWalletSvm,
     amountHuman,
+    destToken,
   });
   const sim = await simulateStage2(connection, built.transaction);
   if (!sim.ok) {
@@ -647,6 +697,88 @@ export async function runStage2({
 // ════════════════════════════════════════════════════════════════════════════
 export const X1_USDCX_MINT = new PublicKey("B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq");
 const X1_FEE_COLLECTOR = new PublicKey("7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2Jig7j");
+
+// ── WSOL / wSOL.X — the SOL rail (ground truth: live Warp config
+//    https://api.bridge.mainnet.x1.xyz/config, Sep 2026) ──
+// X1-side wSOL.X: wrapped (isNative=false), 9 decimals, Token-2022 mint,
+//   flat fee 0, percentageFeeBps 25 (0.25%), feeCollectorAta 9Tdid7tM….
+// Solana-side WSOL (So111…): native (isNative=true), 9 decimals, spl-token
+//   v1 mint, same 25 bps fee, feeCollectorAta GxfLqezi…. The X1 burn and the
+//   Solana lock BOTH charge the pct fee (verified on-chain: a live wSOL.X
+//   burn debited 0.11 wSOL.X gross → 0.000275 to the fee collector = exactly
+//   25 bps of the gross, net release 0.109725).
+export const WSOL_MINT = new PublicKey("So11111111111111111111111111111111111111112"); // Solana native wSOL (spl-token v1)
+export const X1_WSOLX_MINT = new PublicKey("JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8"); // X1 wrapped wSOL.X (Token-2022)
+// Warp fee-collector token accounts (per-token, from the live config):
+export const X1_WSOLX_FEE_ACCOUNT = new PublicKey("9Tdid7tM1bKv8hMyiTDLfB2LhfCGoaBv5GoezQzW2VP9"); // X1 wSOL.X fee collector ATA
+const SOL_WSOL_FEE_ACCOUNT = new PublicKey("GxfLqeziL8wrUF31H1thWVAHkqzPodoqbwZeoDTRAkyU"); // Solana wSOL fee collector ATA
+
+/** Warp's per-token fee on the X1 side (bridge_out burn) — from the LIVE
+ *  Warp config token registry. USDC.x: flat $1 (1_000_000 base, 6 dec).
+ *  wSOL.X: percentage 25 bps of the bridge gross, flat 0. The program carves
+ *  the fee OUT of the gross inside bridge_out (verified on-chain). */
+export const X1_WARP_FEES = {
+  "USDC.x": { kind: "flat", amountBase: 1_000_000n, decimals: 6 },
+  "wSOL.X": { kind: "pct", bps: 25, decimals: 9 },
+};
+
+/** Warp's per-token fee on the SOLANA side (bridge_out lock) — same config. */
+export const SOL_WARP_FEES = {
+  USDC: { kind: "flat", amountBase: 1_000_000n, decimals: 6 },
+  WSOL: { kind: "pct", bps: 25, decimals: 9 },
+};
+
+/** The reverse (X1→Sol) token map — which mint/decimals/fee account each
+ *  bridged X1 token burns against. wSOL.X is WRAPPED on X1 (isNative=false):
+ *  bridge_out BURNS it (Token-2022) exactly like USDC.x — the account spec is
+ *  IDENTICAL (config, token_registry PDA, outgoing_msg, sender, sender ATA,
+ *  mint, program, program, fee_collector, fee_collector_ata, token_program,
+ *  system_program); only the mint, the registry PDA seed, the sender ATA and
+ *  the fee-collector ATA change. Verified against live mainnet wSOL.X burns
+ *  (12-account BridgeOut, Token-2022, fee 25bps) + the current program's IDL
+ *  (bridge_out has NO mint_authority account — the mint_authority PDA belongs
+ *  to bridge_in_v2, the RECEIVE side, where guardians mint wrapped tokens).
+ *  The Anchor client fills the optional vault slots with the program ID when
+ *  the token is wrapped (accounts 6+7 = the program itself, exactly as the
+ *  USDC.x burn tx the code was built from). */
+export const X1_REVERSE_TOKENS = {
+  "USDC.x": { mint: X1_USDCX_MINT, decimals: 6, feeAccount: new PublicKey("4uRFjqVU5ZKkp7hQLx3Lm3YeWFts17ER8a5HLUE18ayG") },
+  "wSOL.X": { mint: X1_WSOLX_MINT, decimals: 9, feeAccount: X1_WSOLX_FEE_ACCOUNT },
+};
+
+/** The forward (Sol→X1) token map — the Solana-side SOURCE token (locked by
+ *  bridge_out) and its X1-side wrapped twin (minted by the guardians). Both
+ *  are native/locked on Solana (vault path), so the bridge_out account spec
+ *  is the vault variant; the token program is spl-token v1 for both. */
+export const X1_FORWARD_TOKENS = {
+  "USDC.x": {
+    sourceMint: USDC_MINT,
+    destMint: X1_USDCX_MINT,
+    decimals: 6,
+    feeAccount: WARP_ACCOUNTS.feeCollectorAta, // 6ob9XW… (live USDC lock tx)
+    minBase: 10n * ONE_USDC, // Warp's $10 floor in USDC base units
+  },
+  "wSOL.X": {
+    sourceMint: WSOL_MINT,
+    destMint: X1_WSOLX_MINT,
+    decimals: 9,
+    feeAccount: SOL_WSOL_FEE_ACCOUNT, // GxfLqezi… (live config)
+    minBase: 100_000_000n, // config minAmount for wSOL (0.1 WSOL)
+  },
+};
+
+/** Derive the per-mint vault PDA + vault token account for a NATIVE source
+ *  token on the chain the bridge_out executes on (Solana). Verified: the
+ *  WSOL vault PDA 9ZFmvmJk… exists on Solana mainnet and the USDC vault
+ *  C6byAvMf… (WARP_ACCOUNTS.vault) is the same derivation for USDC. */
+export function deriveVaultAccounts(sourceMint, tokenProgramId) {
+  const enc = (s) => new TextEncoder().encode(s);
+  const [vault] = PublicKey.findProgramAddressSync(
+    [enc("vault"), new PublicKey(sourceMint).toBytes()], WARP_PROGRAM_ID);
+  const vaultTokenAccount = getAssociatedTokenAddressSync(
+    new PublicKey(sourceMint), vault, true, tokenProgramId);
+  return { vault, vaultTokenAccount };
+}
 
 // Minimum lamports an X1 fee payer needs before the reverse burn will even
 // simulate. X1 is SVM-compatible: same mechanics as Solana (rent-exempt for a
@@ -729,7 +861,45 @@ export class X1UsdcBalanceError extends Error {
   }
 }
 
+export async function assertX1TokenBalance(connection, userPubkey, { mint = X1_USDCX_MINT, decimals = 6, requiredHuman, sym = "USDC.x" }) {
+  if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
+  const mintPk = mint instanceof PublicKey ? mint : new PublicKey(mint);
+  const ata = getAssociatedTokenAddressSync(
+    mintPk, userPubkey, true, TOKEN_2022_PROGRAM_ID,
+  );
+  const requiredBase = BigInt(toBaseUnits(requiredHuman, decimals));
+  let available = 0n;
+  try {
+    const info = await connection.getAccountInfo(ata);
+    if (info) {
+      const bal = await connection.getTokenAccountBalance(ata);
+      available = BigInt(bal?.value?.amount || 0);
+    }
+  } catch (e) {
+    throw new X1UsdcBalanceError(
+      `Could not verify your X1 ${sym} balance (${ata.toBase58()}) before burning: ${e?.message || e}. ` +
+      `Retry when the X1 RPC is reachable.`, // fail-closed: cannot prove funds → do not build
+      { pubkey: userPubkey.toBase58() },
+    );
+  }
+  if (available < requiredBase) {
+    const need = fromBaseUnits(requiredBase, decimals);
+    const have = fromBaseUnits(available, decimals);
+    throw new X1UsdcBalanceError(
+      `Not enough ${sym} on X1 to bridge ${need.toFixed(2)} ${sym} — the burn needs the full amount ` +
+      `(1% fee transfer + Warp gross; Warp takes its fee out of the gross). Your X1 wallet ` +
+      `(${userPubkey.toBase58()}) holds ${have.toFixed(2)} ${sym}. ` +
+      `Top up ${(need - have).toFixed(2)} ${sym} or send a smaller amount. Your funds are safe.`,
+      { pubkey: userPubkey.toBase58(), available, required: requiredBase },
+    );
+  }
+  return { ok: true, available, required: requiredBase };
+}
+
 export async function assertX1UsdcBalance(connection, userPubkey, requiredBase) {
+  // Legacy wrapper: keeps the USDC.x-specific signature (base units) for the
+  // existing callers/tests; the token-aware path goes through
+  // assertX1TokenBalance (human units + per-token decimals).
   if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
   const ata = getAssociatedTokenAddressSync(
     X1_USDCX_MINT, userPubkey, true, TOKEN_2022_PROGRAM_ID,
@@ -774,13 +944,15 @@ export async function assertX1UsdcBalance(connection, userPubkey, requiredBase) 
 // dead-ends on a missing fee ATA — the same-chain analog of the forward leg's
 // separate recipient-ATA prep (ensureX1RecipientAta, different chain, so it
 // stays its own tx there).
-export async function ensureX1FeeWalletAta({ connection, userPubkey, feeWallet, payer = null }) {
+export async function ensureX1FeeWalletAta({ connection, userPubkey, feeWallet, payer = null, mint = X1_USDCX_MINT, decimals = 6 }) {
   if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
   if (!(feeWallet instanceof PublicKey)) feeWallet = new PublicKey(feeWallet);
   if (payer && !(payer instanceof PublicKey)) payer = new PublicKey(payer);
   const payerPk = payer || userPubkey; // the connected wallet pays rent + signs
+  const mintPk = mint instanceof PublicKey ? mint : new PublicKey(mint);
+  const sym = mintPk.equals(X1_WSOLX_MINT) ? "wSOL.X" : "USDC.x";
   const ata = getAssociatedTokenAddressSync(
-    X1_USDCX_MINT, feeWallet, true, TOKEN_2022_PROGRAM_ID,
+    mintPk, feeWallet, true, TOKEN_2022_PROGRAM_ID,
   );
 
   let info = null;
@@ -788,7 +960,7 @@ export async function ensureX1FeeWalletAta({ connection, userPubkey, feeWallet, 
     info = await connection.getAccountInfo(ata);
   } catch (e) {
     throw new Error(
-      `Could not check the fee wallet's X1 USDC.x account (${ata.toBase58()}): ${e?.message || e}. ` +
+      `Could not check the fee wallet's X1 ${sym} account (${ata.toBase58()}): ${e?.message || e}. ` +
       `Retry when the X1 RPC is reachable.`,
     );
   }
@@ -798,9 +970,9 @@ export async function ensureX1FeeWalletAta({ connection, userPubkey, feeWallet, 
   tx.add(
     createAssociatedTokenAccountIdempotentInstruction(
       payerPk,      // payer (rent + fee — the USER's wallet)
-      ata,          // the fee wallet's USDC.x ATA to create/ensure
+      ata,          // the fee wallet's token ATA to create/ensure
       feeWallet,    // owner = the fee wallet
-      X1_USDCX_MINT, // mint (USDC.x, Token-2022)
+      mintPk,       // mint (USDC.x / wSOL.X, both Token-2022)
       TOKEN_2022_PROGRAM_ID, // token program
     ),
   );
@@ -821,15 +993,15 @@ export async function ensureX1FeeWalletAta({ connection, userPubkey, feeWallet, 
 const X1_FEE_ACCOUNT = new PublicKey("4uRFjqVU5ZKkp7hQLx3Lm3YeWFts17ER8a5HLUE18ayG");
 const CHAIN_PAIR_X1_TO_SOL = 0x10;
 
-function deriveX1RevAccounts() {
+function deriveX1RevAccounts(mint = X1_USDCX_MINT) {
   const enc = (s) => new TextEncoder().encode(s);
   // X1-side bridge program is the SAME 6JbPTux on mainnet.
   const [config] = PublicKey.findProgramAddressSync([enc("config")], WARP_PROGRAM_ID);
   const [tokenRegistry] = PublicKey.findProgramAddressSync(
-    [enc("token_registry"), X1_USDCX_MINT.toBytes()], WARP_PROGRAM_ID);
+    [enc("token_registry"), new PublicKey(mint).toBytes()], WARP_PROGRAM_ID);
   return { config, tokenRegistry };
 }
-const _x1rev = deriveX1RevAccounts();
+const _x1rev = deriveX1RevAccounts(X1_USDCX_MINT); // kept for tests/back-compat; buildReverseBurn derives per-mint now
 
 function deriveX1RevOutgoingMsgPda(seq) {
   const sq = new Uint8Array(8);
@@ -846,7 +1018,7 @@ export function encodeReverseSeq(slot, ixIndex = 0) {
   return (BigInt(CHAIN_PAIR_X1_TO_SOL) << 56n) | baseSeq;
 }
 
-export async function buildReverseBurn({ connection, userPubkey, amountHuman, seq }) {
+export async function buildReverseBurn({ connection, userPubkey, amountHuman, seq, mint = X1_USDCX_MINT, decimals = 6, feeAccount = X1_REVERSE_TOKENS["USDC.x"].feeAccount }) {
   const toPk = (v) => {
     if (v instanceof PublicKey) return v;
     if (typeof v === "string") return new PublicKey(v);
@@ -855,34 +1027,43 @@ export async function buildReverseBurn({ connection, userPubkey, amountHuman, se
     throw new Error("Cannot resolve a Solana public key from the wallet");
   };
   userPubkey = toPk(userPubkey);
-  const amount = toBaseUnits(amountHuman);
+  const mintPk = mint instanceof PublicKey ? mint : new PublicKey(mint);
+  const feeAcctPk = feeAccount instanceof PublicKey ? feeAccount : new PublicKey(feeAccount);
+  const amount = toBaseUnits(amountHuman, decimals);
 
-  // user's USDC.x token account — TOKEN-2022 ATA
-  const userUsdcxAta = getAssociatedTokenAddressSync(
-    X1_USDCX_MINT, userPubkey, true, TOKEN_2022_PROGRAM_ID);
+  // user's token account — TOKEN-2022 ATA (USDC.x and wSOL.X are both Token-2022)
+  const userTokenAta = getAssociatedTokenAddressSync(
+    mintPk, userPubkey, true, TOKEN_2022_PROGRAM_ID);
 
   let slot;
   try { slot = await connection.getSlot("confirmed"); }
   catch { slot = await getSlotFallback(); }
   const theSeq = seq ?? encodeReverseSeq(slot, 0);
   const outgoingMsgPda = deriveX1RevOutgoingMsgPda(theSeq);
+  const { config, tokenRegistry } = deriveX1RevAccounts(mintPk);
 
   const data = encodeBridgeOutData(theSeq, amount);
 
-  // Account order EXACTLY from real mainnet X1->Sol burn tx (mMQt8Ypjed...)
+  // Account order EXACTLY from real mainnet X1->Sol burn txs (mMQt8Ypjed… for
+  // USDC.x; 5rUiHoLE12L5… for wSOL.X — the same 12-account BridgeOut shape:
+  // wrapped tokens get WARP in the optional vault slots 6+7, no mint_authority
+  // — that PDA belongs to the RECEIVE-side bridge_in_v2, verified against the
+  // current program IDL + live wSOL.X burns). Slots 8/9 are the fee collector
+  // wallet + the TOKEN'S OWN fee collector ATA (4uRFjq… USDC.x / 9Tdid7tM…
+  // wSOL.X from the live config).
   const keys = [
-    { pubkey: _x1rev.config, isSigner: false, isWritable: true },              // 0 config (48Po6q)
-    { pubkey: _x1rev.tokenRegistry, isSigner: false, isWritable: true },       // 1 token_registry (2etcJK)
-    { pubkey: outgoingMsgPda, isSigner: false, isWritable: true },             // 2 outgoing_msg
-    { pubkey: userPubkey, isSigner: true, isWritable: true },                  // 3 sender
-    { pubkey: userUsdcxAta, isSigner: false, isWritable: true },               // 4 user USDC.x acct (burn src)
-    { pubkey: X1_USDCX_MINT, isSigner: false, isWritable: true },              // 5 USDC.x mint (burned)
-    { pubkey: WARP_PROGRAM_ID, isSigner: false, isWritable: false },           // 6 program self
-    { pubkey: WARP_PROGRAM_ID, isSigner: false, isWritable: false },           // 7 program self
-    { pubkey: X1_FEE_COLLECTOR, isSigner: false, isWritable: true },           // 8 feeCollector wallet
-    { pubkey: X1_FEE_ACCOUNT, isSigner: false, isWritable: true },             // 9 fixed fee account (4uRFjq)
-    { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },     // 10 Token-2022 program
-    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },   // 11 system program
+    { pubkey: config, isSigner: false, isWritable: true },              // 0 config (48Po6q)
+    { pubkey: tokenRegistry, isSigner: false, isWritable: true },       // 1 token_registry (per-mint PDA)
+    { pubkey: outgoingMsgPda, isSigner: false, isWritable: true },      // 2 outgoing_msg
+    { pubkey: userPubkey, isSigner: true, isWritable: true },           // 3 sender
+    { pubkey: userTokenAta, isSigner: false, isWritable: true },        // 4 user token acct (burn src)
+    { pubkey: mintPk, isSigner: false, isWritable: true },              // 5 mint (burned)
+    { pubkey: WARP_PROGRAM_ID, isSigner: false, isWritable: false },    // 6 program self
+    { pubkey: WARP_PROGRAM_ID, isSigner: false, isWritable: false },    // 7 program self
+    { pubkey: X1_FEE_COLLECTOR, isSigner: false, isWritable: true },    // 8 feeCollector wallet
+    { pubkey: feeAcctPk, isSigner: false, isWritable: true },           // 9 fee collector ATA (per-token)
+    { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false }, // 10 Token-2022 program
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // 11 system program
   ];
 
   const tx = new Transaction();
@@ -893,26 +1074,36 @@ export async function buildReverseBurn({ connection, userPubkey, amountHuman, se
     tx.recentBlockhash = r.blockhash;
   } catch { /* wallet supplies */ }
 
-  return { transaction: tx, seq: theSeq, amount, outgoing_msg: outgoingMsgPda };
+  return { transaction: tx, seq: theSeq, amount, outgoing_msg: outgoingMsgPda, mint: mintPk, decimals };
 }
 
-export async function runReverse({ connection, userPubkey, amountHuman, feeAmount = 0, feeWallet = null, allowLive = false, provider = null, onBuilt = () => {} }) {
+export async function runReverse({ connection, userPubkey, amountHuman, feeAmount = 0, feeWallet = null, allowLive = false, provider = null, onBuilt = () => {}, token = "USDC.x" }) {
+  // The bridged X1 token drives the mint, decimals and Warp fee account:
+  // USDC.x (6 dec, flat $1) or wSOL.X (9 dec, 25 bps — live Warp config).
+  const tok = X1_REVERSE_TOKENS[token] || X1_REVERSE_TOKENS["USDC.x"];
+  const { mint, decimals, feeAccount } = tok;
+  const sym = token;
+
   // 0) X1 fee-payer preflight: the bare `AccountNotFound` on the X1 RPC was
   //    the fee payer missing on X1 (same failure class as the forward hop on
   //    Solana). Surface it as an actionable error BEFORE anything is built.
   await assertX1FeePayer(connection, userPubkey);
 
-  // 0b) X1 USDC.x balance preflight: the live v2 reverse failure
+  // 0b) X1 token-balance preflight: the live v2 reverse failure
   //    (`custom program error: 0x1` = Token-2022 Custom(1) InsufficientFunds)
   //    was a balance shortfall — the burn's total debit (1% skim transfer +
-  //    Warp gross, Warp's $1 carved out of the gross) exceeded the user's
+  //    Warp gross, Warp's fee carved out of the gross) exceeded the user's
   //    balance, and the sim died cryptically inside Warp's burn CPI. Preflight
   //    it so the user gets an actionable message instead of a raw error code.
+  //    Token-aware: wSOL.X is 9-dec (amounts + skim in wSOL.X units).
   if (feeAmount > 0 && feeWallet) {
-    await assertX1UsdcBalance(connection, userPubkey, toBaseUnits(feeAmount) + toBaseUnits(amountHuman));
+    await assertX1TokenBalance(connection, userPubkey, {
+      mint, decimals, sym,
+      requiredHuman: feeAmount + amountHuman, // 1% skim transfer + Warp gross
+    });
   }
 
-  // 1) X1 fee-wallet ATA prep: our 1% skim is a Token-2022 USDC.x transfer to
+  // 1) X1 fee-wallet ATA prep: our 1% skim is a Token-2022 transfer to
   //    the FEE wallet's X1 ATA — which must EXIST for the transfer to work
   //    (the step-1.2 root cause: "fee ATA missing on X1"). When it is missing
   //    we do NOT broadcast a separate creation tx anymore: the idempotent
@@ -929,28 +1120,30 @@ export async function runReverse({ connection, userPubkey, amountHuman, feeAmoun
       userPubkey,
       feeWallet,
       payer: userPubkey, // the user's connected wallet pays rent + signs
+      mint, decimals, // the token's own mint (wSOL.X fee wallet ATA when token="wSOL.X")
     });
   }
 
-  const built = await buildReverseBurn({ connection, userPubkey, amountHuman });
+  const built = await buildReverseBurn({ connection, userPubkey, amountHuman, mint, decimals, feeAccount });
   
-  // If a Teleporter fee is due, prepend the skim transfer (1% USDC.x to the
-  // fee wallet). When the fee wallet's ATA doesn't exist yet, the idempotent
-  // create comes FIRST so the transfer destination exists within the same tx.
+  // If a Teleporter fee is due, prepend the skim transfer (1% of the token to
+  // the fee wallet). When the fee wallet's ATA doesn't exist yet, the
+  // idempotent create comes FIRST so the transfer destination exists within
+  // the same tx.
   if (feeAmount > 0 && feeWallet) {
     const { PublicKey } = await import("@solana/web3.js");
     const { getAssociatedTokenAddressSync } = await import("@solana/spl-token");
     const userPk = userPubkey instanceof PublicKey ? userPubkey : new PublicKey(userPubkey);
     const feeWalletPk = feeWallet instanceof PublicKey ? feeWallet : new PublicKey(feeWallet);
     
-    const userUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, userPk, true, TOKEN_2022_PROGRAM_ID);
-    const feeUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, feeWalletPk, true, TOKEN_2022_PROGRAM_ID);
-    const feeAmount_base = toBaseUnits(feeAmount);
+    const userTokenAta = getAssociatedTokenAddressSync(mint, userPk, true, TOKEN_2022_PROGRAM_ID);
+    const feeTokenAta = getAssociatedTokenAddressSync(mint, feeWalletPk, true, TOKEN_2022_PROGRAM_ID);
+    const feeAmountBase = toBaseUnits(feeAmount, decimals);
     
-    // USDC.x is a Token-2022 mint — use createTransferInstruction with the
-    // Token-2022 program id (there is no separate "Token2022Program" class).
+    // USDC.x and wSOL.X are Token-2022 mints — createTransferInstruction with
+    // the Token-2022 program id (there is no separate "Token2022Program" class).
     const transferFeeIx = createTransferInstruction(
-      userUsdcxAta, feeUsdcxAta, userPk, feeAmount_base, [], TOKEN_2022_PROGRAM_ID
+      userTokenAta, feeTokenAta, userPk, feeAmountBase, [], TOKEN_2022_PROGRAM_ID
     );
     const prepend = prep?.needsCreation
       ? [prep.instruction, transferFeeIx] // create → transfer → burn
