@@ -2,7 +2,7 @@
  * reverseQuote.js — pure quote-building for the v2 REVERSE leg (X1 → EVM).
  * Mirrors teleportQuote.js (the forward EVM → X1 hop), reversed.
  *
- * THE REVERSE JOURNEY (X1 USDC.x → Solana USDC → EVM USDC):
+ * THE REVERSE JOURNEY (X1 USDC.x → Solana USDC → EVM stable):
  *   Stage 1 — X1 → Solana: the Warp `bridge_out` BURN of USDC.x on X1
  *     (Token-2022). No LiFi. Fees come from quoteFees (x1_onward class):
  *     our 1% warp-skim (collector fee-wallet-x1, computed on the SOURCE
@@ -12,8 +12,11 @@
  *     and bridge_out burns the remainder (net of Warp's $1).
  *   Stage 2 — Solana → EVM: a LiFi leg on the net that actually LANDED on
  *     Solana (X − 1% − $1 — deterministic, the burn amount is explicit in
- *     the tx). The LiFi query is SOL → the destination EVM chain for USDC,
- *     marked x1Class=1 so the server omits the LiFi integrator fee entirely
+ *     the tx). The LiFi query is SOL → the destination EVM chain for the
+ *     USER-SELECTED stable (USDC / USDT / DAI — whatever TOKENS[to] defines;
+ *     the destination token symbol flows through buildReverseLifiQuoteParams
+ *     and deriveReverseQuote), marked x1Class=1 so the server omits the LiFi
+ *     integrator fee entirely
  *     (policy: the 1% warp-skim is the ONLY Teleporter fee on x1-class
  *     routes; api/lifi/quote.js validates the marker against Solana on one
  *     end of the leg). NO PLACEHOLDERS: fromAddress/toAddress are the real
@@ -67,9 +70,12 @@ export function computeReverseLegs({ amount }) {
  *   null when the chain is unknown or a needed wallet address is missing
  *   (no placeholders — the caller surfaces the connect prompt).
  */
-export function buildReverseLifiQuoteParams({ to, netOnSolana, fromAddress, toAddress, slippage = 0.5 }) {
+export function buildReverseLifiQuoteParams({ to, toTokenSymbol = "USDC", netOnSolana, fromAddress, toAddress, slippage = 0.5 }) {
   const toChain = CHAINS[to]?.lifiKey;
-  const toToken = TOKENS[to]?.USDC?.address;
+  // The DESTINATION stable is the user's choice (USDC / USDT / DAI — whatever
+  // TOKENS[to] defines). The source side stays Solana USDC (6 decimals).
+  const toTokenInfo = TOKENS[to]?.[toTokenSymbol];
+  const toToken = toTokenInfo?.address;
   if (!toChain || !toToken) return null;
   if (!fromAddress || !toAddress) return null; // NO PLACEHOLDERS — real connected wallets only
 
@@ -78,7 +84,7 @@ export function buildReverseLifiQuoteParams({ to, netOnSolana, fromAddress, toAd
     fromChain: CHAINS.sol.lifiKey,        // Solana → EVM (leg 2 of the reverse hop)
     toChain,
     fromToken: TOKENS.sol.USDC.address,   // the USDC released on Solana by the Warp burn
-    toToken,                              // lands as USDC on the destination EVM chain
+    toToken,                              // lands as the SELECTED stable on the destination EVM chain
     fromAmount: rawAmount,
     fromAddress,
     toAddress,                            // explicit — required for cross-VM routes
@@ -93,30 +99,37 @@ export function buildReverseLifiQuoteParams({ to, netOnSolana, fromAddress, toAd
     // the 1% warp-skim is the only Teleporter fee on the journey).
     x1Class: "1",
   });
-  return { qs, decimals: USDC_DECIMALS, feeUsed: null };
+  // decimals = the DESTINATION token's decimals (what the LiFi leg delivers —
+  // USDT is 6, DAI is 18); the source-side amount stays USDC 6 (Solana).
+  return { qs, decimals: toTokenInfo?.decimals ?? USDC_DECIMALS, feeUsed: null };
 }
 
 /**
  * Derive the full reverse quote-box picture.
  *
- * @param {{data: ?object, to: string, amount: number}} args
+ * @param {{data: ?object, to: string, token?: string, amount: number}} args
  *   data = the /api/lifi/quote response for the SOL→EVM leg (may be null/absent
  *   when no route could be quoted — the honest-handoff case: stage 1 (the X1
  *   burn) is still fully quoted and buildable; funds would rest on Solana and
  *   the Solana→EVM hop is surfaced as the next stage instead).
+ *   token = the user-selected DESTINATION stable symbol (USDC/USDT/DAI — the
+ *   LiFi leg's toToken; defaults to USDC). Its decimals (6 or 18) convert the
+ *   LiFi toAmount into human units.
  * @returns {{out: number, feeLines: FeeLine[], teleporterFeeUsd: number,
  *            thirdPartyFeeUsd: number, net: number, recvToken: string,
  *            recvChain: string, solanaAmount: number, lifiQuoted: boolean,
  *            steps: Array}}
  */
-export function deriveReverseQuote({ data, to, amount }) {
+export function deriveReverseQuote({ data, to, token = "USDC", amount }) {
   const legs = computeReverseLegs({ amount });
   const destName = CHAINS[to]?.name || to;
   const lifiQuoted = Boolean(data?.estimate?.toAmount);
   let out;
   if (lifiQuoted) {
-    // LiFi delivers USDC on the destination EVM chain — 6 decimals.
-    out = parseFloat(data.estimate.toAmount) / 10 ** USDC_DECIMALS;
+    // LiFi delivers the SELECTED stable on the destination EVM chain — its
+    // decimals come from TOKENS (USDC/USDT are 6, DAI is 18), never hardcoded.
+    const toDecimals = TOKENS[to]?.[token]?.decimals ?? USDC_DECIMALS;
+    out = parseFloat(data.estimate.toAmount) / 10 ** toDecimals;
   } else {
     // Honest handoff: the LiFi leg could not be quoted (or wasn't requested).
     // The quote still shows the full Stage-1 picture; "you receive" is the
@@ -130,7 +143,7 @@ export function deriveReverseQuote({ data, to, amount }) {
     teleporterFeeUsd: legs.feeQuote.teleporterFeeUsd,
     thirdPartyFeeUsd: legs.feeQuote.thirdPartyFeeUsd,
     net: out,
-    recvToken: lifiQuoted ? "USDC" : "USDC",
+    recvToken: lifiQuoted ? token : "USDC", // the SELECTED destination stable when quoted; Solana USDC in the handoff
     recvChain: lifiQuoted ? destName : "Solana",
     solanaAmount: legs.netOnSolana, // stage 2 (LiFi) bridges THIS, not the original input
     lifiQuoted,

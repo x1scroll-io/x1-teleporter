@@ -84,6 +84,45 @@ test("buildReverseLifiQuoteParams: unknown destination chain → null (never a b
   );
 });
 
+test("buildReverseLifiQuoteParams: destination stable is the USER'S CHOICE — USDT resolves its address + decimals", () => {
+  const built = buildReverseLifiQuoteParams({
+    to: "eth", toTokenSymbol: "USDT", netOnSolana: 98, fromAddress: SOL_ADDR, toAddress: EVM_ADDR,
+  });
+  assert.ok(built, "params built for USDT");
+  assert.equal(built.qs.get("toToken"), TOKENS.eth.USDT.address, "the SELECTED destination token (USDT), not hardcoded USDC");
+  assert.equal(built.qs.get("fromToken"), TOKENS.sol.USDC.address, "source stays Solana USDC (the Warp release)");
+  assert.equal(built.qs.get("fromAmount"), "98000000", "source-side amount stays USDC 6 decimals");
+  assert.equal(built.decimals, 6, "USDT destination decimals = 6");
+});
+
+test("buildReverseLifiQuoteParams: DAI destination → DAI address + 18 decimals (source stays USDC 6)", () => {
+  const built = buildReverseLifiQuoteParams({
+    to: "eth", toTokenSymbol: "DAI", netOnSolana: 98, fromAddress: SOL_ADDR, toAddress: EVM_ADDR,
+  });
+  assert.ok(built, "params built for DAI");
+  assert.equal(built.qs.get("toToken"), TOKENS.eth.DAI.address, "the SELECTED destination token (DAI)");
+  assert.equal(built.decimals, 18, "DAI destination decimals = 18 (from TOKENS, never hardcoded USDC)");
+});
+
+test("buildReverseLifiQuoteParams: token NOT on the destination chain → null (base has no USDT)", () => {
+  assert.equal(
+    buildReverseLifiQuoteParams({
+      to: "bas", toTokenSymbol: "USDT", netOnSolana: 98, fromAddress: SOL_ADDR, toAddress: EVM_ADDR,
+    }),
+    null,
+    "TOKENS.bas has USDC + DAI but NO USDT — the selector filters it, and the builder refuses it",
+  );
+});
+
+test("buildReverseLifiQuoteParams: defaults to USDC when no symbol passed (back-compat)", () => {
+  const built = buildReverseLifiQuoteParams({
+    to: "eth", netOnSolana: 98, fromAddress: SOL_ADDR, toAddress: EVM_ADDR,
+  });
+  assert.ok(built);
+  assert.equal(built.qs.get("toToken"), TOKENS.eth.USDC.address);
+  assert.equal(built.decimals, 6);
+});
+
 // ── The quote-box picture ───────────────────────────────────────────────────
 
 test("deriveReverseQuote: quoted LiFi leg → you-receive is the EVM toAmount, solanaAmount is the deterministic net", () => {
@@ -116,4 +155,27 @@ test("deriveReverseQuote: destination name reflects the chosen EVM chain", () =>
   const q = deriveReverseQuote({ data: { estimate: { toAmount: "97000000" } }, to: "arb", amount: 100 });
   assert.equal(q.recvChain, "Arbitrum");
   assert.equal(q.out, 97);
+});
+
+test("deriveReverseQuote: USDT destination → recvToken USDT, 6-decimal toAmount", () => {
+  const q = deriveReverseQuote({ data: { estimate: { toAmount: "97020000" } }, to: "eth", token: "USDT", amount: 100 });
+  assert.equal(q.recvToken, "USDT", "you-receive names the SELECTED destination stable");
+  assert.equal(q.out, 97.02, "USDT is 6 decimals — same scale as USDC");
+  assert.equal(q.recvChain, "Ethereum");
+});
+
+test("deriveReverseQuote: DAI destination → 18-decimal toAmount converted by TOKENS decimals", () => {
+  // 97.02 DAI in base units (18 decimals) — the conversion MUST use DAI's
+  // decimals from TOKENS, not the hardcoded USDC 6.
+  const q = deriveReverseQuote({ data: { estimate: { toAmount: "97020000000000000000" } }, to: "eth", token: "DAI", amount: 100 });
+  assert.equal(q.recvToken, "DAI");
+  assert.equal(q.out, 97.02, "DAI 18-decimal toAmount lands at the same human number");
+});
+
+test("deriveReverseQuote: handoff (no LiFi quote) still reports Solana USDC regardless of the chosen destination token", () => {
+  const q = deriveReverseQuote({ data: null, to: "bas", token: "DAI", amount: 100 });
+  assert.equal(q.lifiQuoted, false);
+  assert.equal(q.recvToken, "USDC", "the honest handoff names the USDC that actually lands on Solana");
+  assert.equal(q.recvChain, "Solana");
+  assert.equal(q.out, 98);
 });
