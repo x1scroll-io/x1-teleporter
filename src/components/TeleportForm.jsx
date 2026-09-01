@@ -44,6 +44,7 @@
 import { useState } from "react";
 import {
   CHAINS, EVM_CHAINS, X1_MIN, X1_REVERSE_MIN, WARP_BRIDGE_URL, SOLANA_RPC, X1_RPC,
+  TOKENS, tokensFor,
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
@@ -120,10 +121,11 @@ export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allo
  * is only reachable after a REAL burn released USDC on Solana (stage 1 is the
  * gated step).
  */
-export async function defaultReverseStage2Runner({ solAdapter, evmAddress, to, netOnSolana, onStatus = () => {} }) {
+export async function defaultReverseStage2Runner({ solAdapter, evmAddress, to, toTokenSymbol = "USDC", netOnSolana, onStatus = () => {} }) {
   const { executeLiFiSolanaTx } = await import("../lib/lifiSolanaTx.js");
   const built = buildReverseLifiQuoteParams({
     to,
+    toTokenSymbol, // the user-selected destination stable (USDC/USDT/DAI) — the LiFi leg delivers THIS
     netOnSolana,
     fromAddress: solAdapter.publicKey?.toBase58 ? solAdapter.publicKey.toBase58() : String(solAdapter.publicKey),
     toAddress: evmAddress, // the connected EVM session's address (no placeholders)
@@ -251,7 +253,12 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   const [direction, setDirection] = useState("forward");
   const [from, setFrom] = useState("eth");
   const [to, setTo] = useState("eth"); // reverse destination (EVM chains)
-  const [token] = useState("USDC"); // LOCKED: read-only — the bridge moves ONLY USDC/USDC.x
+  // The user's chosen stable: the SOURCE token on the forward leg (EVM → X1,
+  // what they send in) and the DESTINATION token on the reverse leg (X1 → EVM,
+  // what they receive). The X1 side is ALWAYS USDC.x (the burn mint — fixed,
+  // never user-selectable). Options come from TOKENS[chain] (USDC/USDT/DAI as
+  // defined per chain — e.g. base has no USDT, sol has no DAI).
+  const [token, setToken] = useState("USDC");
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState(null);
   const [phase, setPhase] = useState("idle"); // idle|quoting|quoted|bridging|step2|relaying|handoff|done
@@ -275,14 +282,26 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     setReverseStage(0); setReleaseNote(null); setHandoffReason(null);
   };
 
-  // NOTE: token is LOCKED to USDC (product policy — the bridge moves ONLY
-  // USDC/USDC.x; no USDT, no DAI). There is deliberately NO changeToken: the
-  // forward select renders a fixed value and the token state never changes.
+  // changeToken restores the user's stablecoin choice: forward picks what they
+  // send in on the source EVM chain; reverse picks what they receive on the
+  // destination EVM chain. The X1 side stays USDC.x in both directions.
+  const changeToken = (t) => {
+    setToken(t); setQuote(null); setError(null); setPhase("idle");
+  };
   const changeFrom = (c) => {
     setFrom(c);
+    // The token must exist on the new chain (e.g. DAI missing on sol, USDT
+    // missing on base) — reset to a valid one for that chain.
+    if (!TOKENS[c]?.[token]) setToken(Object.keys(TOKENS[c] || {})[0] || "USDC");
     setQuote(null); setError(null); setPhase("idle");
   };
-  const changeTo = (c) => { setTo(c); setQuote(null); setError(null); setPhase("idle"); };
+  const changeTo = (c) => {
+    setTo(c);
+    // Same guard on the reverse destination: reset to a stable the new chain
+    // actually defines.
+    if (!TOKENS[c]?.[token]) setToken(Object.keys(TOKENS[c] || {})[0] || "USDC");
+    setQuote(null); setError(null); setPhase("idle");
+  };
   const changeAmount = (v) => { setAmount(v); setQuote(null); setError(null); setPhase("idle"); };
   const reset = () => {
     setPhase("idle"); setQuote(null); setError(null); setStatus(null);
@@ -423,6 +442,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       const legs = computeReverseLegs({ amount: amt });
       const built = buildReverseLifiQuoteParams({
         to,
+        toTokenSymbol: token, // the selected destination stable (USDC/USDT/DAI)
         netOnSolana: legs.netOnSolana,
         fromAddress: solSession.address,
         toAddress: evmSession.address,
@@ -433,8 +453,8 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         const d = await resp.json();
         if (!(d?.error || d?.message) && d?.estimate?.toAmount) lifiData = d;
       }
-      const derived = deriveReverseQuote({ data: lifiData, to, amount: amt });
-      setQuote({ amount: amt, to, ...derived, lifiData });
+      const derived = deriveReverseQuote({ data: lifiData, to, token, amount: amt });
+      setQuote({ amount: amt, to, toToken: token, ...derived, lifiData });
       setPhase("quoted");
     } catch (e) {
       console.error("[Teleport v2] reverse quote failed:", e);
@@ -563,6 +583,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         solAdapter,
         evmAddress: evmSession?.address,
         to: quote.to,
+        toTokenSymbol: quote.toToken || "USDC", // deliver the SELECTED destination stable
         netOnSolana: quote.solanaAmount ?? quote.legs?.netOnSolana,
         onStatus: (msg) => setStatus(msg),
       });
@@ -612,12 +633,15 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         </span>
       </div>
 
-      {/* token + amount */}
+      {/* token + amount — the SOURCE token is the user's choice (the stables
+          TOKENS[from] defines: USDC/USDT/DAI where available) */}
       <div style={S.row}>
         <span style={S.rowCol}>
           <span style={S.label}>Token</span>
-          <select data-testid="token" value="USDC" onChange={() => {}} style={S.select} aria-label="Token (fixed: USDC)">
-            <option value="USDC" style={{ background: "#0a1019" }}>USDC</option>
+          <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} style={S.select} aria-label="Token">
+            {tokensFor(from).map((t) => (
+              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
+            ))}
           </select>
         </span>
         <span style={{ ...S.rowCol, flex: 1 }}>
@@ -755,6 +779,13 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
               </option>
             ))}
           </select>
+          {/* destination token — the user chooses WHICH stable they receive on
+              the destination EVM chain (USDC / USDT / DAI as TOKENS[to] defines) */}
+          <select data-testid="to-token" value={token} onChange={(e) => changeToken(e.target.value)} style={S.select} aria-label="Receive token">
+            {tokensFor(to).map((t) => (
+              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
+            ))}
+          </select>
         </span>
       </div>
 
@@ -778,7 +809,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
           />
         </span>
       </div>
-      <div style={S.hint}>Bridge ${X1_REVERSE_MIN}+ out of X1 — USDC.x burns on X1, USDC lands on {CHAINS[to].name} via Solana.</div>
+      <div style={S.hint}>Bridge ${X1_REVERSE_MIN}+ out of X1 — USDC.x burns on X1, {token} lands on {CHAINS[to].name} via Solana.</div>
 
       {/* wallet guidance — honest, never a silent dead-end; actionable when
           the tab wires onConnectWallet */}
@@ -789,7 +820,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       )}
       {!evmReady && (
         <WarnTag {...warnProps("warn-evm")}>
-          Connect your EVM wallet (Rabby / MetaMask) to receive USDC on {CHAINS[to].name}.
+          Connect your EVM wallet (Rabby / MetaMask) to receive {token} on {CHAINS[to].name}.
         </WarnTag>
       )}
 
@@ -850,7 +881,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       ) : phase === "step2" ? (
         <>
           <div style={S.box}>
-            <b>USDC released on Solana ✓</b> — now finish the hop to {CHAINS[quote?.to || to].name} via LiFi.
+            <b>USDC released on Solana ✓</b> — now finish the hop — {quote?.recvToken || token} on {CHAINS[quote?.to || to].name} — via LiFi.
             If you stop here, your funds rest safely as USDC on Solana.
           </div>
           <button data-testid="bridge-step2" style={step2Busy ? { ...S.cta, ...S.ctaDisabled } : S.cta} onClick={executeReverseStage2} disabled={step2Busy}>
@@ -885,7 +916,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         <div data-testid="done" style={{ ...S.box, ...S.boxOk }}>
           {confirmMode
             ? <>✓ Simulation passed — <b>not sent</b> (live Warp sends are OFF; set VITE_WARP_LIVE_SEND=true to arm).</>
-            : <>✓ Bridge complete — USDC on {CHAINS[quote?.to || to].name}.</>}
+            : <>✓ Bridge complete — {quote?.recvToken || token} on {CHAINS[quote?.to || to].name}.</>}
           <button data-testid="reset" style={S.ghostBtn} onClick={reset}>Bridge again</button>
         </div>
       ) : null}

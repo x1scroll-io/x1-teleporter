@@ -619,6 +619,11 @@ test("direction toggle: default forward; X1→ETH switch flips the form to the r
     assert.ok(Array.from(toSelect.options).some((o) => o.value === "eth") && Array.from(toSelect.options).some((o) => o.value === "arb"),
       "reverse destination picker lists EVM chains");
     assert.equal(container.querySelector('[data-testid="token"]').value, "USDC.x", "reverse token fixed to USDC.x");
+    const toTokenSelect = container.querySelector('[data-testid="to-token"]');
+    assert.ok(toTokenSelect, "reverse destination-token selector present");
+    assert.deepEqual(Array.from(toTokenSelect.options).map((o) => o.value), ["USDC", "USDT", "DAI"],
+      "Ethereum destination offers the full stable set (USDC/USDT/DAI)");
+    assert.equal(toTokenSelect.value, "USDC", "destination token defaults to USDC");
 
     // Flip back — the forward state returns.
     click(container.querySelector('[data-testid="dir-forward"]'));
@@ -741,6 +746,7 @@ test("REVERSE AUTO-FIRE: release poll resolves ok:true → stage-2 runner invoke
     assert.deepEqual(pollStages, ["polled:burn-sig-123"], "release poller called with the burn signature");
     assert.equal(stage2Calls.length, 1, "stage-2 runner invoked AUTOMATICALLY — no manual click");
     assert.equal(stage2Calls[0].to, "eth");
+    assert.equal(stage2Calls[0].toTokenSymbol, "USDC", "default destination stable USDC flows into the LiFi leg");
     assert.equal(stage2Calls[0].evmAddress, EVM_ADDR, "destination = the connected EVM wallet");
     assert.equal(stage2Calls[0].netOnSolana, 98, "bridges the net that LANDED on Solana (100 − 1% − $1)");
     // The journey is ONE continuous flow (burn → guardians → released → LiFi
@@ -799,61 +805,196 @@ test("REVERSE AUTO-FIRE failure: auto-fired stage 2 fails → error + Retry butt
   }
 });
 
-test("FORWARD token locked: USDC only — no USDT/DAI options rendered, change events are no-ops", () => {
+test("FORWARD token choice restored: USDC/USDT/DAI offered on Ethereum; selecting USDT drives the quote to the USDT address", async () => {
+  const qf = mockQuoteFetch();
   const { container, unmount } = renderForm(FORM_PROPS());
   try {
     const tokenSelect = container.querySelector('[data-testid="token"]');
     assert.ok(tokenSelect, "token picker present");
-    assert.equal(tokenSelect.value, "USDC", "forward token fixed to USDC");
-    assert.equal(tokenSelect.getAttribute("aria-label"), "Token (fixed: USDC)", "aria-label names the lock");
-    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC"], "only USDC is offered");
-    assert.equal(tokenSelect.textContent.includes("USDT"), false, "USDT not rendered");
-    assert.equal(tokenSelect.textContent.includes("DAI"), false, "DAI not rendered");
+    assert.equal(tokenSelect.value, "USDC", "defaults to USDC");
+    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC", "USDT", "DAI"],
+      "Ethereum offers the full stable set (TOKENS.eth)");
 
-    // A change event cannot move the token (onChange is a no-op + controlled value).
+    // The user picks USDT — the change event MOVES the token (real state).
     act(() => {
       tokenSelect.value = "USDT";
       tokenSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
-    assert.equal(tokenSelect.value, "USDC", "token stays USDC after a USDT change event");
-    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no error — the no-op is silent");
+    assert.equal(container.querySelector('[data-testid="token"]').value, "USDT", "token state follows the selection");
 
-    // Switching the from-chain keeps the token locked at USDC.
+    setInput(container.querySelector('[data-testid="amount"]'), "100");
+    click(container.querySelector('[data-testid="get-quote"]'));
+    await flush();
+
+    assert.equal(qf.calls.length, 1, "exactly one quote call");
+    const url = new URL(qf.calls[0], "http://localhost");
+    assert.equal(url.searchParams.get("fromChain"), "eth");
+    assert.equal(url.searchParams.get("fromToken"), "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      "forward quote uses the SELECTED source token (USDT on Ethereum), not hardcoded USDC");
+    const box = container.querySelector('[data-testid="quote-box"]');
+    assert.ok(box && box.textContent.includes("USDT on Ethereum"),
+      `you-send names the chosen source token, got: ${box?.textContent}`);
+    // The X1 side is untouched — you receive USDC.x (the burn mint) regardless.
+    const recv = container.querySelector('[data-testid="you-receive"]');
+    assert.ok(recv && recv.textContent.includes("USDC.x") && recv.textContent.includes("X1"),
+      `X1 receive stays USDC.x, got: ${recv?.textContent}`);
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("chain switch resets the token to one the new chain defines (base has no USDT)", () => {
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    // FORWARD: eth USDT → switch the from-chain to base → resets to USDC.
+    const tokenSelect = container.querySelector('[data-testid="token"]');
+    act(() => {
+      tokenSelect.value = "USDT";
+      tokenSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(tokenSelect.value, "USDT", "USDT selected on Ethereum");
     const fromSelect = container.querySelector('[data-testid="from-chain"]');
     act(() => {
-      fromSelect.value = "bsc";
+      fromSelect.value = "bas";
       fromSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
-    assert.equal(container.querySelector('[data-testid="token"]').value, "USDC", "token still USDC after switching the from-chain");
+    const after = container.querySelector('[data-testid="token"]');
+    assert.equal(after.value, "USDC", "reset to USDC — base defines USDC + DAI, no USDT");
+    assert.deepEqual(Array.from(after.options).map((o) => o.value), ["USDC", "DAI"],
+      "base offers exactly the stables TOKENS.bas defines");
+
+    // REVERSE: to eth USDT → switch the destination to base → resets to USDC.
+    click(container.querySelector('[data-testid="dir-reverse"]'));
+    const toSelect = container.querySelector('[data-testid="to-chain"]');
+    const toToken = container.querySelector('[data-testid="to-token"]');
+    assert.deepEqual(Array.from(toToken.options).map((o) => o.value), ["USDC", "USDT", "DAI"],
+      "ethereum destination offers the full stable set (the default to-chain)");
+    act(() => {
+      toSelect.value = "bas";
+      toSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    const basToken = container.querySelector('[data-testid="to-token"]');
+    assert.deepEqual(Array.from(basToken.options).map((o) => o.value), ["USDC", "DAI"],
+      "base destination offers USDC + DAI, no USDT");
+    act(() => {
+      basToken.value = "USDT";
+      basToken.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(container.querySelector('[data-testid="to-token"]').value, "USDC",
+      "USDT cannot be selected on base — the token stays at the valid USDC");
+    act(() => {
+      toSelect.value = "eth";
+      toSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    const ethToken = container.querySelector('[data-testid="to-token"]');
+    assert.deepEqual(Array.from(ethToken.options).map((o) => o.value), ["USDC", "USDT", "DAI"],
+      "back on ethereum the full stable set returns");
+    act(() => {
+      ethToken.value = "USDT";
+      ethToken.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(ethToken.value, "USDT", "USDT selected on the Ethereum destination");
+    act(() => {
+      toSelect.value = "bas";
+      toSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(container.querySelector('[data-testid="to-token"]').value, "USDC",
+      "reset to USDC — the new destination chain has no USDT");
   } finally {
     unmount();
   }
 });
 
-test("REVERSE token locked: USDC.x fixed — change events are no-ops, X1 source offers no token choice", () => {
+test("REVERSE destination token drives the LiFi leg: USDT on Ethereum → quote params use the USDT address, you-receive names USDT", async () => {
+  const qf = mockReverseQuoteFetch();
   const { container, unmount } = renderForm(FORM_PROPS());
   try {
     click(container.querySelector('[data-testid="dir-reverse"]'));
-    const tokenSelect = container.querySelector('[data-testid="token"]');
-    assert.ok(tokenSelect, "token picker present in reverse");
-    assert.equal(tokenSelect.value, "USDC.x", "reverse token fixed to USDC.x");
-    assert.equal(tokenSelect.getAttribute("aria-label"), "Token (fixed: USDC.x)", "aria-label names the lock");
-    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC.x"], "only USDC.x offered");
-    assert.equal(tokenSelect.textContent.includes("USDT"), false, "USDT not rendered");
-    assert.equal(tokenSelect.textContent.includes("DAI"), false, "DAI not rendered");
-
+    const toToken = container.querySelector('[data-testid="to-token"]');
     act(() => {
-      tokenSelect.value = "DAI";
-      tokenSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      toToken.value = "USDT";
+      toToken.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
-    assert.equal(tokenSelect.value, "USDC.x", "token stays USDC.x after a DAI change event");
+    setInput(container.querySelector('[data-testid="amount"]'), "100");
+    click(container.querySelector('[data-testid="get-quote"]'));
+    await flush();
 
-    // The reverse FROM selector (the X1 leg) is fixed too — no token choice there.
+    assert.equal(qf.calls.length, 1, "exactly one quote call (the LiFi SOL→EVM leg)");
+    const url = new URL(qf.calls[0], "http://localhost");
+    assert.equal(url.searchParams.get("toToken"), "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      "destination = the SELECTED USDT, not hardcoded USDC");
+    assert.equal(url.searchParams.get("fromToken"), "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "source stays Solana USDC (the Warp release)");
+    assert.equal(url.searchParams.get("fromAmount"), "98000000", "source-side amount stays USDC 6 decimals");
+    const recv = container.querySelector('[data-testid="you-receive"]');
+    assert.ok(recv && recv.textContent.includes("USDT") && recv.textContent.includes("Ethereum"),
+      `you-receive names the selected destination stable, got: ${recv?.textContent}`);
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("REVERSE stage-2 delivers the SELECTED destination token: the auto-fired LiFi runner receives toTokenSymbol", async () => {
+  const qf = mockReverseQuoteFetch();
+  const fakeRunner1 = async () => ({ stage: "sent", success: true, signature: "burn-sig" });
+  const fakePoller = async () => ({ ok: true, destinationTx: "release-tx" });
+  const stage2Calls = [];
+  const fakeRunner2 = async (args) => { stage2Calls.push(args); return "lifi-final-hash"; };
+  const { container, unmount } = renderForm(FORM_PROPS({
+    reverseStage1Runner: fakeRunner1,
+    releasePoller: fakePoller,
+    reverseStage2Runner: fakeRunner2,
+  }));
+  try {
+    click(container.querySelector('[data-testid="dir-reverse"]'));
+    const toToken = container.querySelector('[data-testid="to-token"]');
+    act(() => {
+      toToken.value = "DAI";
+      toToken.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    setInput(container.querySelector('[data-testid="amount"]'), "100");
+    click(container.querySelector('[data-testid="get-quote"]'));
+    await flush();
+    click(container.querySelector('[data-testid="bridge-now"]'));
+    await flush();
+
+    assert.equal(stage2Calls.length, 1, "stage-2 runner invoked (auto-fire)");
+    assert.equal(stage2Calls[0].toTokenSymbol, "DAI", "the SELECTED destination stable flows into the LiFi leg");
+    assert.equal(stage2Calls[0].to, "eth");
+    assert.equal(stage2Calls[0].netOnSolana, 98, "stage-2 math unchanged — fees stay on the X1/Solana source side");
+    const done = container.querySelector('[data-testid="done"]');
+    assert.ok(done && done.textContent.includes("DAI on Ethereum"),
+      `done state names the selected destination stable, got: ${done?.textContent}`);
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("X1 side stays USDC.x in BOTH directions — the burn mint is never user-selectable", () => {
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    // FORWARD: the destination is fixed to X1 · USDC.x.
+    const toSelect = container.querySelector('[data-testid="to-chain"]');
+    assert.equal(toSelect.value, "x1", "forward destination fixed to X1");
+    assert.match(toSelect.textContent, /USDC\.x/, "forward destination names USDC.x");
+    assert.equal(toSelect.textContent.includes("USDT"), false, "no USDT on the X1 side");
+    assert.equal(toSelect.textContent.includes("DAI"), false, "no DAI on the X1 side");
+
+    // REVERSE: the SOURCE is fixed to X1 · USDC.x and the token row is USDC.x.
+    click(container.querySelector('[data-testid="dir-reverse"]'));
     const fromSelect = container.querySelector('[data-testid="from-chain"]');
     assert.equal(fromSelect.value, "x1", "reverse source fixed to X1");
-    assert.match(fromSelect.textContent, /USDC\.x/, "X1 source shows USDC.x only");
+    assert.match(fromSelect.textContent, /USDC\.x/, "reverse source names USDC.x");
     assert.equal(fromSelect.textContent.includes("USDT"), false, "no USDT on the X1 source");
     assert.equal(fromSelect.textContent.includes("DAI"), false, "no DAI on the X1 source");
+    const tokenSelect = container.querySelector('[data-testid="token"]');
+    assert.equal(tokenSelect.value, "USDC.x", "reverse token row fixed to USDC.x");
+    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC.x"], "only USDC.x offered on the X1 side");
+    // The stablecoin CHOICE lives on the destination side — never the X1 side.
+    assert.ok(container.querySelector('[data-testid="to-token"]'), "destination token selector present in reverse");
   } finally {
     unmount();
   }
