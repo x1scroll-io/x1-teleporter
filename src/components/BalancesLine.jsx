@@ -11,10 +11,14 @@
  *            the EVM side of the current leg: the SOURCE chain in forward
  *            (`from`), the DESTINATION chain in reverse (`to`).
  *   Solana — USDC + WSOL on the connected Solana wallet (both live there;
- *            the Warp leg locks whichever the burn released).
+ *            the Warp leg locks whichever the burn released). Read via the
+ *            LIVE site's exact pattern: raw JSON-RPC getTokenAccountsByOwner
+ *            (jsonParsed) over plain fetch with a multi-RPC fallback ladder
+ *            (src/lib/balances.js — SOLANA_RPC_LADDER).
  *   X1     — USDC.x + wSOL.X on the connected wallet (same Solana session
  *            address — X1 is SVM-compatible; the app derives X1 ATAs from
- *            the Solana session's publicKey).
+ *            the Solana session's publicKey). Same ladder read against
+ *            X1_RPC (X1_RPC_LADDER).
  *
  * Fail-soft by construction: a wallet that isn't connected, a dead RPC, a
  * missing price — each yields "—" for that side (or no USD value), and the
@@ -28,7 +32,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CHAINS, TOKENS, SOLANA_RPC, X1_RPC } from "../lib/teleportConstants.js";
+import { CHAINS, TOKENS } from "../lib/teleportConstants.js";
 import { resolveEvmProvider } from "../lib/wallet/sessionProviders.js";
 import { getPricesUSD, usdValue } from "../lib/prices.js";
 import {
@@ -36,19 +40,10 @@ import {
   fetchSvmTokenBalances,
   SOLANA_MINTS,
   X1_MINTS,
+  SOLANA_RPC_LADDER,
+  X1_RPC_LADDER,
   formatBalance,
 } from "../lib/balances.js";
-
-/** Default connection factory: real web3.js Connections for Solana + X1.
- *  DI-able via props so tests inject fakes (no network). Lazy: only built
- *  when a Solana/X1 wallet is connected and a read is actually needed. */
-export async function defaultCreateConnections() {
-  const { Connection } = await import("@solana/web3.js");
-  return {
-    sol: new Connection(SOLANA_RPC, "confirmed"),
-    x1: new Connection(X1_RPC, "confirmed"),
-  };
-}
 
 /** Default amount-debounce (ms) before refetching balances while typing. */
 export const BALANCE_DEBOUNCE_MS = 400;
@@ -71,8 +66,7 @@ const S = {
  *   evmSession: ?object, solSession: ?object, refreshSignal?: number,
  *   evmBalanceFetcher?: Function, solBalanceFetcher?: Function,
  *   x1BalanceFetcher?: Function, priceFetcher?: Function,
- *   createConnections?: Function, resolveEvmProviderFn?: Function,
- *   debounceMs?: number
+ *   resolveEvmProviderFn?: Function, debounceMs?: number
  * }} props
  */
 export default function BalancesLine({
@@ -90,13 +84,11 @@ export default function BalancesLine({
   solBalanceFetcher = fetchSvmTokenBalances,
   x1BalanceFetcher = fetchSvmTokenBalances,
   priceFetcher = getPricesUSD,
-  createConnections = defaultCreateConnections,
   resolveEvmProviderFn = resolveEvmProvider,
   debounceMs = BALANCE_DEBOUNCE_MS,
 }) {
   const [balances, setBalances] = useState(null); // { evm, sol, x1 } | null
   const [prices, setPrices] = useState(null); // { USDC, USDT, DAI, WSOL, USDC.x, wSOL.X } | null
-  const [conns, setConns] = useState(null); // { sol, x1 } connections
   const seqRef = useRef(0); // stale-response guard
 
   const evmAddr = evmSession?.address || null;
@@ -105,16 +97,6 @@ export default function BalancesLine({
   // reverse. The token shown is the user's selected stable (TOKENS[chain]).
   const evmChain = direction === "forward" ? from : to;
   const evmToken = TOKENS[evmChain]?.[token] || null;
-
-  // Lazy, one-time connection build (only when a Solana/X1 wallet exists).
-  useEffect(() => {
-    if (!solAddr) return;
-    let alive = true;
-    createConnections()
-      .then((c) => { if (alive) setConns(c); })
-      .catch(() => { if (alive) setConns(null); }); // fail-soft
-    return () => { alive = false; };
-  }, [solAddr, createConnections]);
 
   const load = useCallback(async () => {
     const seq = ++seqRef.current;
@@ -135,28 +117,27 @@ export default function BalancesLine({
       }
     }
 
-    // Solana + X1 sides (both use the Solana session's address).
-    if (solAddr && conns) {
-      if (conns.sol) {
-        try {
-          next.sol = await solBalanceFetcher({ connection: conns.sol, wallet: solAddr, mints: SOLANA_MINTS });
-        } catch {
-          next.sol = null;
-        }
+    // Solana + X1 sides (both use the Solana session's address). Each read
+    // walks its chain's fallback ladder (plain fetch + raw JSON-RPC, the live
+    // site's pattern) — a 403/429 on one rung falls to the next; total
+    // failure → null → the UI shows "—".
+    if (solAddr) {
+      try {
+        next.sol = await solBalanceFetcher({ rpcs: SOLANA_RPC_LADDER, wallet: solAddr, mints: SOLANA_MINTS });
+      } catch {
+        next.sol = null;
       }
-      if (conns.x1) {
-        try {
-          next.x1 = await x1BalanceFetcher({ connection: conns.x1, wallet: solAddr, mints: X1_MINTS });
-        } catch {
-          next.x1 = null;
-        }
+      try {
+        next.x1 = await x1BalanceFetcher({ rpcs: X1_RPC_LADDER, wallet: solAddr, mints: X1_MINTS });
+      } catch {
+        next.x1 = null;
       }
     }
 
     if (seq !== seqRef.current) return; // a newer load superseded this one
     setBalances(next);
     setPrices(priceMap);
-  }, [evmAddr, evmToken, solAddr, conns, evmSession, token, evmBalanceFetcher, solBalanceFetcher, x1BalanceFetcher, priceFetcher, resolveEvmProviderFn]);
+  }, [evmAddr, evmToken, solAddr, evmSession, token, evmBalanceFetcher, solBalanceFetcher, x1BalanceFetcher, priceFetcher, resolveEvmProviderFn]);
 
   // Immediate refresh: wallets connect/disconnect + chain/token/direction
   // changes + manual refreshSignal bumps (after a bridge completes).

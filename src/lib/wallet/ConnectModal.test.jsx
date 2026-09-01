@@ -154,7 +154,6 @@ function renderCard(discovery) {
               evmBalanceFetcher: async () => null,
               solBalanceFetcher: async () => null,
               x1BalanceFetcher: async () => null,
-              createConnections: async () => ({ sol: null, x1: null }),
             },
           },
         }),

@@ -1,8 +1,8 @@
 /**
  * BalancesLine.test.jsx — the bridge form's wallet-balances line with LIVE
  * USD values. DOM-level tests (jsdom + React 18 act), fully DI-able: every
- * fetcher (EVM balance, Solana, X1, prices, connections, provider resolver)
- * is injected — no network, no real chains.
+ * fetcher (EVM balance, Solana, X1, prices, provider resolver) is injected
+ * — no network, no real chains.
  *
  * Covers the directive: "bridge should have values of what is in the users
  * wallets" — each connected wallet's relevant token balances AND their USD
@@ -16,18 +16,18 @@ import assert from "node:assert/strict";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import BalancesLine from "../../components/BalancesLine.jsx";
+import { SOLANA_RPC_LADDER, X1_RPC_LADDER } from "../balances.js";
 
 const EVM_ADDR = "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6";
 const SOL_ADDR = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
 
-/** DI'd fetchers shared by most tests — canned prices, no-op connections.
+/** DI'd fetchers shared by most tests — canned prices, no-op fetchers.
  *  IMPORTANT: spread `...DI` FIRST, then the test's specific overrides, so
  *  the per-test fetchers win. */
 const DI = {
   priceFetcher: async () => ({
     USDC: 1.0, USDT: 1.0, DAI: 1.0, WSOL: 102.0, "USDC.x": 1.0, "wSOL.X": 102.0,
   }),
-  createConnections: async () => ({ sol: { fake: true }, x1: { fake: true } }),
   resolveEvmProviderFn: async () => ({ request: async () => "0x0" }),
 };
 
@@ -164,11 +164,15 @@ test("Solana: USDC + WSOL balances with live USD values", async () => {
     ...BASE, ...DI,
     evmSession: null,
     solSession: { status: "connected", address: SOL_ADDR },
-    solBalanceFetcher: async ({ connection, wallet, mints }) => {
+    solBalanceFetcher: async ({ rpcs, wallet, mints }) => {
       assert.equal(wallet, SOL_ADDR);
+      assert.deepEqual(rpcs, SOLANA_RPC_LADDER, "component wires the live-site Solana fallback ladder");
       assert.deepEqual(mints.map((m) => m.symbol), ["USDC", "WSOL"]);
       return { USDC: 5.2, WSOL: 0.3 };
     },
+    // inject BOTH SVM fetchers — the default x1 fetcher would fire a real
+    // network fetch (no fake connection to short-circuit on anymore)
+    x1BalanceFetcher: async () => null,
   });
   try {
     await flush();
@@ -189,11 +193,15 @@ test("X1: USDC.x + wSOL.X balances with live USD values (same Solana session)", 
     ...BASE, ...DI,
     evmSession: null,
     solSession: { status: "connected", address: SOL_ADDR },
-    x1BalanceFetcher: async ({ connection, wallet, mints }) => {
+    x1BalanceFetcher: async ({ rpcs, wallet, mints }) => {
       assert.equal(wallet, SOL_ADDR, "X1 wallet = the Solana session's address (SVM-compatible)");
+      assert.deepEqual(rpcs, X1_RPC_LADDER, "component wires the X1_RPC ladder");
       assert.deepEqual(mints.map((m) => m.symbol), ["USDC.x", "wSOL.X"]);
       return { "USDC.x": 27.59, "wSOL.X": 0.3 };
     },
+    // inject BOTH SVM fetchers — the default sol fetcher would fire a real
+    // network fetch (no fake connection to short-circuit on anymore)
+    solBalanceFetcher: async () => null,
   });
   try {
     await flush();
