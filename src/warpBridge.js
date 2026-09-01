@@ -701,15 +701,79 @@ export async function assertX1FeePayer(connection, userPubkey) {
   return { ok: true, lamports };
 }
 
+// ── X1 USDC.x BALANCE PREFLIGHT (the reverse mirror of assertX1FeePayer) ──
+// The reverse burn's total debit on the user's X1 USDC.x ATA is the 1% skim
+// transfer PLUS the Warp bridge_out gross amount. Warp carves its own $1
+// token fee OUT of that gross (verified against mainnet burn tx 35DfdwHKB…:
+// gross 11.00 → token fee 1.00 → net 10.00 — the sender was debited exactly
+// 11.00). So the requirement is exactly `feeAmount + amountHuman`, and a
+// shortfall makes Warp's internal Token-2022 burn CPI fail with the bare
+// `custom program error: 0x1` — Token-2022 Custom(1) = InsufficientFunds
+// (NOT InvalidMint, which is 2). Indistinguishable from a broken account
+// list, which is exactly what the v2 armed-preview user hit. Preflight the
+// balance so the failure is actionable instead of cryptic.
+export const X1_USDC_DECIMALS = 6;
+
+/**
+ * X1UsdcBalanceError — thrown when the user's X1 USDC.x ATA cannot cover
+ * the reverse burn's total debit (skim transfer + Warp gross). Mirrors
+ * X1FeePayerError for the token-balance side of the reverse leg.
+ */
+export class X1UsdcBalanceError extends Error {
+  constructor(message, { pubkey = null, available = null, required = null } = {}) {
+    super(message);
+    this.name = "X1UsdcBalanceError";
+    this.pubkey = pubkey;
+    this.available = available;
+    this.required = required;
+  }
+}
+
+export async function assertX1UsdcBalance(connection, userPubkey, requiredBase) {
+  if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
+  const ata = getAssociatedTokenAddressSync(
+    X1_USDCX_MINT, userPubkey, true, TOKEN_2022_PROGRAM_ID,
+  );
+  let available = 0n;
+  try {
+    const info = await connection.getAccountInfo(ata);
+    if (info) {
+      const bal = await connection.getTokenAccountBalance(ata);
+      available = BigInt(bal?.value?.amount || 0);
+    }
+  } catch (e) {
+    throw new X1UsdcBalanceError(
+      `Could not verify your X1 USDC.x balance (${ata.toBase58()}) before burning: ${e?.message || e}. ` +
+      `Retry when the X1 RPC is reachable.`, // fail-closed: cannot prove funds → do not build
+      { pubkey: userPubkey.toBase58() },
+    );
+  }
+  if (available < BigInt(requiredBase)) {
+    const need = fromBaseUnits(BigInt(requiredBase));
+    const have = fromBaseUnits(available);
+    throw new X1UsdcBalanceError(
+      `Not enough USDC.x on X1 to bridge ${need.toFixed(2)} USDC.x — the burn needs the full amount ` +
+      `(1% fee transfer + Warp gross; Warp takes its $1 out of the gross). Your X1 wallet ` +
+      `(${userPubkey.toBase58()}) holds ${have.toFixed(2)} USDC.x. ` +
+      `Top up ${(need - have).toFixed(2)} USDC.x or send a smaller amount. Your funds are safe.`,
+      { pubkey: userPubkey.toBase58(), available, required: BigInt(requiredBase) },
+    );
+  }
+  return { ok: true, available, required: BigInt(requiredBase) };
+}
+
 // ── X1 FEE-WALLET ATA PREP — idempotent, payer = the user (reverse prep) ──
 // The reverse burn prepends OUR 1% skim as a Token-2022 USDC.x transfer from
 // the user's ATA to the FEE WALLET's X1 USDC.x ATA. An SPL transfer requires
 // the destination ATA to EXIST — and step 1.2's root-cause note said the fee
-// ATA was missing on X1 ("the route is dead at step one"). This creates it
-// idempotently (create-if-missing, no-op if present) with the USER paying
-// rent (payer = user, owner = fee wallet — the ATA program allows any payer),
-// mirroring ensureX1RecipientAta on the forward leg. Fail-closed in sim mode,
-// guarded broadcast in live mode — exactly like the recipient-ATA prep.
+// ATA was missing on X1 ("the route is dead at step one"). This builds the
+// idempotent create (create-if-missing, no-op if present) with the USER
+// paying rent (payer = user, owner = fee wallet — the ATA program allows any
+// payer). runReverse BUNDLES the returned `instruction` into the burn
+// transaction (create → transfer → burn in ONE tx) so the reverse leg never
+// dead-ends on a missing fee ATA — the same-chain analog of the forward leg's
+// separate recipient-ATA prep (ensureX1RecipientAta, different chain, so it
+// stays its own tx there).
 export async function ensureX1FeeWalletAta({ connection, userPubkey, feeWallet, payer = null }) {
   if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
   if (!(feeWallet instanceof PublicKey)) feeWallet = new PublicKey(feeWallet);
@@ -745,7 +809,12 @@ export async function ensureX1FeeWalletAta({ connection, userPubkey, feeWallet, 
     const { blockhash } = await connection.getLatestBlockhash("confirmed");
     tx.recentBlockhash = blockhash;
   } catch { /* wallet may supply one */ }
-  return { needsCreation: true, transaction: tx, ata };
+  // `instruction` lets callers BUNDLE the idempotent create into the burn tx
+  // (create → skim transfer → burn in one tx, one sim, one send) instead of
+  // broadcasting a separate creation tx — the reverse leg's same-chain analog
+  // of the forward leg's separate ATA prep (different chain, so it stays its
+  // own tx there).
+  return { needsCreation: true, transaction: tx, instruction: tx.instructions[0], ata };
 }
 // The fee account at slot 9 is a FIXED program fee account (not a derivable
 // ATA) — taken verbatim from the real mainnet burn tx mMQt8Ypjed...
@@ -833,12 +902,26 @@ export async function runReverse({ connection, userPubkey, amountHuman, feeAmoun
   //    Solana). Surface it as an actionable error BEFORE anything is built.
   await assertX1FeePayer(connection, userPubkey);
 
+  // 0b) X1 USDC.x balance preflight: the live v2 reverse failure
+  //    (`custom program error: 0x1` = Token-2022 Custom(1) InsufficientFunds)
+  //    was a balance shortfall — the burn's total debit (1% skim transfer +
+  //    Warp gross, Warp's $1 carved out of the gross) exceeded the user's
+  //    balance, and the sim died cryptically inside Warp's burn CPI. Preflight
+  //    it so the user gets an actionable message instead of a raw error code.
+  if (feeAmount > 0 && feeWallet) {
+    await assertX1UsdcBalance(connection, userPubkey, toBaseUnits(feeAmount) + toBaseUnits(amountHuman));
+  }
+
   // 1) X1 fee-wallet ATA prep: our 1% skim is a Token-2022 USDC.x transfer to
   //    the FEE wallet's X1 ATA — which must EXIST for the transfer to work
-  //    (the step-1.2 root cause: "fee ATA missing on X1"). Create it
-  //    idempotently via the connected wallet (payer = user) BEFORE the burn is
-  //    built. allowLive:false still SIMULATES the ATA tx (fail-closed) but
-  //    broadcasts nothing — same no-touch promise as every other leg.
+  //    (the step-1.2 root cause: "fee ATA missing on X1"). When it is missing
+  //    we do NOT broadcast a separate creation tx anymore: the idempotent
+  //    create instruction is BUNDLED into the burn transaction
+  //    (create → skim transfer → burn), so ONE simulation gates ONE send and
+  //    the reverse leg works on the FIRST run in both sim and live mode — no
+  //    dead-end while the fee ATA is missing, no double wallet prompt. This is
+  //    the same-chain analog of the forward leg's proven pattern (PR #28/#30:
+  //    idempotent ATA prep then guarded send).
   let prep = null;
   if (feeAmount > 0 && feeWallet) {
     prep = await ensureX1FeeWalletAta({
@@ -847,22 +930,13 @@ export async function runReverse({ connection, userPubkey, amountHuman, feeAmoun
       feeWallet,
       payer: userPubkey, // the user's connected wallet pays rent + signs
     });
-    if (prep.needsCreation) {
-      if (allowLive) {
-        // Guarded: simulate on X1 (fail-closed), then wallet signs + broadcasts.
-        await sendX1AtaCreation(connection, prep.transaction, provider);
-      } else {
-        const prepSim = await simulateStage2(connection, prep.transaction);
-        if (!prepSim.ok) {
-          return { stage: "x1_fee_ata_simulation", success: false, sim: prepSim, prep, built: null };
-        }
-      }
-    }
   }
 
   const built = await buildReverseBurn({ connection, userPubkey, amountHuman });
   
-  // If a Teleporter fee is due, prepend a transfer instruction (1% USDC.x to fee wallet).
+  // If a Teleporter fee is due, prepend the skim transfer (1% USDC.x to the
+  // fee wallet). When the fee wallet's ATA doesn't exist yet, the idempotent
+  // create comes FIRST so the transfer destination exists within the same tx.
   if (feeAmount > 0 && feeWallet) {
     const { PublicKey } = await import("@solana/web3.js");
     const { getAssociatedTokenAddressSync } = await import("@solana/spl-token");
@@ -878,7 +952,10 @@ export async function runReverse({ connection, userPubkey, amountHuman, feeAmoun
     const transferFeeIx = createTransferInstruction(
       userUsdcxAta, feeUsdcxAta, userPk, feeAmount_base, [], TOKEN_2022_PROGRAM_ID
     );
-    built.transaction.instructions.unshift(transferFeeIx);
+    const prepend = prep?.needsCreation
+      ? [prep.instruction, transferFeeIx] // create → transfer → burn
+      : [transferFeeIx];                  // transfer → burn
+    built.transaction.instructions.unshift(...prepend);
   }
   
   onBuilt();

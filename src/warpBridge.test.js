@@ -572,8 +572,10 @@ import {
   runReverse,
   encodeReverseSeq,
   assertX1FeePayer,
+  assertX1UsdcBalance,
   ensureX1FeeWalletAta,
   X1FeePayerError,
+  X1UsdcBalanceError,
   X1_FEE_PAYER_MIN_LAMPORTS,
 } from "./warpBridge.js";
 
@@ -583,7 +585,7 @@ const X1_FEE_ACCOUNT_GT = "4uRFjqVU5ZKkp7hQLx3Lm3YeWFts17ER8a5HLUE18ayG";
 // The fee collector wallet at slot 8 = WARP_ACCOUNTS.feePda (7bz2ZN…).
 const X1_FEE_COLLECTOR_GT = WARP_ACCOUNTS.feePda.toBase58();
 
-function mockX1Connection({ userPubkey = USER, feePayerExists = true, feeAtaExists = true, simOk = true, simErr = null } = {}) {
+function mockX1Connection({ userPubkey = USER, feePayerExists = true, feeAtaExists = true, simOk = true, simErr = null, usdcBalance = 1_000_000_000_000n, usdcBalanceExists = true } = {}) {
   const calls = [];
   const connection = {
     calls,
@@ -591,10 +593,20 @@ function mockX1Connection({ userPubkey = USER, feePayerExists = true, feeAtaExis
       calls.push("getAccountInfo");
       // Fee-payer preflight: the USER's system account.
       if (pk.equals(userPubkey)) return feePayerExists ? { lamports: 5_000_000 } : null;
+      // Balance preflight: the USER's USDC.x ATA.
+      const userAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, userPubkey, true, TOKEN_2022_PROGRAM_ID);
+      if (pk.equals(userAta)) return usdcBalanceExists ? { lamports: 2_039_280 } : null;
       // Fee-wallet ATA check (ensureX1FeeWalletAta).
       const feeAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, FEE_WALLET, true, TOKEN_2022_PROGRAM_ID);
       if (pk.equals(feeAta)) return feeAtaExists ? { lamports: 2_039_280 } : null;
       return null;
+    },
+    async getTokenAccountBalance(pk) {
+      calls.push("getTokenAccountBalance");
+      const userAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, userPubkey, true, TOKEN_2022_PROGRAM_ID);
+      if (!pk.equals(userAta)) throw new Error("mock: unexpected token account");
+      if (!usdcBalanceExists) throw new Error("AccountNotFound");
+      return { value: { amount: String(usdcBalance), decimals: 6, uiAmount: Number(usdcBalance) / 1e6 } };
     },
     async getSlot() { calls.push("getSlot"); return 123_456_789; },
     async getLatestBlockhash() { calls.push("getLatestBlockhash"); return { blockhash: "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx", lastValidBlockHeight: 99 }; },
@@ -740,7 +752,7 @@ test("runReverse: X1 fee-payer preflight blocks BEFORE anything is built (action
   assert.equal(wallet.calls.length, 0);
 });
 
-test("runReverse (sim mode): fee-wallet ATA tx simulated-not-sent; burn simulated; nothing broadcast", async () => {
+test("runReverse (sim mode): missing fee ATA → create is BUNDLED into the burn tx, sims clean, nothing broadcast", async () => {
   const conn = mockX1Connection({ feePayerExists: true, feeAtaExists: false, simOk: true });
   const wallet = mockWallet();
   const res = await runReverse({
@@ -750,11 +762,73 @@ test("runReverse (sim mode): fee-wallet ATA tx simulated-not-sent; burn simulate
   assert.equal(res.stage, "simulated_ok");
   assert.equal(res.success, true);
   assert.equal(res.prep.needsCreation, true);
+  // The fee ATA does NOT exist → the idempotent create is bundled in front of
+  // the skim transfer, so the single burn tx sims CLEAN (no dead-end: the
+  // transfer destination exists within the same tx).
+  const tx = res.built.transaction;
+  assert.equal(tx.instructions.length, 3, "create → skim transfer → burn in one tx");
+  assert.equal(tx.instructions[0].programId.toBase58(), "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", "ix0 = idempotent ATA create");
+  assert.equal(tx.instructions[0].data[0], 1, "idempotent create (discriminator 1)");
+  assert.equal(tx.instructions[1].programId.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58(), "ix1 = skim transfer");
+  assert.equal(tx.instructions[2].programId.toBase58(), WARP_PROGRAM_ID.toBase58(), "ix2 = Warp bridge_out burn");
   // Wallet never asked to sign in sim mode.
   assert.equal(wallet.calls.length, 0);
-  // Burn simulated but never broadcast.
-  assert.ok(conn.calls.includes("simulateTransaction"));
+  // ONE simulation (the bundled burn tx), nothing broadcast.
+  assert.equal(conn.calls.filter((c) => c === "simulateTransaction").length, 1);
   assert.ok(!conn.calls.includes("sendRawTransaction"));
+});
+
+test("runReverse (live mode): missing fee ATA → create+transfer+burn in ONE tx, ONE guarded send (no dead-end, no double prompt)", async () => {
+  const userKp = Keypair.generate();
+  const conn = mockX1Connection({ userPubkey: userKp.publicKey, feePayerExists: true, feeAtaExists: false, simOk: true });
+  const wallet = mockWallet({ keypairs: [userKp] });
+  const res = await runReverse({
+    connection: conn, userPubkey: userKp.publicKey, amountHuman: 24.75,
+    feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: true, provider: wallet,
+  });
+  assert.equal(res.stage, "sent");
+  assert.equal(res.signature, "x1-burn-sig");
+  assert.equal(res.prep.needsCreation, true);
+
+  // Instruction order: [0] idempotent create (payer = user, owner = fee wallet),
+  // [1] our 1% skim transfer, [2] Warp bridge_out burn.
+  const tx = res.built.transaction;
+  assert.equal(tx.instructions.length, 3);
+  const create = tx.instructions[0];
+  assert.equal(create.programId.toBase58(), "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+  assert.equal(create.data[0], 1, "idempotent create");
+  assert.equal(create.keys[0].pubkey.toBase58(), userKp.publicKey.toBase58(), "payer = user (pays rent + signs)");
+  assert.equal(create.keys[0].isSigner, true);
+  assert.equal(create.keys[2].pubkey.toBase58(), FEE_WALLET.toBase58(), "owner = fee wallet");
+  assert.equal(create.keys[3].pubkey.toBase58(), X1_USDCX_MINT.toBase58(), "mint = USDC.x");
+  const feeAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, FEE_WALLET, true, TOKEN_2022_PROGRAM_ID);
+  assert.equal(create.keys[1].pubkey.toBase58(), feeAta.toBase58(), "creates the fee wallet's USDC.x ATA");
+
+  // The skim transfers 1% (0.25 USDC.x = 250000 base) to that same ATA.
+  const skim = tx.instructions[1];
+  assert.equal(skim.programId.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58());
+  const skimAmount = Buffer.from(skim.data).readBigUInt64LE(1);
+  assert.equal(skimAmount, 250_000n);
+  const userUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, userKp.publicKey, true, TOKEN_2022_PROGRAM_ID);
+  assert.equal(skim.keys[0].pubkey.toBase58(), userUsdcxAta.toBase58(), "skim from the user's USDC.x ATA");
+  assert.equal(skim.keys[1].pubkey.toBase58(), feeAta.toBase58(), "skim to the fee wallet's USDC.x ATA");
+
+  // The burn amount = gross − skim = 24.75 USDC.x (24750000 base).
+  const burn = tx.instructions[2];
+  assert.equal(burn.programId.toBase58(), WARP_PROGRAM_ID.toBase58());
+  let amt = 0n; const amountLE = burn.data.slice(16, 24);
+  for (let i = 7; i >= 0; i--) amt = (amt << 8n) | BigInt(amountLE[i]);
+  assert.equal(amt, 24_750_000n, "bridge_out burns the net (gross − 1% skim)");
+
+  // ONE guarded send: fresh blockhash → sim → signTransaction → app
+  // sendRawTransaction. The ATA creation is NOT a separate broadcast.
+  assert.equal(conn.calls.filter((c) => c === "sendRawTransaction").length, 1, "single broadcast (no separate ATA tx)");
+  // Two simulations by design: the runReverse fail-closed gate + the
+  // guardedSendSolanaTx pre-send gate (same tx, both must pass).
+  assert.equal(conn.calls.filter((c) => c === "simulateTransaction").length, 2, "runReverse gate + guarded-send gate");
+  assert.ok(conn.calls.includes("confirmTransaction"));
+  assert.ok(wallet.calls.some((c) => c.method === "signTransaction"));
+  assert.equal(wallet.calls.length, 1, "ONE wallet signature (no separate ATA-creation prompt)");
 });
 
 test("runReverse (live mode): 1% skim transfer FIRST, then the burn; broadcast through the X1 connection", async () => {
@@ -808,4 +882,74 @@ test("runReverse is FAIL-CLOSED: a rejected burn simulation blocks — no send, 
   assert.deepEqual(res.sim.err, { InstructionError: [0, "Custom"] });
   assert.ok(!conn.calls.includes("sendRawTransaction"), "must not broadcast a tx whose simulation failed");
   assert.ok(!wallet.calls.some((c) => c.method === "signTransaction" || c.method === "signAndSendTransaction"));
+});
+
+test("runReverse: X1 USDC.x balance preflight — a shortfall throws an ACTIONABLE error BEFORE anything is built (the real v2 live failure)", async () => {
+  // The v2 armed-preview failure was Token-2022 `custom program error: 0x1` =
+  // Custom(1) InsufficientFunds — the burn's total debit (1% skim + Warp
+  // gross) exceeded the user's balance and the sim died cryptically inside
+  // Warp's burn CPI. The preflight turns that into an actionable message.
+  const conn = mockX1Connection({ feePayerExists: true, feeAtaExists: true, usdcBalance: 25_000_000n }); // 25.00 < 25.25 required
+  const wallet = mockWallet();
+  await assert.rejects(
+    () => runReverse({
+      connection: conn, userPubkey: USER, amountHuman: 25,
+      feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: true, provider: wallet,
+    }),
+    (err) => {
+      assert.ok(err instanceof X1UsdcBalanceError);
+      assert.match(err.message, /Not enough USDC\.x on X1/);
+      assert.match(err.message, /holds 25\.00 USDC\.x/);
+      assert.equal(err.available, 25_000_000n);
+      assert.equal(err.required, 25_250_000n);
+      return true;
+    },
+  );
+  // Nothing built, nothing simulated, wallet never asked to sign.
+  assert.ok(!conn.calls.includes("getSlot"), "burn was never built");
+  assert.ok(!conn.calls.includes("simulateTransaction"));
+  assert.equal(wallet.calls.length, 0);
+});
+
+test("runReverse: X1 USDC.x balance preflight — exact balance passes; missing ATA treated as 0 and blocks with an actionable message", async () => {
+  // Exact balance (30.00 for a 30.00 send) → preflight passes, flow proceeds.
+  const conn = mockX1Connection({ feePayerExists: true, feeAtaExists: true, usdcBalance: 30_000_000n, simOk: true });
+  const wallet = mockWallet();
+  const res = await runReverse({
+    connection: conn, userPubkey: USER, amountHuman: 29.70,
+    feeAmount: 0.30, feeWallet: FEE_WALLET, allowLive: false, provider: wallet,
+  });
+  assert.equal(res.stage, "simulated_ok");
+  assert.equal(res.success, true);
+
+  // Missing USDC.x ATA (no balance on X1) → 0 available → blocks with the
+  // actionable message, still fail-closed and before any build.
+  const conn2 = mockX1Connection({ feePayerExists: true, feeAtaExists: true, usdcBalanceExists: false });
+  await assert.rejects(
+    () => runReverse({
+      connection: conn2, userPubkey: USER, amountHuman: 25,
+      feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: false, provider: wallet,
+    }),
+    (err) => err instanceof X1UsdcBalanceError && /holds 0\.00 USDC\.x/.test(err.message),
+  );
+  assert.ok(!conn2.calls.includes("getSlot"));
+  assert.equal(wallet.calls.length, 0);
+});
+
+test("assertX1UsdcBalance: RPC failure is fail-closed (cannot prove funds → actionable error)", async () => {
+  const conn = {
+    async getAccountInfo() { throw new Error("fetch failed: ECONNREFUSED"); },
+  };
+  await assert.rejects(
+    () => assertX1UsdcBalance(conn, USER, 25_000_000n),
+    (err) => err instanceof X1UsdcBalanceError && /Could not verify your X1 USDC\.x balance/.test(err.message),
+  );
+});
+
+test("assertX1UsdcBalance: sufficient balance resolves with the checked amounts", async () => {
+  const conn = mockX1Connection({ feePayerExists: true, feeAtaExists: true, usdcBalance: 50_000_000n });
+  const res = await assertX1UsdcBalance(conn, USER, 25_000_000n);
+  assert.equal(res.ok, true);
+  assert.equal(res.available, 50_000_000n);
+  assert.equal(res.required, 25_000_000n);
 });
