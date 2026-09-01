@@ -69,7 +69,6 @@ function renderWithProvider(element, initialState) {
         evmBalanceFetcher: async () => null,
         solBalanceFetcher: async () => null,
         x1BalanceFetcher: async () => null,
-        createConnections: async () => ({ sol: null, x1: null }),
       },
     },
   });
@@ -189,7 +188,6 @@ const FORM_PROPS = (over = {}) => ({
     evmBalanceFetcher: async () => null,
     solBalanceFetcher: async () => null,
     x1BalanceFetcher: async () => null,
-    createConnections: async () => ({ sol: null, x1: null }),
   },
   ...over,
 });
@@ -236,7 +234,6 @@ test("balance line renders inside the form: EVM + Solana + X1 balances with live
       evmBalanceFetcher: async () => 27.59,
       solBalanceFetcher: async () => ({ USDC: 5.2, WSOL: 0.3 }),
       x1BalanceFetcher: async () => ({ "USDC.x": 27.59, "wSOL.X": 0.3 }),
-      createConnections: async () => ({ sol: { fake: true }, x1: { fake: true } }),
     },
   }));
   try {
@@ -264,7 +261,6 @@ test("balance line fail-soft inside the form: dead RPCs show —, form still wor
       evmBalanceFetcher: async () => { throw new Error("eth_call down"); },
       solBalanceFetcher: async () => { throw new Error("RPC down"); },
       x1BalanceFetcher: async () => { throw new Error("RPC down"); },
-      createConnections: async () => ({ sol: {}, x1: {} }),
     },
   }));
   try {
