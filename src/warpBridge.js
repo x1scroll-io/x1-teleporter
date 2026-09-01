@@ -1021,8 +1021,14 @@ export async function pollWarpStatus(sourceSig, { api = WARP_API.mainnet, from =
       if (tresp.ok) {
         const tj = await tresp.json();
         onUpdate("status", tj);
-        const dest = tj.destinationTxSignature || tj.destination_tx || tj.destTx;
-        const final = (tj.status || tj.executionStatus || "").toString().toLowerCase();
+        // The Warp API nests the transaction under `transaction` (with the
+        // destination release sig as `destTxSig`), e.g.
+        //   { transaction: { status: "executed", destTxSig: "2LsD...", ... }, signatures: [...] }
+        // Some endpoints/historical shapes return the same fields at the top
+        // level. Normalize BOTH shapes before reading anything.
+        const t = tj.transaction && typeof tj.transaction === "object" ? tj.transaction : tj;
+        const dest = t.destinationTxSignature || t.destination_tx || t.destTxSig || t.destTx;
+        const final = (t.status || t.executionStatus || "").toString().toLowerCase();
         if (dest || final.includes("complete") || final.includes("executed") || final.includes("success")) {
           onUpdate("complete", { destinationTx: dest, raw: tj });
           return { ok: true, destinationTx: dest, raw: tj };
