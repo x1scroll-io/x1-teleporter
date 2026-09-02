@@ -1,10 +1,11 @@
-# ROUTING-ENGINE.md — the x1-teleporter routing engine (Phase 1)
+# ROUTING-ENGINE.md — the x1-teleporter routing engine (Phase 3)
 
-Status: **Phase 1 — the FORWARD leg (ETH → X1) runs on the engine, proven
-byte-identical against both measuring instruments.** Reverse, THORChain and
+Status: **Phase 3 — the THORChain deposit-address lane joins the engine; all
+three routes (forward ETH → X1, reverse X1 → EVM, THORChain source → SOL.SOL)
+run on the engine, proven byte-identical against the measuring instruments.**
 DEX lanes are NOT on the engine — they keep their existing code paths until a
 later phase migrates them. The engine never merges until the instruments pass
-unchanged (PR policy: base `v2`, branch `feat/engine-phase1`).
+unchanged (PR policy: base `v2`, branch `feat/engine-phaseN`).
 
 ---
 
@@ -139,7 +140,37 @@ engine, never the oracle.
 - `vite.config.js` / `vercel.json` untouched; `npm run build` must succeed;
   the branch stays deployable at every commit.
 
-## 6. Phase-2+ (not built here)
+## 6. Phase-2 scope — the REVERSE route (X1 → EVM)
+
+- Migrates: the X1 Warp burn (bundled fee-ATA create when missing + 1% skim +
+  BridgeOut — `x1-reverse-burn`), the release-wait poll (`warp-release-wait`,
+  submitter-side release DETECTION via the same-origin `/api/warp/*` proxy),
+  and the LiFi Solana→EVM out leg to the PINNED EVM destination
+  (`lifi-solana-out`). Golden oracle: `test/goldenReverse.test.js` +
+  `test/fixtures/golden/reverse-leg/`; harness: `e2e/reverse-leg.spec.js`.
+
+## 7. Phase-3 scope — the THORChain deposit-address lane
+
+- Migrates: the THORChain lane's app-constructed artifacts (the Buy/THORChain
+  tab — BTC/DOGE/LTC/XRP → SOL.SOL deposit-address flow) as TWO build-only
+  legs — `thorchain-quote` (the canonical proxy quote request + size-cap
+  gate) and `thorchain-deposit-build` (the vault deposit address + the
+  deposit memo). Golden oracle: `test/goldenThorchain.test.js` +
+  `test/fixtures/golden/thorchain-leg/` (synthetic THORNode input bodies —
+  the lane is NOT live yet; the fixtures pin CURRENT construction; replace
+  with live captures on the first operator deposit).
+- BOTH legs are family `"external"` (an additive LegContract family): the
+  deposit executes OUT-OF-BAND in the user's external wallet — the engine's
+  SINGLE SignerResolver returns null for them BY DESIGN (no in-app session
+  signer exists for the deposit-address lane; the UI surfaces the honest
+  "send from your wallet" step). The SOL-landing watcher + post-landing
+  auto-advance reuse the Phase-1/2-proven executors on their existing gated
+  paths — not re-migrated.
+- Does NOT migrate: DEX/swap lanes (stay unplanned — `plan` returns null).
+- No new chains, no new tokens, no fee changes; `vite.config.js` /
+  `vercel.json` untouched; `npm run build` must succeed.
+
+## 8. Later phases (not built here)
 
 New route classes arrive as new `plan*` functions + leg factories behind the
 same shape; legs that need separable signing implement `requestSignature`;

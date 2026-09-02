@@ -59,12 +59,15 @@ import { resolveSolanaAdapter as resolveSolanaAdapterFn } from "../src/lib/walle
 import {
   planForward,
   planReverse,
+  planThorchain,
   plan,
   legById,
   legsForStage,
   FORWARD_LEG_IDS,
   REVERSE_LEG_IDS,
   REVERSE_STAGES,
+  THORCHAIN_LEG_IDS,
+  THORCHAIN_STAGES,
 } from "../src/engine/routePlanner.js";
 import {
   buildApprovalArtifact,
@@ -118,6 +121,17 @@ const {
   canonicalJson: revCanonicalJson,
   sha256Of: revSha256Of,
 } = await import("./golden/reverseLegBuilders.mjs");
+
+// ── Phase-3 THORChain-leg fixtures (the golden oracle for the deposit lane) ──
+const TC_FIX = join(here, "fixtures", "golden", "thorchain-leg");
+const readTc = (name) => JSON.parse(readFileSync(join(TC_FIX, name), "utf8"));
+const TC_STEP1 = readTc("step1-quote-request.json");
+const TC_STEP2 = readTc("step2-deposit-payload.json");
+const TC_SUMMARY = readTc("thorchain-leg-summary.json");
+const {
+  inboundByChain: tcInboundByChain,
+  canonicalJson: tcCanonicalJson,
+} = await import("./golden/thorchainLegBuilders.mjs");
 
 
 const USER = new PublicKey(SOLANA_ADDRESS);
@@ -417,10 +431,10 @@ test("engine routePlanner: the forward route plans EXACTLY the four legs in orde
   assert.equal(legById(route, "thorchain-deposit"), null);
 });
 
-test("engine routePlanner: unplanned directions return null — THORChain/DEX are NOT planned here (reverse IS — Phase 2)", () => {
+test("engine routePlanner: unplanned directions return null — DEX is NOT planned (forward/reverse/thorchain ARE — Phases 1-3)", () => {
   assert.equal(plan({ direction: "forward" }).id, "forward-eth-x1");
   assert.equal(plan({ direction: "reverse" }).id, "reverse-x1-eth"); // Phase 2 plans the reverse route
-  assert.equal(plan({ direction: "thorchain" }), null);
+  assert.equal(plan({ direction: "thorchain" }).id, "thorchain-btc-sol"); // Phase 3 plans the THORChain deposit route
   assert.equal(plan({ direction: "dex" }), null);
   assert.equal(plan({}).id, "forward-eth-x1"); // forward is the default
 });
@@ -852,9 +866,10 @@ test("engine routePlanner (Phase 2): the reverse route plans EXACTLY the three l
   assert.equal(REVERSE_STAGES.lifi.label, "stage 2 of 2 (LiFi Solana → EVM)");
   assert.equal(legById(route, "x1-reverse-burn").goldenStep, "step1-x1-burn");
   assert.equal(legById(route, "lifi-solana-out").goldenStep, "step3-lifi-out (toAddress pin + quote reference)");
-  // plan() dispatches reverse (Phase 2); THORChain/DEX stay unplanned.
+  // plan() dispatches reverse (Phase 2) + thorchain (Phase 3); DEX stays unplanned.
   assert.equal(plan({ direction: "reverse" }).id, "reverse-x1-eth");
-  assert.equal(plan({ direction: "thorchain" }), null);
+  assert.equal(plan({ direction: "thorchain" }).id, "thorchain-btc-sol");
+  assert.equal(plan({ direction: "dex" }), null);
 });
 
 test("engine reverse byte-identity step1: the x1-burn leg artifact == golden step1 (canonical JSON + sha256 + serialized bytes)", async () => {
@@ -1205,4 +1220,168 @@ test("engine reverseLiFiStage: a quote error surfaces verbatim (fail-closed — 
   } finally {
     mock.restoreAll();
   }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// PHASE 3 — THE THORCHAIN LEG (deposit-address lane BTC/DOGE/LTC/XRP → SOL.SOL)
+// test/fixtures/golden/thorchain-leg/*.json pins the reference artifacts;
+// these tests prove the ENGINE reproduces them byte-for-byte and that the
+// THORChain legs resolve NO in-app signer (family "external" — the deposit
+// executes out-of-band in the user's external wallet; the engine's ONE
+// SignerResolver returns null for it by design).
+// ════════════════════════════════════════════════════════════════════════════
+
+test("engine routePlanner (Phase 3): the THORChain route plans EXACTLY the two legs in order, grouped into the deposit-stage moments", () => {
+  const route = planThorchain({ source: "BTC" });
+  assert.equal(route.id, "thorchain-btc-sol");
+  assert.equal(route.direction, "thorchain");
+  assert.equal(route.sourceChain, "btc");
+  assert.equal(route.destChain, "sol");
+  assert.deepEqual(route.legs.map((l) => l.id), [...THORCHAIN_LEG_IDS]);
+  assert.deepEqual(route.legs.map((l) => l.id), ["thorchain-quote", "thorchain-deposit-build"]);
+  // Both legs are family "external": no in-app session signer exists for the
+  // deposit-address lane — the resolver must NOT invent one.
+  assert.deepEqual(route.legs.map((l) => l.family), ["external", "external"]);
+  assert.deepEqual(legsForStage(route, "quote").map((l) => l.id), ["thorchain-quote"]);
+  assert.deepEqual(legsForStage(route, "deposit").map((l) => l.id), ["thorchain-deposit-build"]);
+  assert.equal(THORCHAIN_STAGES.quote.label, "quote gate (fresh quote before the address)");
+  assert.equal(THORCHAIN_STAGES.deposit.label, "deposit address + memo (external send)");
+  assert.equal(legById(route, "thorchain-quote").goldenStep, "step1-quote-request");
+  assert.equal(legById(route, "thorchain-deposit-build").goldenStep, "step2-deposit-payload");
+  // The route shape is per-source (the legs read the chain at RUN time):
+  assert.equal(planThorchain({ source: "XRP" }).id, "thorchain-xrp-sol");
+  assert.equal(planThorchain({ source: "XRP" }).sourceChain, "xrp");
+  assert.equal(planThorchain().id, "thorchain-btc-sol"); // BTC is the default selection
+  // The THORChain legs never appear in the forward/reverse routes.
+  assert.equal(legById(planForward(), "thorchain-quote"), null);
+  assert.equal(legById(planReverse(), "thorchain-deposit-build"), null);
+});
+
+test("engine signerResolver (Phase 3): the 'external' family resolves null BY DESIGN (deposit-address lane — no invented signer)", async () => {
+  assert.equal(SIGNER_FAMILIES.external, "external");
+  // Even a sign-capable-looking session resolves null: the deposit happens in
+  // the user's EXTERNAL wallet, never through an in-app session signer.
+  const adapter = { publicKey: { toBase58: () => "x" }, signAndSendTransaction: async () => ({}) };
+  assert.equal(await resolveSigner("external", { provider: { adapter } }), null);
+  assert.equal(await resolveSigner("external", { provider: { request: async () => "0x" } }), null);
+  assert.equal(await resolveSigner("external", null), null);
+  assert.equal(familyCanSign("external", { provider: { adapter } }), false);
+  // createLeg accepts the external family (additive Phase-3 family).
+  const leg = createLeg({ id: "tc-x", family: "external", chain: "thorchain", phases: {} });
+  assert.equal(leg.family, "external");
+  assert.throws(() => createLeg({ id: "x", family: "cosmos", phases: {} })); // still rejected
+});
+
+test("engine thorchain byte-identity step1: the quote leg artifact == golden step1 (canonical JSON + sha256 + the canonical request URL)", async () => {
+  const route = planThorchain({ source: "BTC" });
+  const leg = legById(route, "thorchain-quote");
+  const res = await runLeg(leg, {
+    sourceChain: "BTC",
+    amount: 0.01,
+    destination: SOLANA_ADDRESS,
+    refundAddress: null,
+  });
+  assert.equal(res.stoppedAt, null); // build-only leg — no wallet/network phases
+  const artifact = res.results.build.artifact;
+  // Byte-identity with the golden step1 fixture (canonical JSON + sha256).
+  // The ENGINE is the wrong one if this differs.
+  assert.equal(tcCanonicalJson(artifact), tcCanonicalJson(TC_STEP1.artifact));
+  assert.equal(sha256Of(artifact), TC_STEP1.sha256);
+  // The request contract: our proxy path, base units, destination pin,
+  // cap known, no affiliate while the THORName placeholder is empty.
+  assert.equal(artifact.url, TC_STEP1.artifact.url);
+  assert.equal(artifact.url, TC_SUMMARY.derived.url);
+  assert.equal(artifact.amountInBaseUnits, "1000000");
+  assert.equal(artifact.destination, SOLANA_ADDRESS);
+  assert.deepEqual(artifact.capDecision, { ok: true, capKnown: true });
+  assert.ok(artifact.url.startsWith("/api/thorchain/quote?"));
+  assert.ok(!artifact.url.includes("affiliate"));
+  // The leg THROWS on the states the reference flow blocks.
+  await assert.rejects(
+    () => runLeg(leg, { sourceChain: "ETH", amount: 0.01, destination: SOLANA_ADDRESS }),
+    /unknown sourceChain/,
+  );
+  await assert.rejects(
+    () => runLeg(leg, { sourceChain: "BTC", amount: 0, destination: SOLANA_ADDRESS }),
+    /positive amount/,
+  );
+});
+
+test("engine thorchain byte-identity step2: the deposit-build leg artifact == golden step2 (canonical JSON + sha256 + the memo)", async () => {
+  const route = planThorchain({ source: "BTC" });
+  const leg = legById(route, "thorchain-deposit-build");
+  const byChain = tcInboundByChain();
+  const res = await runLeg(leg, {
+    sourceChain: "BTC",
+    byChain,
+    destination: SOLANA_ADDRESS,
+    refundAddress: null,
+  });
+  assert.equal(res.stoppedAt, null);
+  const artifact = res.results.build.artifact;
+  // Byte-identity with the golden step2 fixture (canonical JSON + sha256).
+  assert.equal(tcCanonicalJson(artifact), tcCanonicalJson(TC_STEP2.artifact));
+  assert.equal(sha256Of(artifact), TC_STEP2.sha256);
+  // The deposit contract: the BTC vault from the inbound snapshot + the memo
+  // `=:SOL.SOL:<dest>` (destination pin — never user-typed).
+  assert.equal(artifact.depositAddress, TC_STEP2.artifact.depositAddress);
+  assert.equal(artifact.depositAddress, TC_SUMMARY.derived.depositAddress);
+  assert.equal(artifact.memo, TC_STEP2.artifact.memo);
+  assert.equal(artifact.memo, `=:SOL.SOL:${SOLANA_ADDRESS}`);
+  assert.equal(artifact.memoParts.refundAddress, null);
+  assert.equal(artifact.halted, false);
+  // The deposit-build gates mirror the reference UI: halted chains and
+  // chains with no inbound entry are blocked.
+  await assert.rejects(
+    () => runLeg(leg, { sourceChain: "DOGE", byChain, destination: SOLANA_ADDRESS }),
+    /halted by THORChain/,
+  );
+  await assert.rejects(
+    () => runLeg(leg, { sourceChain: "LTC", byChain: { BTC: byChain.BTC }, destination: SOLANA_ADDRESS }),
+    /no inbound entry/,
+  );
+  await assert.rejects(
+    () => runLeg(leg, { sourceChain: "BTC", byChain: null, destination: SOLANA_ADDRESS }),
+    /byChain/,
+  );
+});
+
+test("engine thorchain: the planned two-leg route runs end-to-end through runLeg with the fixture ctx (lifecycle + phase trace)", async () => {
+  const route = planThorchain({ source: "BTC" });
+  const byChain = tcInboundByChain();
+  const trace = [];
+  for (const leg of route.legs) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await runLeg(leg, {
+      sourceChain: "BTC",
+      amount: 0.01,
+      destination: SOLANA_ADDRESS,
+      refundAddress: null,
+      byChain,
+    });
+    trace.push({ id: res.legId, phases: Object.keys(res.results), stoppedAt: res.stoppedAt });
+  }
+  // Both legs are build-only (no wallet, no network, no signer phases) —
+  // the exact contract for a deposit-address lane whose execution is
+  // out-of-band.
+  assert.deepEqual(trace, [
+    { id: "thorchain-quote", phases: ["build"], stoppedAt: null },
+    { id: "thorchain-deposit-build", phases: ["build"], stoppedAt: null },
+  ]);
+  // The two artifacts chain: the quote's destination == the deposit memo's
+  // destination == the pinned Solana session pubkey.
+  const [quoteRes, depositRes] = await Promise.all(
+    route.legs.map((leg) =>
+      runLeg(leg, {
+        sourceChain: "BTC",
+        amount: 0.01,
+        destination: SOLANA_ADDRESS,
+        refundAddress: null,
+        byChain,
+      }),
+    ),
+  );
+  assert.equal(quoteRes.results.build.artifact.destination, SOLANA_ADDRESS);
+  assert.equal(depositRes.results.build.artifact.destination, SOLANA_ADDRESS);
+  assert.equal(quoteRes.results.build.artifact.urlSha256, undefined); // hashes are test-side siblings
 });
