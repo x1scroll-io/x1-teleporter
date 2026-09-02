@@ -55,7 +55,15 @@ export const LEG_PHASES = [
  * Create a leg from a plain definition. `phases` may implement any subset of
  * LEG_PHASES; the rest default to undefined (skipped by runLeg).
  *
- * @param {{id: string, family: "evm"|"svm", chain: string,
+ * `family` is the chain family of the leg's signing surface — "evm" (EIP-1193
+ * provider) or "svm" (Wallet-Standard Solana adapter), resolved through the
+ * engine's SINGLE SignerResolver. Phase 3 adds "external": the deposit-address
+ * lane (THORChain) whose artifact is executed OUT-OF-BAND in the user's own
+ * external wallet — there is deliberately NO in-app session signer, and the
+ * resolver returns null for it (the UI surfaces the honest "send from your
+ * wallet" step instead of a wallet prompt).
+ *
+ * @param {{id: string, family: "evm"|"svm"|"external", chain: string,
  *          description: string, goldenStep?: string,
  *          phases: Partial<Record<Phase, Function>>}} def
  */
@@ -63,8 +71,8 @@ export function createLeg(def) {
   if (!def || typeof def.id !== "string" || !def.id) {
     throw new Error("createLeg: a leg needs an id");
   }
-  if (!def.family || !["evm", "svm"].includes(def.family)) {
-    throw new Error(`createLeg(${def.id}): family must be "evm" or "svm"`);
+  if (!def.family || !["evm", "svm", "external"].includes(def.family)) {
+    throw new Error(`createLeg(${def.id}): family must be "evm", "svm" or "external"`);
   }
   const phases = {};
   for (const phase of LEG_PHASES) {

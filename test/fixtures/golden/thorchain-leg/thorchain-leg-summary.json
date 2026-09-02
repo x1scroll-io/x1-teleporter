@@ -1,0 +1,70 @@
+{
+  "tool": "golden-transaction fixtures — THORChain leg BTC→SOL.SOL (regression oracle, Phase 3)",
+  "capturedAt": "2026-09-02T09:02:38.781Z",
+  "liveStatus": {
+    "note": "The THORChain lane is the NEXT roadmap item — it has NOT gone live (aggregator key parked server-side; UI flag-gated). The input bodies are SYNTHETIC THORNode-shaped fixtures; the oracle pins the CURRENT code's CONSTRUCTION. The engine must reproduce the artifacts exactly for the same inputs.",
+    "replaceWith": "On the first operator deposit: capture the live inbound_addresses body + a read-only proxy quote (same procedure as the forward/reverse frozen quotes), then re-run tools/capture-thorchain-golden-fixtures.mjs."
+  },
+  "sampleInput": {
+    "sourceChain": "BTC",
+    "fromAsset": "BTC.BTC",
+    "toAsset": "SOL.SOL",
+    "amount": 0.01,
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "refundAddress": null
+  },
+  "derived": {
+    "amountInBaseUnits": "1000000",
+    "depositAddress": "bc1qj9teleportervault0btc000synthetic0x7k2m4",
+    "selectedEntryHalted": false,
+    "inboundChainCount": 4,
+    "quote": {
+      "expectedAmountOut": 0.4975,
+      "expectedAmountOutRaw": 49750000,
+      "affiliateBps": null,
+      "slippageBps": 50,
+      "memo": null,
+      "halted": false
+    },
+    "feeLines": [
+      {
+        "id": "thorchain-affiliate",
+        "label": "THORChain affiliate (protocol fee)",
+        "party": "third-party",
+        "display": "1.00%"
+      },
+      {
+        "id": "warp-skim",
+        "label": "Teleporter fee (1%)",
+        "party": "teleporter",
+        "display": "1.00%"
+      },
+      {
+        "id": "warp-flat",
+        "label": "Warp bridge fee",
+        "party": "third-party",
+        "display": "$1 flat"
+      }
+    ],
+    "url": "/api/thorchain/quote?from_asset=BTC.BTC&to_asset=SOL.SOL&amount=1000000&destination=wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "urlSha256": "adbcd110b09540ddbe6d874d9b5966d14c0e99b4abfe29325b9f606dc2cccf9c",
+    "memo": "=:SOL.SOL:wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "memoSha256": "398eb36717bb9364a1b16af6f1535e1a2a72f55a58f1ace00fd1689d0938a4fa"
+  },
+  "steps": {
+    "step1QuoteRequest": {
+      "file": "step1-quote-request.json",
+      "sha256": "cd566851e678f0f6e429c9e3d5e1bfac0b70d7d69008a9c654bbc5064cc6b37a",
+      "url": "/api/thorchain/quote?from_asset=BTC.BTC&to_asset=SOL.SOL&amount=1000000&destination=wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+      "urlSha256": "adbcd110b09540ddbe6d874d9b5966d14c0e99b4abfe29325b9f606dc2cccf9c"
+    },
+    "step2DepositPayload": {
+      "file": "step2-deposit-payload.json",
+      "sha256": "9a5cb00fc10d32dad3501cc0efebd0a421a76d968a2b88b6487a46fa3df2d383",
+      "depositAddress": "bc1qj9teleportervault0btc000synthetic0x7k2m4",
+      "memo": "=:SOL.SOL:wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+      "memoSha256": "398eb36717bb9364a1b16af6f1535e1a2a72f55a58f1ace00fd1689d0938a4fa"
+    }
+  },
+  "verify": "test/goldenThorchain.test.js rebuilds every step from the same inputs and asserts byte-identical + sha256 match + the deposit-address flow invariants (destination pin, no-affiliate, cap)."
+}

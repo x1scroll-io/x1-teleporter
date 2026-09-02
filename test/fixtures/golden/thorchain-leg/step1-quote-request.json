@@ -1,0 +1,30 @@
+{
+  "step": "quote-request",
+  "sampleInput": {
+    "sourceChain": "BTC",
+    "fromAsset": "BTC.BTC",
+    "toAsset": "SOL.SOL",
+    "amount": 0.01,
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "refundAddress": null
+  },
+  "artifact": {
+    "sourceChain": "BTC",
+    "fromAsset": "BTC.BTC",
+    "toAsset": "SOL.SOL",
+    "amount": 0.01,
+    "amountInBaseUnits": "1000000",
+    "destination": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "refundAddress": null,
+    "capDecision": {
+      "ok": true,
+      "capKnown": true
+    },
+    "url": "/api/thorchain/quote?from_asset=BTC.BTC&to_asset=SOL.SOL&amount=1000000&destination=wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV"
+  },
+  "sha256": "cd566851e678f0f6e429c9e3d5e1bfac0b70d7d69008a9c654bbc5064cc6b37a",
+  "urlSha256": "adbcd110b09540ddbe6d874d9b5966d14c0e99b4abfe29325b9f606dc2cccf9c",
+  "meta": {
+    "note": "The deterministic quote request the deposit stage sends to OUR proxy /api/thorchain/quote (the aggregator key lives server-side; the client never holds it). Amounts in THORChain 1e8 base units; destination = the connected Solana session pubkey; the size cap (0.05 BTC-equivalent, config) is enforced BEFORE the fetch. The affiliate pair is OMITTED while THORCHAIN_AFFILIATE_NAME is empty (parked item) — nothing invented is ever sent to the quote API. urlSha256 pins the canonical serialized request."
+  }
+}
