@@ -11,23 +11,28 @@
  * fee lines):
  *   idle → Get Quote → quoting → quoted (fee lines from computeFee via
  *   quoteFees: Teleporter fee 1% + Warp bridge fee $1 on X1 routes + "you
- *   receive" net) → Bridge — Step 1 of 2 (the simulation-gated EVM LiFi leg,
- *   guardedSendEvmTx) → Step 2 of 2 (the Warp Solana→X1 hop, gated by
+ *   receive" net) → Bridge — Step 1 of 2 (the ROUTING-ENGINE's EVM stage:
+ *   the exact-amount approval leg + the sim-gated LiFi bridge leg — see
+ *   docs/ROUTING-ENGINE.md) → Step 2 of 2 (the engine's SVM stage: the X1
+ *   ATA-prep leg + the Warp lock leg, gated by
  *   WARP_LIVE_SEND for real broadcasts) → relaying / done / handoff.
  *
  * WALLET WIRING (v2 wallet layer, NOT v1's getOriginWallet):
  *   - EVM session (sessions.evm): its provider/address drive the quote's
  *     fromAddress and the stage-1 send. The sign-capable EIP-1193 provider is
- *     resolved via resolveEvmProvider (the session provider is the connect
- *     adapter; the raw provider sits behind discovered.provider.getProvider).
+ *     resolved via the engine's SignerResolver (evm → resolveEvmProvider —
+ *     the session provider is the connect adapter; the raw provider sits
+ *     behind discovered.provider.getProvider).
  *   - Solana session (sessions.solana): its address is the LiFi leg's
  *     toAddress (the hop lands USDC on Solana) and its adapter signs the
- *     stage-2 Warp tx. NO PLACEHOLDERS — quotes use only real connected
+ *     stage-2 Warp tx via SignerResolver (svm → resolveSolanaAdapter).
+ *     NO PLACEHOLDERS — quotes use only real connected
  *     addresses (v1 policy, kept verbatim).
  *
  * GATES (kept from v1, unchanged):
- *   - Simulation gates: guardedSendEvmTx (stage 1) + runStage2's fail-closed
- *     simulate (stage 2) block doomed txs and surface the reason.
+ *   - Simulation gates: the engine legs' simulate phases (stage 1 EVM legs
+ *     throw SimulationError on a revert; the SVM stage runners fail closed)
+ *     block doomed txs and surface the reason.
  *   - WARP_LIVE_SEND (VITE_WARP_LIVE_SEND): stage 2 broadcasts for real only
  *     when the flag is true; otherwise it runs in confirm-mode (simulates,
  *     shows "not sent").
@@ -48,8 +53,8 @@ import {
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs, checkReverseMin } from "../lib/reverseQuote.js";
-import { executeLiFiEvmTx } from "../lib/teleportExecute.js";
-import { resolveEvmProvider, resolveSolanaAdapter, solanaSessionCanSign } from "../lib/wallet/sessionProviders.js";
+import { resolveSolanaAdapter, solanaSessionCanSign } from "../lib/wallet/sessionProviders.js";
+import { SignerResolver, RoutePlanner, runForwardEvmStage, runForwardSvmStage } from "../engine/index.js";
 import { SimulationError } from "../lib/simulateTx.js";
 import { LiFiApprovalValidationError } from "../lib/lifiApproval.js";
 import { WARP_LIVE_SEND } from "../lib/flags.ts";
@@ -82,22 +87,20 @@ export function truncateAddress(addr) {
  */
 export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive, destToken = "USDC.x" }) {
   const { Connection, PublicKey } = await import("@solana/web3.js");
-  const { runStage2 } = await import("../warpBridge.js");
+  // The routing engine runs the SVM stage (stage 2 of 2): the X1 ATA-prep leg
+  // (recipient USDC.x/wSOL.X ATA — idempotent, payer = the connected wallet)
+  // then the Warp lock leg, exactly as runStage2 did — now as LegContract legs.
+  const route = RoutePlanner.planForward({ direction: "forward" });
   const connection = new Connection(SOLANA_RPC, "confirmed");
-  // X1 RPC for the destination prep: runStage2 creates the recipient's token
-  // ATA on X1 (USDC.x or wSOL.X — idempotent, payer = the connected wallet)
-  // before the Solana bridge_out, so Warp's guardian bridge_in_v2 finds the
-  // ATA already there.
   const x1Connection = new Connection(X1_RPC, "confirmed");
-  return runStage2({
-    connection,
-    x1Connection,
-    userPubkey: solAdapter.publicKey,
+  return runForwardSvmStage({
+    route,
+    solAdapter,
     feeWalletSvm: new PublicKey(FEE_WALLETS.SVM),
     amountHuman,
     allowLive, // WARP_LIVE_SEND gate — passed by the form (never hardcoded)
-    provider: solAdapter,
     destToken, // the X1 destination token — drives the Solana source (USDC | WSOL)
+    connections: { solana: connection, x1: x1Connection },
   });
 }
 
@@ -263,7 +266,8 @@ const PLACEHOLDER_EVM = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
  *          initialPhase?: string}} props
  *   evmSession / solSession: the WalletContext sessions (sessions.evm /
  *   sessions.solana). stage2Runner: DI'd Warp stage-2 runner for tests
- *   (default: defaultStage2Runner — the real runStage2 path).
+ *   (default: defaultStage2Runner — runs the engine's forward SVM stage:
+ *   the X1 ATA-prep leg + the Warp lock leg; see docs/ROUTING-ENGINE.md).
  *   onConnectWallet: when provided (the tab renders the form inside its
  *   ConnectedBody), the missing-wallet warnings become actionable buttons
  *   that open the connect modal — the multi-wallet fix: after the first
@@ -399,19 +403,26 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       setError("Refusing to bridge to a demo/placeholder address. Reconnect your real wallet.");
       return;
     }
-    const provider = await resolveEvmProvider(evmSession);
+    const provider = await SignerResolver.resolve("evm", evmSession);
     if (!provider) {
       setError("The connected EVM wallet can't sign transactions — reconnect your EVM wallet (e.g. Rabby/MetaMask).");
       return;
     }
     setPhase("bridging");
     try {
-      const txHash = await executeLiFiEvmTx({
-        lifiData: quote.lifiData, provider, address: evmSession.address,
+      // The routing engine runs the EVM stage (stage 1 of 2): the exact-amount
+      // approval leg then the LiFi bridge leg (quote forwarded verbatim) — the
+      // same sim-gated flow executeLiFiEvmTx ran, as LegContract legs.
+      const route = RoutePlanner.planForward({ direction: "forward" });
+      const { txHash } = await runForwardEvmStage({
+        route,
+        lifiData: quote.lifiData,
+        provider,
+        address: evmSession.address,
         onStatus: (msg) => setStatus(msg),
       });
       setStage1Hash(txHash);
-      const solAdapter = await resolveSolanaAdapter(solSession);
+      const solAdapter = await SignerResolver.resolve("svm", solSession);
       setPhase(solAdapter ? "step2" : "handoff");
     } catch (e) {
       console.group("[Teleport v2] Stage 1 FAILED");
@@ -427,7 +438,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   async function executeStage2() {
     if (!quote) return;
     setError(null); setStatus(null);
-    const solAdapter = await resolveSolanaAdapter(solSession);
+    const solAdapter = await SignerResolver.resolve("svm", solSession);
     if (!solAdapter) {
       setError("Connect your Solana/X1 wallet (Phantom/Backpack) to finish the X1 hop");
       setPhase("handoff");
