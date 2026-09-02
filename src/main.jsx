@@ -8,16 +8,22 @@ import { WalletProvider } from "./lib/wallet/WalletContext.jsx";
 import { createWalletDiscovery } from "./lib/wallet/walletDiscovery.js";
 import { createLaserEyesHandle } from "./lib/wallet/laserEyesHandle.js";
 import { createBtcBalanceFetcher } from "./lib/wallet/bitcoinBalance.js";
-import { LEGACY_UI, THORCHAIN, selectRootCard } from "./lib/flags.ts";
+import { LEGACY_UI, THORCHAIN, WARP_LIVE_SEND, selectRootCard } from "./lib/flags.ts";
+import { buildBanner } from "./lib/buildBanner.js";
 
 // BUILD MARKER — verify deployed build is current.
 // v2 card mounted by default (preview). Set NEXT_PUBLIC_FLAG_LEGACY_UI=true
 // (or VITE_FLAG_LEGACY_UI=true) to restore the v1 Teleporter card — it is
 // NOT deleted; it stays as the flag-restorable fallback until the cutover.
-// NO live sends: the WARP_LIVE_SEND gate stays false (Teleporter.jsx) and
-// the THORChain auto-advance allowLive defaults to false (autoAdvance.js).
+// Live-send state is read from the REAL compiled flag (WARP_LIVE_SEND,
+// pinned at build time by the vite.config.js allowlist — v2 branch arms it).
 console.log(
-  "%c[Teleporter] BUILD " + (typeof __BUILD_TIME__ !== "undefined" ? __BUILD_TIME__ : "dev") + " (v2 card mounted — preview; live sends OFF)",
+  "%c" +
+    buildBanner({
+      buildTime: typeof __BUILD_TIME__ !== "undefined" ? __BUILD_TIME__ : undefined,
+      WARP_LIVE_SEND,
+      THORCHAIN,
+    }),
   "color:#3fd3e8;font-weight:bold"
 );
 
