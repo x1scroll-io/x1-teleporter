@@ -12,8 +12,12 @@
  * harness). Phase 2: the REVERSE leg X1 → EVM joins the engine — the X1 Warp
  * burn, the release-wait poll, and the LiFi Solana→EVM out leg to the PINNED
  * EVM destination, with the reverse LiFi-out signer resolved through the
- * SAME single SignerResolver the forward leg uses. THORChain and DEX lanes
- * stay on their existing code paths untouched.
+ * SAME single SignerResolver the forward leg uses. Phase 3: the THORChain
+ * deposit-address lane (BTC/DOGE/LTC/XRP → SOL.SOL) joins as two legs — the
+ * quote-request leg + the deposit-build leg, both family "external" (the
+ * deposit executes out-of-band in the user's external wallet — the resolver
+ * returns null by design). DEX lanes stay on their existing code paths
+ * untouched.
  */
 export { LEG_PHASES, createLeg, runLeg, legSkip, isLegSkip } from "./legContract.js";
 export {
@@ -28,9 +32,12 @@ export {
   FORWARD_STAGES,
   REVERSE_LEG_IDS,
   REVERSE_STAGES,
+  THORCHAIN_LEG_IDS,
+  THORCHAIN_STAGES,
   RoutePlanner,
   planForward,
   planReverse,
+  planThorchain,
   plan,
   legById,
   legsForStage,
@@ -57,3 +64,7 @@ export {
   toPubkey as reverseToPubkey,
 } from "./legs/reverse/x1BurnLeg.js";
 export { buildLifiOutArtifact } from "./legs/reverse/lifiSolanaOutLeg.js";
+
+// THORChain-leg builders are reachable for oracle/byte-identity checks:
+export { shapeQuoteRequestArtifact } from "./legs/thorchain/quoteLeg.js";
+export { shapeDepositPayloadArtifact } from "./legs/thorchain/depositBuildLeg.js";

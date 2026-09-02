@@ -1,0 +1,34 @@
+{
+  "step": "deposit-payload",
+  "sampleInput": {
+    "sourceChain": "BTC",
+    "fromAsset": "BTC.BTC",
+    "toAsset": "SOL.SOL",
+    "amount": 0.01,
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "refundAddress": null
+  },
+  "artifact": {
+    "sourceChain": "BTC",
+    "fromAsset": "BTC.BTC",
+    "chain": "BTC",
+    "destination": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "depositAddress": "bc1qj9teleportervault0btc000synthetic0x7k2m4",
+    "halted": false,
+    "memo": "=:SOL.SOL:wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "memoParts": {
+      "opcode": "=",
+      "asset": "SOL.SOL",
+      "destination": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+      "refundAddress": null,
+      "limit": null,
+      "affiliate": null,
+      "affiliateBps": null
+    }
+  },
+  "sha256": "9a5cb00fc10d32dad3501cc0efebd0a421a76d968a2b88b6487a46fa3df2d383",
+  "memoSha256": "398eb36717bb9364a1b16af6f1535e1a2a72f55a58f1ace00fd1689d0938a4fa",
+  "meta": {
+    "note": "The deterministic deposit payload the deposit stage shows the user: the THORChain vault address for the selected source chain (from the inbound-addresses refresh — in-memory only, never cached) + the deposit MEMO in THORNode SwapMemo.String() scheme (`=:SOL.SOL:<solanaDest>[/<refund>]`), destination = the connected Solana session pubkey (never user-typed). The user sends from their OWN external wallet attaching the memo; the app never signs or broadcasts the deposit (v1 deposit-address flow). memoSha256 pins the memo bytes."
+  }
+}

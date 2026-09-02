@@ -26,10 +26,31 @@
  *                                leg to the PINNED EVM destination (golden
  *                                step3)
  *
+ * Phase-3 scope (this file): the THORChain route (deposit-address lane) joins
+ * the planner as planThorchain — the BUY/THORChain tab's flow
+ * BTC/DOGE/LTC/XRP → SOL.SOL. Two legs (the app-constructed deposit-lane
+ * artifacts — the quote request + the deposit payload):
+ *
+ *   quote stage:   thorchain-quote         the proxy quote REQUEST (1e8 base
+ *                                           units, destination pin, size cap
+ *                                           before fetch — golden step1)
+ *   deposit stage: thorchain-deposit-build  the vault deposit address + the
+ *                                           deposit MEMO (golden step2)
+ *
+ *   Both legs are family "external": the deposit is executed OUT-OF-BAND in
+ *   the user's external wallet (copy address + memo, send, paste txid) —
+ *   the engine's SignerResolver returns null for them by design (no in-app
+ *   session signer exists for the deposit-address lane). The SOL-landing
+ *   watcher + the post-landing auto-advance (SOL→USDC swap, 1% skim, Warp
+ *   hop) reuse the SAME proven executors the forward/reverse engine legs
+ *   already wrap (executeLiFiSolanaTx / buildStage2 / runStage2 — pinned by
+ *   the Phase-1/2 oracles) and stay on their existing gated paths; the
+ *   planner plans the deposit route here.
+ *
  * The planner owns ROUTE SHAPE only — it does NOT execute anything and does
  * NOT touch wallets/connections — the stage runners (runners/*.js) drive the
- * planned legs with a dependency-injected context. THORChain / DEX routes
- * are NOT planned here and stay on their existing code paths untouched.
+ * planned legs with a dependency-injected context. DEX routes are NOT
+ * planned here and stay on their existing code paths untouched.
  */
 import { createLeg } from "./legContract.js";
 import { createApprovalLeg } from "./legs/forward/approvalLeg.js";
@@ -39,6 +60,8 @@ import { createWarpLockLeg } from "./legs/forward/warpLockLeg.js";
 import { createX1BurnLeg } from "./legs/reverse/x1BurnLeg.js";
 import { createReleaseWaitLeg } from "./legs/reverse/releaseWaitLeg.js";
 import { createLifiSolanaOutLeg } from "./legs/reverse/lifiSolanaOutLeg.js";
+import { createThorchainQuoteLeg } from "./legs/thorchain/quoteLeg.js";
+import { createThorchainDepositBuildLeg } from "./legs/thorchain/depositBuildLeg.js";
 
 /** The forward route's leg ids in execution order (the planner contract). */
 export const FORWARD_LEG_IDS = Object.freeze([
@@ -74,7 +97,6 @@ export const REVERSE_STAGES = Object.freeze({
 export function buildReverseLegs() {
   return [createX1BurnLeg(), createReleaseWaitLeg(), createLifiSolanaOutLeg()];
 }
-
 /**
  * Plan the reverse route (X1 → EVM): the X1 Warp burn, the release-wait
  * poll, then the LiFi Solana→EVM leg to the pinned EVM destination — mapped
@@ -98,6 +120,25 @@ export function planReverse({ to = "eth" } = {}) {
   };
 }
 
+/** The THORChain route's leg ids in execution order (the planner contract). */
+export const THORCHAIN_LEG_IDS = Object.freeze([
+  "thorchain-quote",
+  "thorchain-deposit-build",
+]);
+
+/** Stage grouping of the THORChain route's legs (the deposit stage's two
+ *  moments: the quote gate first — the deposit address is shown ONLY after a
+ *  fresh quote lands — then the deposit payload). */
+export const THORCHAIN_STAGES = Object.freeze({
+  quote: Object.freeze({ label: "quote gate (fresh quote before the address)", legIds: Object.freeze(["thorchain-quote"]) }),
+  deposit: Object.freeze({ label: "deposit address + memo (external send)", legIds: Object.freeze(["thorchain-deposit-build"]) }),
+});
+
+/** The two Phase-3 THORChain leg factories, in route order. */
+export function buildThorchainLegs() {
+  return [createThorchainQuoteLeg(), createThorchainDepositBuildLeg()];
+}
+
 /** The four Phase-1 forward leg factories, in route order. */
 export function buildForwardLegs() {
   return [createApprovalLeg(), createLifiEvmLeg(), createAtaCreateLeg(), createWarpLockLeg()];
@@ -111,12 +152,9 @@ export function buildForwardLegs() {
  * sufficient).
  *
  * @param {{direction?: string}} _opts reserved (quote/token/destToken arrive
- *   at RUN time in the ctx — the planner is shape-only in Phase 1).
+ *   at RUN time in the ctx — the planner is shape-only).
  * @returns {object} the planned route { id, direction, sourceChain, destChain,
  *   legs: LegContract[], stages }.
- * @throws when asked to plan a route class Phase 1 does not plan (reverse,
- *   THORChain, DEX) — those stay on their existing paths; the planner must
- *   never pretend it can run them.
  */
 export function planForward(_opts = {}) {
   const legs = buildForwardLegs();
@@ -131,14 +169,39 @@ export function planForward(_opts = {}) {
 }
 
 /**
+ * Plan the THORChain route (source chain → SOL.SOL — the deposit-address
+ * lane, Phase 3): the quote-request leg + the deposit-payload leg, mapped to
+ * the deposit stage's two moments (quote gate → deposit address + memo).
+ *
+ * @param {{source?: string}} opts the SOURCE chain ("BTC" default — the
+ *   tab's default selection; "DOGE"|"LTC"|"XRP" plan the same two-leg
+ *   shape — the legs read the chain + amounts from the run ctx).
+ * @returns {object} the planned route { id, direction, sourceChain, destChain,
+ *   legs: LegContract[], stages }.
+ */
+export function planThorchain({ source = "BTC" } = {}) {
+  const legs = buildThorchainLegs();
+  return {
+    id: "thorchain-" + String(source).toLowerCase() + "-sol",
+    direction: "thorchain",
+    sourceChain: String(source).toLowerCase(),
+    destChain: "sol",
+    legs,
+    stages: THORCHAIN_STAGES,
+  };
+}
+
+/**
  * The RoutePlanner entry: plans a route for a direction.
- * Plans "forward" (ETH → X1, four legs) and "reverse" (X1 → EVM, three
- * legs — Phase 2); THORChain/DEX stay unplanned (null) — those lanes keep
- * their existing paths until a later phase adds their plan*.
+ * Plans "forward" (ETH → X1, four legs), "reverse" (X1 → EVM, three legs —
+ * Phase 2) and "thorchain" (source → SOL.SOL deposit route, two legs —
+ * Phase 3); DEX stays unplanned (null) — those lanes keep their existing
+ * paths until a later phase adds their plan*.
  */
 export function plan({ direction = "forward", ...opts } = {}) {
   if (direction === "forward") return planForward(opts);
   if (direction === "reverse") return planReverse(opts);
+  if (direction === "thorchain") return planThorchain(opts);
   return null;
 }
 
@@ -156,12 +219,14 @@ export function legsForStage(route, stageKey) {
 
 /**
  * The RoutePlanner surface: plan a route, read its legs/stages. Plans the
- * forward route (Phase 1) + the reverse route (Phase 2); THORChain/DEX stay
- * unplanned (plan returns null) — those lanes keep their existing paths.
+ * forward route (Phase 1), the reverse route (Phase 2) and the THORChain
+ * deposit route (Phase 3); DEX stays unplanned (plan returns null) — those
+ * lanes keep their existing paths.
  */
 export const RoutePlanner = Object.freeze({
   planForward,
   planReverse,
+  planThorchain,
   plan,
   legById,
   legsForStage,
@@ -169,4 +234,6 @@ export const RoutePlanner = Object.freeze({
   FORWARD_STAGES,
   REVERSE_LEG_IDS,
   REVERSE_STAGES,
+  THORCHAIN_LEG_IDS,
+  THORCHAIN_STAGES,
 });
