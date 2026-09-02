@@ -1,0 +1,109 @@
+{
+  "step": "warp-lock",
+  "sampleInput": {
+    "from": "eth",
+    "token": "USDC",
+    "destToken": "USDC.x",
+    "amountUser": 25.65,
+    "evmAddress": "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6",
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "feeWalletSvm": "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu",
+    "liFiDiamondEth": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "seqSlot": 305000000
+  },
+  "artifact": {
+    "seq": "72057899037927936",
+    "seqSlot": 305000000,
+    "grossBase": "25554929",
+    "skimBase": "255549",
+    "bridgeBase": "25299380",
+    "amountHuman": 25.554929,
+    "outgoingMsgPda": "2HqRDtU3gsjZCGicL5xDSnVBZTMibDpp77cVBRumtzks",
+    "feeAtaCreated": false,
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "instructionCount": 3,
+    "instructions": [
+      {
+        "programId": "ComputeBudget111111111111111111111111111111",
+        "dataBase64": "AmDqAAA="
+      },
+      {
+        "programId": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "dataBase64": "Az3mAwAAAAAA"
+      },
+      {
+        "programId": "6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD",
+        "dataBase64": "G8I5d9el95YAqmoDRwAAAbQJggEAAAAA"
+      }
+    ],
+    "accountList": [
+      {
+        "pubkey": "48Po6qAHRJojbXH7KRqt6s5GfNfs9VEGccfqYEHmubEi",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "34E131ZpUomghxgvW8RnYSucQrY2zNQZRyHgPzL4MqCf",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "2HqRDtU3gsjZCGicL5xDSnVBZTMibDpp77cVBRumtzks",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+        "isSigner": true,
+        "isWritable": true
+      },
+      {
+        "pubkey": "4Rrj7pgmDgJ7c52D2RFZY7WGee1QdJeN2iHHNJGeYLGf",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "C6byAvMfEa9wrbfVDeLEWbCkQNa8HAtpGxDPZKG3FqRp",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "H3E5ywpQ96z5MfhKniB7n95sDq3asXeo46mQeLmiBZ26",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2Jig7j",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "6ob9XW6f6mweGu5sGh3JwW2Vp6UNQApjuPvrubXMQXyi",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "pubkey": "11111111111111111111111111111111",
+        "isSigner": false,
+        "isWritable": false
+      }
+    ],
+    "serializedBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAQPDemPkGJ7C08djOeZ2XzHRO9CYCPEyaz5lQkfwWtbo8gTK7nRiuGvJ75twCXijPfCMYOhAFdST+4Qy+fUyz4RLB6K0OwUs/sFa8gmHr+/mht7g696ZRLQ7V97P5Mh9BjULnfmkMTtTyfjRs42nJLVB0pSaHbviD/36Qn1LxtUgYMy8TnK4K1Z4uPGzKfuF2kSbWfAuPTbL9U/0Kk52h7CgFY5wxFSva2JjYl6GOgc0fP/u9fXZAJsOwXdXaEJ76ApYhxZfA/0X+6n6if+wcdjjNNGObwGbtBaemAWKKMmwJqk3//L9XNKi7YhZ3b3PtSXZ6L3tXZ2VSjPhJi0//jbj8b6evO+2606PWXzaqvJdDGxu+TC0vbg5HymAgNFL11h0hVhwmjAb6olinyQt0L8ilh1dCcpRvbDT47aWYAKQH/uTPLebnUwJZWInExlxOEW+gFudJNbg52uAi0n4XFvnwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATswws7W4XGXZpovAvoutdvVvrM+C8Isw8uu2LZj6DrQDBkZv5SEXMv/srbpyw5vnvIzlu8X3EmssQ5s6QAAAAAbd9uHXZaGT2cvhRs7reawctIXtX1s3kTqM9YV+/wCpBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcDDQAFAmDqAAAOAwQJAAkDPeYDAAAAAAAMDAMCAQAECAcKBgUOCxgbwjl316X3lgCqagNHAAABtAmCAQAAAAA="
+  },
+  "sha256": "84f4d2173d817ec586a943d08fd21e89a99965b78199a471fcf6d0a4907a5e17",
+  "bytesSha256": "296b3994972879a6a48c4c965308695e1db8d2f2ae111138a582350644d348a3",
+  "meta": {
+    "note": "The stage-2 Solana tx: ComputeBudget(60k) + 1% skim SPL transfer (user → fee wallet) + Warp BridgeOut(seq, bridgeBase) — built by buildStage2, serialized unsigned."
+  }
+}

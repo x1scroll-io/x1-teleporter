@@ -1,0 +1,217 @@
+{
+  "step": "bridge-in-v2",
+  "sampleInput": {
+    "from": "eth",
+    "token": "USDC",
+    "destToken": "USDC.x",
+    "amountUser": 25.65,
+    "evmAddress": "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6",
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "feeWalletSvm": "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu",
+    "liFiDiamondEth": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "seqSlot": 305000000
+  },
+  "artifact": {
+    "chainPair": "source=0 dest=1",
+    "seq": "72057899037927936",
+    "amountBase": "25299380",
+    "sourceTokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "localMint": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
+    "wrappedVariant": true,
+    "signatureSetSeedTemplate": [
+      "sig_set",
+      "<guardian_set_index>",
+      "<source_seq>",
+      "<sender>",
+      "<source_token_mint>",
+      "<local_mint>",
+      "<amount>",
+      "<source_timestamp>"
+    ],
+    "accountCount": 11,
+    "accountList": [
+      {
+        "name": "config",
+        "pubkey": "48Po6qAHRJojbXH7KRqt6s5GfNfs9VEGccfqYEHmubEi",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "guardian_set",
+        "pubkey": "837ujVePfx3EB5CibC4FAAZJf5CTpiVXCE41BNBJoB3x",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "name": "token_registry",
+        "pubkey": "2etcJKUTfuB1LHQJYwsPLXsDxGfUU9bHBafYkn2KwEkp",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "incoming_msg",
+        "pubkey": "EDjEGJ2Zt1D684bbMBMtfGCuekZmZH2nH5yEjnKgoGLG",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "payer",
+        "pubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+        "isSigner": true,
+        "isWritable": true
+      },
+      {
+        "name": "recipient",
+        "pubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "recipient_token_account",
+        "pubkey": "B6cMvQyFi9yUAttuY4GHDjoSN4LjoEonxAw1RdAq7uc4",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "token_mint",
+        "pubkey": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "mint_authority",
+        "pubkey": "5sUVoW68sL9PtK87Xkq28MeBXcLGFxJQarY3JUGiRmtX",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "token_program",
+        "pubkey": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "name": "system_program",
+        "pubkey": "11111111111111111111111111111111",
+        "isSigner": false,
+        "isWritable": false
+      }
+    ]
+  },
+  "sha256": "ff40e375daa872ff2369b3f20035f33819508fe7806d88b432c334c883771576",
+  "spec": {
+    "rows": [
+      {
+        "name": "config",
+        "writable": true,
+        "signer": false,
+        "pdaSeeds": [
+          "config"
+        ]
+      },
+      {
+        "name": "guardian_set",
+        "writable": false,
+        "signer": false,
+        "pdaSeeds": [
+          "guardian_set"
+        ]
+      },
+      {
+        "name": "token_registry",
+        "writable": true,
+        "signer": false,
+        "pdaSeeds": [
+          "token_registry",
+          "<local_mint>"
+        ]
+      },
+      {
+        "name": "signature_set",
+        "writable": true,
+        "signer": false,
+        "pdaSeeds": [
+          "sig_set",
+          "<guardian_set_index>",
+          "<source_seq>",
+          "<sender>",
+          "<source_token_mint>",
+          "<local_mint>",
+          "<amount>",
+          "<source_timestamp>"
+        ]
+      },
+      {
+        "name": "incoming_msg",
+        "writable": true,
+        "signer": false,
+        "pdaSeeds": [
+          "evt_in",
+          "<source_seq>"
+        ]
+      },
+      {
+        "name": "payer",
+        "writable": true,
+        "signer": true
+      },
+      {
+        "name": "recipient",
+        "writable": true,
+        "signer": false
+      },
+      {
+        "name": "recipient_token_account",
+        "writable": true,
+        "signer": false
+      },
+      {
+        "name": "token_mint",
+        "writable": true,
+        "signer": false
+      },
+      {
+        "name": "mint_authority",
+        "writable": true,
+        "signer": false,
+        "optional": true,
+        "pdaSeeds": [
+          "mint_authority",
+          "<local_mint>"
+        ]
+      },
+      {
+        "name": "vault",
+        "writable": true,
+        "signer": false,
+        "optional": true,
+        "pdaSeeds": [
+          "vault",
+          "<local_mint>"
+        ]
+      },
+      {
+        "name": "vault_token_account",
+        "writable": true,
+        "signer": false,
+        "optional": true
+      },
+      {
+        "name": "token_program",
+        "writable": false,
+        "signer": false
+      },
+      {
+        "name": "system_program",
+        "writable": false,
+        "signer": false
+      }
+    ],
+    "rowCount": 14
+  },
+  "specSha256": "c261ba3ca9d8e10c9298026b36b38a35953b6967d53ee1cfdf4c99b8143cf1f6",
+  "meta": {
+    "note": "The 14-row WARP_BRIDGE_IN_V2_ACCOUNTS_SPEC serialized canonically (specSha256) + the concrete account list for wrapped USDC.x (bridge-to-self, 11 derivable keys + the guardian-signed signature_set — 12 at runtime). signature_set is guardian-signed (source_timestamp + guardian set index live in the signed message) — recorded as its seed template. The engine must reproduce every derivable slot exactly."
+  }
+}
