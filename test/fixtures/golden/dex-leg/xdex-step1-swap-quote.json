@@ -1,0 +1,22 @@
+{
+  "step": "xdex-step1-swap-quote",
+  "artifact": {
+    "pool": "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
+    "programId": "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN",
+    "inputMint": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
+    "outputMint": "So11111111111111111111111111111111111111112",
+    "amountInRaw": "10000000",
+    "slippageBps": 100,
+    "tradeFeeRate": "2800",
+    "tradeFeeRaw": "28000",
+    "netInRaw": "9972000",
+    "outRaw": "25024894496",
+    "outHuman": 25.024894496,
+    "minOutRaw": "24774645551",
+    "priceImpactBps": 58
+  },
+  "sha256": "60e30d623de6abbde03ad979900a02bc6512df30dbc85d7f07dfa06649da8118",
+  "meta": {
+    "note": "The XDEX constant-product quote (Raydium curve — fee on input): tradeFee = ceil(in × 2800/1e6) from the LIVE AmmConfig decode, out = floor(Rout × net / (Rin + net)) on the LIVE vault raw balances, minOut at 100 bps slippage. Deterministic FROM the frozen pool snapshot (refresh the snapshot on first live use)."
+  }
+}

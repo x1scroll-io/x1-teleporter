@@ -16,8 +16,13 @@
  * deposit-address lane (BTC/DOGE/LTC/XRP → SOL.SOL) joins as two legs — the
  * quote-request leg + the deposit-build leg, both family "external" (the
  * deposit executes out-of-band in the user's external wallet — the resolver
- * returns null by design). DEX lanes stay on their existing code paths
- * untouched.
+ * returns null by design). Phase 4: the DEX swap legs join — jupiter-swap
+ * (Solana DEX aggregator, family svm), xdex-swap (X1's DEX — DIRECT
+ * on-chain into the XDEX CP-Swap program, family svm) and lifi-evm-swap
+ * (the Leg-C verdict leg — EVM same-chain swaps are DONE by LiFi, family
+ * evm) — construction-migrated + pinned by the Phase-4 oracle
+ * (test/goldenDex.test.js + test/fixtures/golden/dex-leg/), with
+ * composeRoute as the swap-then-bridge composition primitive.
  */
 export { LEG_PHASES, createLeg, runLeg, legSkip, isLegSkip } from "./legContract.js";
 export {
@@ -34,10 +39,20 @@ export {
   REVERSE_STAGES,
   THORCHAIN_LEG_IDS,
   THORCHAIN_STAGES,
+  JUPITER_LEG_IDS,
+  JUPITER_STAGES,
+  XDEX_LEG_IDS,
+  XDEX_STAGES,
+  LIFI_EVM_SWAP_LEG_IDS,
+  LIFI_EVM_SWAP_STAGES,
   RoutePlanner,
   planForward,
   planReverse,
   planThorchain,
+  planJupiterSwap,
+  planXdexSwap,
+  planLifiEvmSwap,
+  composeRoute,
   plan,
   legById,
   legsForStage,
@@ -68,3 +83,8 @@ export { buildLifiOutArtifact } from "./legs/reverse/lifiSolanaOutLeg.js";
 // THORChain-leg builders are reachable for oracle/byte-identity checks:
 export { shapeQuoteRequestArtifact } from "./legs/thorchain/quoteLeg.js";
 export { shapeDepositPayloadArtifact } from "./legs/thorchain/depositBuildLeg.js";
+
+// Phase-4 DEX-leg builders are reachable for oracle/byte-identity checks:
+export { shapeJupiterQuoteRequestArtifact, shapeJupiterSwapRequestArtifact } from "./legs/dex/jupiterSwapLeg.js";
+export { shapeXdexSwapArtifact, xdexQuote, resolveXdexDirection } from "./legs/dex/xdexSwapLeg.js";
+export { shapeLifiSameChainSwapArtifact } from "./legs/dex/lifiEvmSwapLeg.js";

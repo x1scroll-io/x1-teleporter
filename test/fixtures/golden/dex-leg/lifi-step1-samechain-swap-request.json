@@ -1,0 +1,36 @@
+{
+  "step": "lifi-step1-samechain-swap-request",
+  "artifact": {
+    "chain": "eth",
+    "chainId": "eth",
+    "fromTokenSymbol": "USDC",
+    "toTokenSymbol": "USDT",
+    "fromToken": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "toToken": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "amount": "10000000",
+    "decimals": 6,
+    "params": {
+      "fromChain": "eth",
+      "toChain": "eth",
+      "fromToken": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "toToken": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      "fromAmount": "10000000",
+      "fromAddress": "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6",
+      "toAddress": "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6",
+      "slippage": "0.005",
+      "integrator": "x1-teleporter-labs",
+      "order": "CHEAPEST",
+      "allowSwitchChain": "false"
+    },
+    "policy": {
+      "forcedFee": "0.01",
+      "x1ClassPresent": false
+    },
+    "upstreamUrl": "https://li.quest/v1/quote?fromChain=eth&toChain=eth&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&fromAmount=10000000&fromAddress=0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6&toAddress=0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6&slippage=0.005&integrator=x1-teleporter-labs&order=CHEAPEST&allowSwitchChain=false&fee=0.01"
+  },
+  "sha256": "bcd3cc88144c8662533f347de9ac9352a49ce0eb58f7d1bbe2807256c08e9ead",
+  "urlSha256": "d21594c4f6b925354724e28ce4e440dcc4a01b51e8614e9feb2f753f6a398427",
+  "meta": {
+    "note": "The canonical LiFi EVM same-chain swap quote request (Leg-C verdict leg): both ends on the same chain → LiFi returns a SWAP route (verified live: sushiswap + nordstern, type lifi, includedSteps [protocol:feeCollection, swap:<dex>]) and the server fee policy FORCES the 1% integrator fee (same-chain routes are not x1-class). urlSha256 pins the exact upstream URL the proxy fetches (li.quest/v1/quote)."
+  }
+}
