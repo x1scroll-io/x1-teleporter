@@ -198,17 +198,20 @@ same proof protocol against the instruments that exist for that lane.
 - **XDEX (X1's DEX — DIRECT on-chain)** — `xdex-swap` (family svm, chain x1),
   planned by `planXdexSwap()` (`swap-x1-x1-xdex`). Discovery: XDEX has NO
   HTTP swap API — the swap is one instruction to the XDEX program
-  `sEsYH97…4fN` (immutable since 2026-01-07), method SwapBaseInput (Anchor
-  log-confirmed), discriminator **13bddf5c73d6bd24** (OBSERVED on 273
-  sampled live pool swaps + identical on Raydium's own live Solana CP-Swap —
-  the earlier nebula note's 8fbe5ada… does not match the live program),
-  13 accounts, data = disc + amount_in u64 LE + min_out u64 LE. The quote is
-  the Raydium CP curve on the live pool snapshot (trade fee 2800/1e6 =
-  0.28% from the live AmmConfig; protocol 25% + fund 5% of the trade fee
-  are internal). ARG-SEMANTICS PREREQUISITE (flagged): run one tiny
-  controlled swap on the operator's go-ahead before real funds — the
-  sampled live txs are relayer/AA-driven and do not 1:1 expose the
-  arg↔vault-delta mapping.
+  `sEsYH97…4fN` (owner BPFLoaderUpgradeab1e — UPGRADEABLE, verified
+  on-chain 2026-09-02; NOT immutable), method SwapBaseInput (Anchor
+  log-confirmed), discriminator **8fbe5adac41e33de** (= sha256("global:
+  swap_base_input")[..8] — LIVE-VERIFIED on the anchor swap tx 65xjdHVd…,
+  slot 76,014,947, err ok — Mr. Esters' controlled $5 swap, 5 USDC.x →
+  ~12.74 XNT on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR),
+  13 accounts in the live-verified order, data = disc + amount_in u64 LE +
+  min_out u64 LE. The quote is the CP curve on the live pool snapshot
+  (trade fee 2800/1e6 = 0.28% from the live AmmConfig; protocol 25% + fund
+  5% of the trade fee are internal). ARG SEMANTICS LIVE-CONFIRMED 1:1 by the
+  anchor tx (decoded args 5,000,000 / 0 + vault deltas match). NEBULA
+  WALL-OFF: nebula-dex is a SEPARATE project — its notes never inform XDEX
+  reasoning; XDEX truth = its own live on-chain data only. If the program
+  is ever upgraded, re-verify against a NEW live swap — never a note.
 - **LiFi EVM same-chain swap (Leg C verdict)** — `lifi-evm-swap` (family
   evm), planned by `planLifiEvmSwap()` (`swap-eth-eth-lifi`). VERDICT
   (verified live 2026-09-02): LiFi ALREADY quotes EVM same-chain swaps —

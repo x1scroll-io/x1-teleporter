@@ -33,39 +33,53 @@ What the fixtures pin is the **CURRENT canonical CONSTRUCTION** as the
 oracle: given these inputs + the fixed samples, the legs build exactly these
 artifacts — the engine must reproduce them byte-for-byte.
 
-## XDEX discovery + the discriminator correction (important)
+## XDEX discovery + the LIVE-TX ANCHOR (important)
 
 XDEX has **no HTTP swap API** (api.xdex.xyz exposes price/token endpoints
 only; every `/api/swap/*`, `/api/v1/*`, `/api/pool/*` probe 404s). The REAL
 swap surface is the XDEX program on X1 mainnet —
-`sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN` (upgradeable-loader, authority
-NONE — immutable; last deploy slot 21,171,632 ≈ 2026-01-07). Live txs log
+`sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN` (owner `BPFLoaderUpgradeab1e`
+— **UPGRADEABLE**, verified on-chain 2026-09-02; NOT immutable). Live txs log
 `Instruction: SwapBaseInput`; the instruction is 24 bytes = discriminator +
-`amount_in u64 LE` + `minimum_amount_out u64 LE`, 13 accounts (the Raydium
-CP-Swap `Swap` struct order — verified against live txs and byte-for-byte
-against the current Raydium source: the pool account discriminator
-`f7ede3f5d7c3de46` = sha256("account:PoolState"), the AmmConfig len 236
-layout matches the current Raydium struct with trade fee 2800/1e6 = 0.28%).
+`amount_in u64 LE` + `minimum_amount_out u64 LE`, 13 accounts (the CP-Swap
+`Swap` struct order — verified 1:1 against the live anchor tx below; the
+pool account discriminator `f7ede3f5d7c3de46` =
+sha256("account:PoolState"), the AmmConfig len 236 layout with trade fee
+2800/1e6 = 0.28% — both decoded from the LIVE pool snapshot).
 
-**The live swap discriminator is `13bddf5c73d6bd24`** — observed on 273
-sampled pool swaps across 12,504 pool signatures (slots 72.87M→76.0M,
-Aug 20→Sep 2 2026), and identical on Raydium's OWN live Solana CP-Swap
-program. The earlier repo note (nebula-dex, Aug 2026) claiming
-`8fbe5adac41e33de` (= sha256("global:swap_base_input") under classic Anchor)
-does **NOT** match the live program — the Phase-4 oracle pins the observed
-discriminator. `13bddf5c73d6bd24` is what the leg must send.
+**🔒 LIVE-TX ANCHOR — the source of truth.** The discriminator
+`8fbe5adac41e33de` (= sha256("global:swap_base_input") under classic
+Anchor), the 13-account ordering, and the fee/quote shape are anchored to a
+REAL mainnet transaction: **Mr. Esters' controlled $5 swap — tx
+`65xjdHVdHKgnDgdBN7DDcUQEwMXWjRJoTHQgbSibojWY433MW7mPdLFUiuzxtfkumK52vHGR2ipYB6Bv4hsjQ3SR`
+(slot 76,014,947, err ok — 5 USDC.x → ~12.74 XNT on pool
+`CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR`)**. The fixture's step-2
+instruction bytes equal that tx's swap-instruction bytes exactly
+(`8fbe5adac41e33de` + `404b4c0000000000` = amount_in 5,000,000 LE +
+`0000000000000000` = min_out 0 LE). DO NOT "correct" these values from any
+other source — especially not nebula or any doc. If the program is ever
+upgraded and the discriminator changes, the correction must come from a NEW
+live swap observation, never from a note.
+
+⛔ NEBULA WALL-OFF: Nebula DEX is a SEPARATE project — its notes/docs must
+never inform XDEX or Teleporter reasoning. XDEX truth = its own live
+on-chain data only (this anchor tx + live pool snapshots + the program's
+real logs). Earlier Phase-4 text claimed a `13bddf5c73d6bd24` discriminator
+"observed on 273 sampled pool swaps" and dismissed 8fbe5ada as a stale
+nebula note — that was INVERTED contamination (the sample was misread;
+13bddf… does NOT match the live program). All nebula references are purged
+here.
 
 ## Integration prerequisites (flagged, same honesty as THORChain's key note)
 
-- **XDEX arg semantics**: the (amount_in u64 LE, min_out u64 LE) layout is
-  the Raydium source layout, consistent with the wire evidence (13-account
-  Swap struct, 24-byte payload, per-tx-varying args). The pool's recent live
-  txs are relayer/AA-driven (native-XNT payers, ATA create+sync patterns)
-  and do NOT 1:1 expose the arg↔vault-delta mapping — **run ONE tiny
-  controlled swap through the leg on the operator's go-ahead** and compare
-  the vault deltas + program logs against this construction before any real
-  flow. The quote math IS live-confirmed (pool raw-ratio price 0.3973 vs the
-  XNT price API 0.3926 USD — sane).
+- **XDEX arg semantics — LIVE-CONFIRMED 1:1** (2026-09-02): the anchor tx
+  (65xjdHVd…) proves the (disc 8fbe5adac41e33de, amount_in u64 LE, min_out
+u64 LE) layout + the 13-account order byte-for-byte — the decoded args
+  (5,000,000 / 0) and the inner Token-2022 TransferChecked into the USDC.x
+  vault + Token TransferChecked out of the wXNT vault match this
+  construction. The quote math IS live-confirmed (pool raw-ratio price
+  0.3973 vs the XNT price API 0.3926 USD — sane). Refresh the pool snapshot
+  before any real flow (vault balances move).
 - **Jupiter host**: the older `quote-api.jup.ag/v6` host no longer resolves
   (dead DNS) — the fixtures pin the current `api.jup.ag/swap/v1`.
 - **XDEX snapshot refresh**: `tools/capture-dex-x1-snapshot.mjs`-style

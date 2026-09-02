@@ -77,7 +77,8 @@ const summary = {
   verify:
     "test/goldenDex.test.js rebuilds every step from the same inputs and asserts " +
     "byte-identical + sha256 match + the dex-leg invariants (raw amounts, verbatim quote " +
-    "forwarding, the observed XDEX discriminator, the forced same-chain fee).",
+    "forwarding, the LIVE-VERIFIED XDEX discriminator 8fbe5adac41e33de anchored to tx " +
+    "65xjdHVd…, the forced same-chain fee).",
 };
 writeFileSync(join(FIX, "dex-leg-summary.json"), JSON.stringify(summary, null, 2) + "\n");
 console.log("wrote dex-leg-summary.json");

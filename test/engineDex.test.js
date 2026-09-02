@@ -150,7 +150,7 @@ test("engine dex: xdex-swap leg builds through runLeg (byte-identical to the gol
   };
   const { results } = await runLeg(leg, ctx);
   const artifact = results.build.artifact;
-  assert.equal(artifact.discriminator, "13bddf5c73d6bd24");
+  assert.equal(artifact.discriminator, "8fbe5adac41e33de"); // LIVE-VERIFIED (anchor tx 65xjdHVd…)
   assert.equal(artifact.quote.outRaw, FIX_XD1.artifact.outRaw);
   assert.equal(artifact.ix.dataHex, FIX_XD2.artifact.ix.dataHex);
   assert.deepEqual(artifact.ix.keys, FIX_XD2.artifact.ix.keys);

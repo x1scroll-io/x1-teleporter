@@ -19,9 +19,10 @@
  *                  pubkey + the fixed option set)
  *   xdex step1     the constant-product QUOTE from the LIVE pool snapshot
  *                  (0.28% trade fee on input — live AmmConfig decode)
- *   xdex step2     the SwapBaseInput INSTRUCTION + unsigned tx (disc
- *                  13bddf5c73d6bd24 — the OBSERVED live discriminator — +
- *                  amount_in u64 LE + min_out u64 LE, 13 accounts)
+ *   xdex step2     the SwapBaseInput INSTRUCTION + unsigned tx — ANCHORED TO
+ *                  THE LIVE MAINNET SWAP tx 65xjdHVd… (slot 76,014,947, err
+ *                  ok): disc 8fbe5adac41e33de + amount_in u64 LE + min_out u64
+ *                  LE, 13 accounts in the LIVE-VERIFIED order
  *   lifi step1     the same-chain EVM swap QUOTE REQUEST through the
  *                  /api/lifi/quote policy (forced 1% integrator fee on
  *                  same-chain routes) + the exact upstream URL
@@ -32,10 +33,13 @@
  *
  * LIVE-STATUS BOUNDARY (honest): the quote/snapshot INPUT fixtures are live
  * captures frozen as inputs; the oracle pins the CONSTRUCTION. XDEX arg
- * semantics are source-consistent + wire-size-verified but not 1:1
- * live-confirmed (relayer-driven sampled txs) — see the fixture README +
- * the leg header; the integration prerequisite is a single tiny controlled
- * swap on the operator's go-ahead.
+ * semantics + discriminator ARE live-confirmed 1:1 — the xdex step2 fixture
+ * is anchored to the REAL mainnet swap tx 65xjdHVd… (slot 76,014,947,
+ * Mr. Esters' controlled $5 swap, 5 USDC.x → ~12.74 XNT on pool
+ * CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR, err ok) — see the fixture
+ * README + the leg header. NEBULA WALL-OFF: nebula-dex is a SEPARATE
+ * project; its notes never inform XDEX reasoning — XDEX truth = its own
+ * live on-chain data only.
  *
  * The engine must make this file pass UNCHANGED. Do not weaken assertions to
  * accommodate the engine — fix the engine.
@@ -169,24 +173,26 @@ test("golden dex xdex step1: swap-quote rebuild is byte-identical (CP math + liv
   assert.equal(a.programId, XDEX_PROGRAM_ID);
   assert.equal(a.inputMint, XDEX_SAMPLE.inputMint); // USDC.x
   assert.equal(a.outputMint, XDEX_SAMPLE.outputMint); // wXNT
-  assert.equal(a.amountInRaw, "10000000"); // 10 USDC.x (6 dp) raw
+  assert.equal(a.amountInRaw, "5000000"); // 5 USDC.x (6 dp) raw — the LIVE anchor amount_in
   assert.equal(a.tradeFeeRate, "2800"); // 0.28% — the LIVE AmmConfig
-  // fee on input: ceil(10,000,000 × 2800 / 1e6) = 28,000; net = 9,972,000
-  assert.equal(a.tradeFeeRaw, "28000");
-  assert.equal(a.netInRaw, "9972000");
+  // fee on input: ceil(5,000,000 × 2800 / 1e6) = 14,000; net = 4,986,000
+  assert.equal(a.tradeFeeRaw, "14000");
+  assert.equal(a.netInRaw, "4986000");
   // CP: out = floor(Rout × net / (Rin + net)) on the live vault raw balances
   const rin = BigInt(snap.vault1.amountRaw);
   const rout = BigInt(snap.vault0.amountRaw);
-  const expectedOut = (rout * 9972000n) / (rin + 9972000n);
+  const expectedOut = (rout * 4986000n) / (rin + 4986000n);
   assert.equal(a.outRaw, expectedOut.toString());
-  assert.equal(a.minOutRaw, ((expectedOut * 9900n) / 10000n).toString()); // 100 bps slippage
+  // The LIVE anchor swap carried min_out = 0 (no minimum) — the sample's
+  // slippageBps 10000 reproduces it byte-for-byte.
+  assert.equal(a.minOutRaw, "0");
   assert.equal(a.outHuman, Number(expectedOut) / 10 ** 9); // wXNT 9 dp
   assert.ok(Number(a.priceImpactBps) >= 0 && Number(a.priceImpactBps) < 1000, "impact sane");
   assert.equal(FIX_XD1.sha256, SUMMARY.steps.xdexStep1SwapQuote.sha256);
 });
 
 // ── XDEX step2 — the SwapBaseInput instruction + unsigned tx ──
-test("golden dex xdex step2: swap-ix rebuild is byte-identical (observed discriminator + 13 metas + tx)", () => {
+test("golden dex xdex step2: swap-ix rebuild is byte-identical (LIVE disc 8fbe5ada… + 13 metas + tx)", () => {
   const rebuilt = buildXdexStep2();
 
   assert.equal(canonicalJson(rebuilt.artifact), canonicalJson(FIX_XD2.artifact));
@@ -194,19 +200,21 @@ test("golden dex xdex step2: swap-ix rebuild is byte-identical (observed discrim
 
   const a = rebuilt.artifact;
   assert.equal(a.discriminator, XDEX_SWAP_BASE_INPUT_DISCRIMINATOR);
-  assert.equal(a.discriminator, "13bddf5c73d6bd24"); // the OBSERVED live discriminator
+  assert.equal(a.discriminator, "8fbe5adac41e33de"); // LIVE-VERIFIED (anchor tx 65xjdHVd…)
   assert.equal(a.programId, XDEX_PROGRAM_ID);
-  assert.equal(a.userPubkey, SOLANA_ADDRESS);
-  assert.equal(a.amountInRaw, "10000000");
+  assert.equal(a.userPubkey, XDEX_SAMPLE.userPubkey); // the LIVE anchor signer
+  assert.equal(a.amountInRaw, "5000000"); // the LIVE anchor amount_in
   assert.equal(a.minOutRaw, FIX_XD1.artifact.minOutRaw); // agrees with the quote step
 
-  // The 24-byte payload: disc + amount_in u64 LE + min_out u64 LE.
+  // The 24-byte payload = the LIVE anchor tx data EXACTLY:
+  // disc + amount_in u64 LE (5,000,000) + min_out u64 LE (0).
   assert.equal(a.ix.dataHex.length, 48);
-  assert.equal(a.ix.dataHex.slice(0, 16), "13bddf5c73d6bd24");
-  assert.equal(a.ix.dataHex.slice(16, 32), "8096980000000000"); // 10,000,000 LE
-  // 13 accounts in the verified order (payer first, observation last).
+  assert.equal(a.ix.dataHex.slice(0, 16), "8fbe5adac41e33de");
+  assert.equal(a.ix.dataHex.slice(16, 32), "404b4c0000000000"); // 5,000,000 LE
+  assert.equal(a.ix.dataHex.slice(32, 48), "0000000000000000"); // min_out 0 LE
+  // 13 accounts in the LIVE-VERIFIED order (payer first, observation last).
   assert.equal(a.ix.keys.length, 13);
-  assert.equal(a.ix.keys[0].pubkey, SOLANA_ADDRESS);
+  assert.equal(a.ix.keys[0].pubkey, XDEX_SAMPLE.userPubkey); // the anchor signer
   assert.equal(a.ix.keys[0].isSigner, true);
   assert.equal(a.ix.keys[1].pubkey, "9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU"); // authority
   assert.equal(a.ix.keys[3].pubkey, XDEX_SAMPLE.pool); // pool state
@@ -214,11 +222,85 @@ test("golden dex xdex step2: swap-ix rebuild is byte-identical (observed discrim
 
   // The unsigned tx serializes deterministically (synthetic DI'd blockhash).
   assert.equal(a.transaction.blockhash, XDEX_SAMPLE.blockhash);
-  assert.equal(a.transaction.feePayer, SOLANA_ADDRESS);
+  assert.equal(a.transaction.feePayer, XDEX_SAMPLE.userPubkey); // the LIVE anchor signer
   assert.equal(a.transaction.instructionCount, 1);
   assert.equal(rebuilt.txSha256, sha256Text(a.transaction.serializedBase64));
   assert.equal(FIX_XD2.txSha256, rebuilt.txSha256);
   assert.equal(FIX_XD2.dataSha256, rebuilt.dataSha256);
+});
+
+// ── XDEX LIVE-ANCHOR regression — the rebuilt swap == the live mainnet tx ──
+test("golden dex xdex: rebuilt swap equals the LIVE anchor tx shape (disc 8fbe5ada… + 13-account order + amount_in)", () => {
+  const rebuilt = buildXdexStep2();
+  const a = rebuilt.artifact;
+
+  // The LIVE anchor: Mr. Esters' controlled $5 swap — tx 65xjdHVd…,
+  // slot 76,014,947, err ok — 5 USDC.x → ~12.74 XNT on pool
+  // CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR (wXNT/USDC.x). The rebuilt
+  // swap must carry the SAME discriminator, the SAME 13-account order and
+  // the SAME amount_in — byte-for-byte with the live instruction.
+  assert.equal(XDEX_SAMPLE.liveTx, "65xjdHVdHKgnDgdBN7DDcUQEwMXWjRJoTHQgbSibojWY433MW7mPdLFUiuzxtfkumK52vHGR2ipYB6Bv4hsjQ3SR");
+  assert.equal(XDEX_SAMPLE.liveSlot, "76014947");
+  assert.equal(XDEX_SAMPLE.pool, "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR");
+
+  // Discriminator: 8fbe5adac41e33de = sha256("global:swap_base_input")[..8].
+  assert.equal(a.discriminator, "8fbe5adac41e33de");
+  assert.equal(a.ix.dataHex.slice(0, 16), "8fbe5adac41e33de");
+
+  // amount_in = 5,000,000 (5 USDC.x, 6 dp) u64 LE — the live tx's amount_in.
+  assert.equal(a.amountInRaw, "5000000");
+  assert.equal(a.ix.dataHex.slice(16, 32), "404b4c0000000000"); // 5,000,000 LE
+
+  // The live 13-account ordering (from the VersionedTransaction deserialize
+  // of tx 65xjdHVd…): user signer first, observation writable last, vaults /
+  // programs / mints in the exact live positions.
+  const liveOrder = [
+    "FKBMEQ6yyEyaK49hEnct3HnKXrCDy5o6W3LcU2ojBtrZ", // user (signer + writable)
+    "9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU", // authority (ro)
+    "2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c", // amm_config (ro)
+    "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR", // pool (w)
+    "GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V", // input ATA — user's USDC.x ATA (w)
+    "RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd", // output ATA — user's WXNT ATA (w)
+    "7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg", // input vault — pool's USDC.x vault (w)
+    "8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb", // output vault — pool's WXNT vault (w)
+    "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb", // input token program (Token-2022) (ro)
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", // output token program (Token) (ro)
+    "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq", // input mint — USDC.x (ro)
+    "So11111111111111111111111111111111111111112", // output mint — wXNT (ro)
+    "4oUvUgziz4S6VXxMkjqorjgPrgT3wrxXN9kDuja8pkPZ", // observation (w)
+  ];
+  assert.equal(a.ix.keys.length, 13);
+  assert.deepEqual(
+    a.ix.keys.map((k) => k.pubkey),
+    liveOrder,
+    "rebuilt keys == live tx account order (tx 65xjdHVd…)",
+  );
+  // Signer/writable flags match the live metas: only the user signs; the
+  // pool, both ATAs, both vaults and the observation account are writable.
+  assert.deepEqual(
+    a.ix.keys.map((k) => ({ s: k.isSigner, w: k.isWritable })),
+    [
+      { s: true, w: true },
+      { s: false, w: false },
+      { s: false, w: false },
+      { s: false, w: true },
+      { s: false, w: true },
+      { s: false, w: true },
+      { s: false, w: true },
+      { s: false, w: true },
+      { s: false, w: false },
+      { s: false, w: false },
+      { s: false, w: false },
+      { s: false, w: false },
+      { s: false, w: true },
+    ],
+    "rebuilt writable/signer flags == live metas",
+  );
+  // The derived ATAs are the LIVE tx's ATAs (user = the anchor signer).
+  assert.equal(a.inputAta, "GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V");
+  assert.equal(a.outputAta, "RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd");
+  // The program id is the live program (UPGRADEABLE — BPFLoaderUpgradeab1e).
+  assert.equal(a.programId, "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN");
 });
 
 // ── LIFI same-chain step1 — the verdict-leg quote request ──
