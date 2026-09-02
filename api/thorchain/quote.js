@@ -21,12 +21,24 @@
 import { cors } from "../_cors.js";
 
 /** THORNode aggregator quote path (same contract the client used to hit
- *  directly — now server-side only). */
+ *  directly — now server-side only). The default base below is the Liquify
+ *  gateway's THORNode API ROOT (https://gateway.liquify.com/chain/thorchain_api)
+ *  and the /thorchain prefix lives HERE in the path constants, so the resolved
+ *  upstream URL is
+ *    https://gateway.liquify.com/chain/thorchain_api/thorchain/quote/swap
+ *  — LIVE-VERIFIED 2026-09-02: the gateway answers with real THORNode bodies
+ *  (HTTP 400 "trading is halted … invalid request" on a quote probe, i.e. the
+ *  host + path + header format are all correct against the live backend). */
 export const THORCHAIN_QUOTE_PATH = "/thorchain/quote/swap";
 
-/** Default upstream — the Liquify gateway (same default as the Step 3.1
- *  status module). Server override: THORCHAIN_API_URL (no VITE_ prefix). */
-export const THORCHAIN_DEFAULT_API_BASE_URL = "https://liquify.thorchain.org";
+/** Default upstream root — the LIVE Liquify gateway's THORNode API prefix.
+ *  The previously documented hosts are all RETIRED/DNS-dead: liquify.thorchain.org
+ *  (dead — verified HTTP 000) and the *.ninerealms.com mirrors (retired
+ *  2026-04-20 per Mr. Esters). Same default root as the Step 3.1 status module
+ *  (THORCHAIN_STATUS_BASE_URL). Server override: THORCHAIN_API_URL (no VITE_
+ *  prefix) — an override keeps its historical meaning (a THORNode API root;
+ *  the /thorchain/* path constants are appended to it). */
+export const THORCHAIN_DEFAULT_API_BASE_URL = "https://gateway.liquify.com/chain/thorchain_api";
 
 /** The documented aggregator-key header (integrate-thorchain program). */
 export const THORCHAIN_API_KEY_HEADER = "x-client-id";
@@ -50,7 +62,7 @@ export const FORWARD_PARAMS = Object.freeze([
  * @param {object|URLSearchParams} query the client query (req.query shape)
  * @param {string} [baseUrl] upstream base URL (default:
  *   THORCHAIN_DEFAULT_API_BASE_URL)
- * @returns {string} e.g. https://liquify.thorchain.org/thorchain/quote/swap?from_asset=BTC.BTC&...
+ * @returns {string} e.g. https://gateway.liquify.com/chain/thorchain_api/thorchain/quote/swap?from_asset=BTC.BTC&...
  */
 export function proxyQuoteUrl(query, baseUrl = THORCHAIN_DEFAULT_API_BASE_URL) {
   const forward = new URLSearchParams();

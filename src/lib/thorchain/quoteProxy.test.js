@@ -32,7 +32,7 @@ import {
   THORCHAIN_QUOTE_PATH,
 } from "../../../api/thorchain/quote.js";
 
-const UPSTREAM = "https://liquify.thorchain.org";
+const UPSTREAM = "https://gateway.liquify.com/chain/thorchain_api";
 const SOL_DEST = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
 
 function fakeReq({ origin, method = "GET", query = {} } = {}) {
@@ -134,6 +134,20 @@ test("proxyQuoteUrl: forwards whitelisted params, drops unknown + empty ones", (
 
 test("proxyQuoteUrl: no params → bare path (no trailing ?)", () => {
   assert.equal(proxyQuoteUrl({}), UPSTREAM + THORCHAIN_QUOTE_PATH);
+});
+
+test("proxyQuoteUrl: DEFAULT base resolves to the LIVE Liquify gateway quote URL", () => {
+  const url = proxyQuoteUrl(QUOTE_QUERY);
+  assert.equal(
+    url,
+    "https://gateway.liquify.com/chain/thorchain_api/thorchain/quote/swap?" +
+      "from_asset=BTC.BTC&to_asset=SOL.SOL&amount=5000000&destination=" +
+      encodeURIComponent(SOL_DEST) +
+      "&refund_address=bc1qrefund",
+    "the default upstream URL is the live gateway (verified 2026-09-02)",
+  );
+  assert.ok(!url.includes("liquify.thorchain.org"), "DNS-dead default host is gone");
+  assert.ok(!url.includes("ninerealms.com"), "retired ninerealms mirrors are gone");
 });
 
 test("proxyQuoteUrl: baseUrl trailing slash is normalised", () => {

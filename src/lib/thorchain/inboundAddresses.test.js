@@ -33,7 +33,10 @@ const SAMPLE = [
 
 test("inboundAddressesUrl builds the endpoint on the status module's base URL", () => {
   assert.equal(inboundAddressesUrl(undefined), `${THORCHAIN_STATUS_BASE_URL}/thorchain/inbound_addresses`);
-  assert.equal(inboundAddressesUrl("https://thornode.thorchain.info/"), "https://thornode.thorchain.info/thorchain/inbound_addresses");
+  assert.equal(
+    inboundAddressesUrl("https://gateway.liquify.com/chain/thorchain_api/"),
+    "https://gateway.liquify.com/chain/thorchain_api/thorchain/inbound_addresses",
+  );
 });
 
 test("parseInboundAddresses normalizes the THORNode array shape", () => {

@@ -1,6 +1,6 @@
 {
   "tool": "golden-transaction fixtures — THORChain leg BTC→SOL.SOL (regression oracle, Phase 3)",
-  "capturedAt": "2026-09-02T09:02:38.781Z",
+  "capturedAt": "2026-09-02T15:40:44.219Z",
   "liveStatus": {
     "note": "The THORChain lane is the NEXT roadmap item — it has NOT gone live (aggregator key parked server-side; UI flag-gated). The input bodies are SYNTHETIC THORNode-shaped fixtures; the oracle pins the CURRENT code's CONSTRUCTION. The engine must reproduce the artifacts exactly for the same inputs.",
     "replaceWith": "On the first operator deposit: capture the live inbound_addresses body + a read-only proxy quote (same procedure as the forward/reverse frozen quotes), then re-run tools/capture-thorchain-golden-fixtures.mjs."

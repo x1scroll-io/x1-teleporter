@@ -14,10 +14,13 @@
  * for inbound addresses — the aggregator key belongs to the Step 3.3 QUOTE
  * endpoint and lives server-side only, see api/thorchain/quote.js):
  *   GET {baseUrl}/thorchain/inbound_addresses
- *   - Public hosts: `https://liquify.thorchain.org` (Liquify gateway, per the
- *     brief) and `https://thornode.thorchain.info` (public THORNode). The
- *     default base URL is the 3.1 status module's — VITE_THORCHAIN_STATUS_URL
- *     overrides both.
+ *   - LIVE gateway (LIVE-VERIFIED 2026-09-02): the default base is the 3.1
+ *     status module's — https://gateway.liquify.com/chain/thorchain_api (the
+ *     THORNode API prefix on the Liquify gateway) — and the resolved URL is
+ *     https://gateway.liquify.com/chain/thorchain_api/thorchain/inbound_addresses
+ *     (probed HTTP 200 with real vault entries). The previously documented
+ *     hosts (liquify.thorchain.org, thornode.thorchain.info, *.ninerealms.com)
+ *     are RETIRED/DNS-dead. VITE_THORCHAIN_STATUS_URL overrides the default.
  *
  * RESPONSE SHAPE (THORNode): a bare JSON array of vault entries, e.g.
  *   [{ "chain": "BTC", "pub_key": "...", "address": "bc1q...",
