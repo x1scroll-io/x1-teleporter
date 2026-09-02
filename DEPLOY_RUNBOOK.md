@@ -79,7 +79,7 @@ VITE_SOLANA_RPC = https://berty-633y20-fast-mainnet.helius-rpc.com
 
 # 2) LiFi (server-side proxy):
 INTEGRATOR      = x1-teleporter-labs
-INTEGRATOR_FEE  = 0.01
+INTEGRATOR_FEE  = 0.005   # fee-model v2: 0.5% (was 1%)
 LIFI_API_KEY    = <your LiFi API key from portal.li.fi>     # if your proxy needs it
 
 # 3) Fee wallets (used by withdraw flow; server never signs):

@@ -10,11 +10,11 @@
  * THE FLOW (per docs/BRIEF.md — one card, sequential states, quiet honest
  * fee lines):
  *   idle → Get Quote → quoting → quoted (fee lines from computeFee via
- *   quoteFees: Teleporter fee 1% + Warp bridge fee $1 on X1 routes + "you
- *   receive" net) → Bridge — Step 1 of 2 (the ROUTING-ENGINE's EVM stage:
- *   the exact-amount approval leg + the sim-gated LiFi bridge leg — see
- *   docs/ROUTING-ENGINE.md) → Step 2 of 2 (the engine's SVM stage: the X1
- *   ATA-prep leg + the Warp lock leg, gated by
+ *   quoteFees: Teleporter fee 0.5% (max $250) + the Warp bridge fee on X1
+ *   routes + "you receive" net) → Bridge — Step 1 of 2 (the ROUTING-ENGINE's
+ *   EVM stage: the exact-amount approval leg + the sim-gated LiFi bridge leg
+ *   — see docs/ROUTING-ENGINE.md) → Step 2 of 2 (the engine's SVM stage: the
+ *   X1 ATA-prep leg + the Warp lock leg, gated by
  *   WARP_LIVE_SEND for real broadcasts) → relaying / done / handoff.
  *
  * WALLET WIRING (v2 wallet layer, NOT v1's getOriginWallet):
@@ -48,11 +48,11 @@
 
 import { useEffect, useState } from "react";
 import {
-  CHAINS, EVM_CHAINS, X1_MIN, X1_REVERSE_MIN, WARP_BRIDGE_URL, SOLANA_RPC, X1_RPC,
+  CHAINS, EVM_CHAINS, WARP_BRIDGE_URL, SOLANA_RPC, X1_RPC,
   TOKENS, tokensFor,
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
-import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs, checkReverseMin } from "../lib/reverseQuote.js";
+import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
 import { solanaSessionCanSign } from "../lib/wallet/sessionProviders.js";
 import {
   SignerResolver,
@@ -118,8 +118,9 @@ export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive, 
  * touching a chain. The form passes `allowLive: WARP_LIVE_SEND` — the flag
  * is read here only as a forwarded value, so the gate stays testable.
  *
- * Fee policy (1% once, x1_onward class): the skim is computed from SKIM_BPS
- * (sourced from fees.ts) on the GROSS input — runReverse prepends the 1%
+ * Fee policy (0.5% once capped at $250, x1_onward class): the skim is
+ * computed from SKIM_BPS (sourced from fees.ts) on the GROSS input —
+ * runReverse prepends the 0.5%
  * USDC.x transfer to FEE_WALLETS.X1 and burns the remainder. The burn amount
  * is therefore gross − skim, exactly what the quote box showed.
  */
@@ -127,7 +128,7 @@ export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allo
   const { Connection, PublicKey } = await import("@solana/web3.js");
   // The routing engine runs the reverse burn stage (stage 1 of 2): the X1
   // fee-payer + balance preflights, then the x1-reverse-burn leg (bundled
-  // fee-wallet ATA create when missing + 1% skim transfer + Warp BridgeOut)
+  // fee-wallet ATA create when missing + 0.5% skim transfer + Warp BridgeOut)
   // — exactly as runReverse did, now as a LegContract leg. The runner keeps
   // runReverse's result shape + fail-closed gates + the WARP_LIVE_SEND gate.
   const route = RoutePlanner.planReverse({ to: "eth" });
@@ -135,7 +136,7 @@ export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allo
   return runReverseX1Stage({
     route,
     solAdapter,
-    amountHuman, // gross — the runner skims 1% + burns the net (reference math)
+    amountHuman, // gross — the runner skims 0.5% + burns the net (reference math)
     allowLive, // WARP_LIVE_SEND gate — passed by the form (never hardcoded)
     token, // "USDC.x" | "wSOL.X" — mint/decimals/fee account for the burn
     feeWallet: new PublicKey(FEE_WALLETS.X1),
@@ -146,7 +147,7 @@ export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allo
 /**
  * The real REVERSE stage-2 runner (LiFi Solana→EVM leg). Default for the
  * form; tests inject a fake. Bridges the net that actually LANDED on Solana
- * (deterministic: X − 1% − Warp's $1): fresh LiFi quote at execute time
+ * (deterministic: X − 0.5% − Warp's fee): fresh LiFi quote at execute time
  * (fail-closed — a quote failure surfaces instead of guessing), then the
  * simulation-gated Solana tx via executeLiFiSolanaTx (the v1 x1_onward leg-2
  * executor, already in the codebase). The SVM wallet signs; the EVM address
@@ -379,7 +380,10 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     setError(null); setStatus(null);
     const amt = parseFloat(amount);
     if (!amount || !(amt > 0)) { setError("Enter an amount"); return; }
-    if (amt < X1_MIN) { setError(`Bridge $${X1_MIN}+ into X1 to get started`); return; }
+    // NO Teleporter minimum (fee-model v2, 2026-09-02 — the $25 floor is
+    // gone): any positive amount is quotable. Warp's OWN on-chain floor
+    // (~$10 USDC / 0.1 WSOL) still applies to the actual bridge and is
+    // surfaced by the stage-2 preflight/sim, never as a UI gate here.
     if (!evmReady) { setError("Connect your EVM wallet to get a quote"); return; }
     if (!solReady) { setError("Connect your Solana/X1 wallet to get a quote"); return; }
     const built = buildLifiQuoteParams({
@@ -508,14 +512,15 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     if (!evmReady) { setError("Connect your EVM wallet to get a quote"); return; }
     setPhase("quoting");
     try {
-      // The stage-1 math is deterministic (1% skim + the Warp fee — the token
-      // drives the fee shape: USDC.x flat $1, wSOL.X 25 bps — fees.ts + live
-      // Warp config); the LiFi SOL→EVM leg is quoted LIVE on the net that will
-      // land on Solana (USDC 6-dec for a USDC.x burn, WSOL 9-dec for a wSOL.X
-      // burn — LiFi quotes WSOL→EVM stables directly, no Jupiter swap). If the
-      // leg can't be quoted, the quote is still honest: stage 1 (the X1 burn)
-      // is fully priced and the Solana→EVM hop becomes the handoff stage
-      // (funds rest safely on Solana).
+      // The stage-1 math is deterministic (0.5% skim + the Warp fee — the
+      // token drives the fee shape: USDC.x flat $1, wSOL.X 25 bps — fees.ts +
+      // live Warp config, verified on-chain 2026-09-02); the LiFi SOL→EVM
+      // leg is quoted LIVE on the net that will land on Solana (USDC 6-dec
+      // for a USDC.x burn, WSOL 9-dec for a wSOL.X burn — LiFi quotes
+      // WSOL→EVM stables directly, no Jupiter swap). If the leg can't be
+      // quoted, the quote is still honest: stage 1 (the X1 burn) is fully
+      // priced and the Solana→EVM hop becomes the handoff stage (funds rest
+      // safely on Solana).
       const legs = computeReverseLegs({ amount: amt, token: reverseToken });
       const built = buildReverseLifiQuoteParams({
         to,
@@ -531,20 +536,11 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         const d = await resp.json();
         if (!(d?.error || d?.message) && d?.estimate?.toAmount) lifiData = d;
       }
-      // USD-AWARE minimum (the live-bug fix — the old check compared the RAW
-      // TOKEN COUNT to the $25 floor, so 0.3 wSOL.X ≈ $30 was blocked because
-      // 0.3 < 25). The floor is a USD VALUE: gross input × the LIVE source
-      // price (LiFi's fromToken.priceUSD — the token the SOL→EVM leg carries,
-      // 1:1 with the X1 source — or the Coingecko fallback; never hardcoded).
-      // Fails OPEN when no price resolves: a missing price must not block a
-      // valid user — the burn preflight still guards an actually-too-small
-      // amount. The quote runs FIRST so the gate uses the freshest price.
-      const minCheck = await checkReverseMin({ amount: amt, token: reverseToken, lifiData });
-      if (minCheck.blocked) {
-        setError(`Bridge $${X1_REVERSE_MIN}+ out of X1 to get started`);
-        setPhase("idle");
-        return;
-      }
+      // NO minimum gate (fee-model v2, 2026-09-02): the $25 reverse floor
+      // (and PR #38's USD-aware gate) is REMOVED — small reverse bridges are
+      // viable at 0.5% capped at $250. The balance preflight (a different
+      // guard) still runs at burn time. A $5/$10 reverse bridge quotes and
+      // burns freely; Warp's own on-chain minimums surface via the sim.
       const derived = deriveReverseQuote({ data: lifiData, to, amount: amt, token: reverseToken, toToken: token });
       setQuote({ amount: amt, to, toToken: token, ...derived, lifiData });
       setPhase("quoted");
@@ -573,7 +569,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     try {
       const res = await reverseStage1Runner({
         solAdapter,
-        amountHuman: quote.amount, // gross — the runner skims 1% + burns the net
+        amountHuman: quote.amount, // gross — the runner skims 0.5% + burns the net
         allowLive: WARP_LIVE_SEND, // the gate: real burns only when VITE_WARP_LIVE_SEND=true
         token: reverseToken,       // "USDC.x" | "wSOL.X" — the burn's mint/decimals/fee account
       });
@@ -774,7 +770,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         refreshSignal={balanceRefresh}
         {...balancesDeps}
       />
-      <div style={S.hint}>Bridge ${X1_MIN}+ into X1 to get started — land as USDC.x (flat $1 Warp fee) or wSOL.X (0.25% Warp fee).</div>
+      <div style={S.hint}>No minimum to bridge into X1 — any amount works (Teleporter fee 0.5%, max $250; land as USDC.x — flat $1 Warp fee — or wSOL.X — 0.25% Warp fee). Warp's own ~$10 bridge floor still applies on-chain.</div>
 
       {/* wallet guidance — honest, never a silent dead-end; actionable
           (opens the connect modal) when the tab wires onConnectWallet */}
@@ -962,7 +958,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         refreshSignal={balanceRefresh}
         {...balancesDeps}
       />
-      <div style={S.hint}>Bridge ${X1_REVERSE_MIN}+ out of X1 — {reverseToken} burns on X1, {reverseToken === "wSOL.X" ? "WSOL" : "USDC"} lands on Solana, then LiFi carries it to {CHAINS[to].name} as {token}.</div>
+      <div style={S.hint}>No minimum out of X1 — {reverseToken} burns on X1, {reverseToken === "wSOL.X" ? "WSOL" : "USDC"} lands on Solana, then LiFi carries it to {CHAINS[to].name} as {token}.</div>
 
       {/* wallet guidance — honest, never a silent dead-end; actionable when
           the tab wires onConnectWallet */}

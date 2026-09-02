@@ -278,7 +278,7 @@ test("sendX1AtaCreation throws the no-wallet error when no provider is available
 // hardcodes SKIM_BPS again (or drifts the rate in fees.ts), this fails.
 test("SKIM_BPS is sourced from the unified X1-hop skim rate (Step 1.3C)", () => {
   assert.equal(SKIM_BPS, BigInt(Math.round(FEE_RATES.X1_HOP_SKIM * 10_000)));
-  assert.equal(SKIM_BPS, 100n); // 1.00% — the rate actually charged today
+  assert.equal(SKIM_BPS, 50n); // 0.50% — the rate actually charged today (fee-model v2)
 });
 
 // ── Warp v2 spec conformance (extracted from the Warp UI bundle's own IDL) ──
@@ -752,7 +752,7 @@ test("runReverse: X1 fee-payer preflight blocks BEFORE anything is built (action
   const conn = mockX1Connection({ feePayerExists: false, feeAtaExists: true });
   const wallet = mockWallet();
   await assert.rejects(
-    () => runReverse({ connection: conn, userPubkey: USER, amountHuman: 25, feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: false, provider: wallet }),
+    () => runReverse({ connection: conn, userPubkey: USER, amountHuman: 25, feeAmount: 0.125, feeWallet: FEE_WALLET, allowLive: false, provider: wallet }),
     (err) => err instanceof X1FeePayerError && /no spendable XNT/.test(err.message),
   );
   // Nothing built, nothing simulated, wallet never asked to sign.
@@ -765,8 +765,8 @@ test("runReverse (sim mode): missing fee ATA → create is BUNDLED into the burn
   const conn = mockX1Connection({ feePayerExists: true, feeAtaExists: false, simOk: true });
   const wallet = mockWallet();
   const res = await runReverse({
-    connection: conn, userPubkey: USER, amountHuman: 24.75,
-    feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: false, provider: wallet,
+    connection: conn, userPubkey: USER, amountHuman: 24.875,
+    feeAmount: 0.125, feeWallet: FEE_WALLET, allowLive: false, provider: wallet,
   });
   assert.equal(res.stage, "simulated_ok");
   assert.equal(res.success, true);
@@ -792,15 +792,15 @@ test("runReverse (live mode): missing fee ATA → create+transfer+burn in ONE tx
   const conn = mockX1Connection({ userPubkey: userKp.publicKey, feePayerExists: true, feeAtaExists: false, simOk: true });
   const wallet = mockWallet({ keypairs: [userKp] });
   const res = await runReverse({
-    connection: conn, userPubkey: userKp.publicKey, amountHuman: 24.75,
-    feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: true, provider: wallet,
+    connection: conn, userPubkey: userKp.publicKey, amountHuman: 24.875,
+    feeAmount: 0.125, feeWallet: FEE_WALLET, allowLive: true, provider: wallet,
   });
   assert.equal(res.stage, "sent");
   assert.equal(res.signature, "x1-burn-sig");
   assert.equal(res.prep.needsCreation, true);
 
   // Instruction order: [0] idempotent create (payer = user, owner = fee wallet),
-  // [1] our 1% skim transfer, [2] Warp bridge_out burn.
+  // [1] our 0.5% skim transfer, [2] Warp bridge_out burn.
   const tx = res.built.transaction;
   assert.equal(tx.instructions.length, 3);
   const create = tx.instructions[0];
@@ -813,21 +813,21 @@ test("runReverse (live mode): missing fee ATA → create+transfer+burn in ONE tx
   const feeAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, FEE_WALLET, true, TOKEN_2022_PROGRAM_ID);
   assert.equal(create.keys[1].pubkey.toBase58(), feeAta.toBase58(), "creates the fee wallet's USDC.x ATA");
 
-  // The skim transfers 1% (0.25 USDC.x = 250000 base) to that same ATA.
+  // The skim transfers 0.5% (0.125 USDC.x = 125000 base) to that same ATA.
   const skim = tx.instructions[1];
   assert.equal(skim.programId.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58());
   const skimAmount = Buffer.from(skim.data).readBigUInt64LE(1);
-  assert.equal(skimAmount, 250_000n);
+  assert.equal(skimAmount, 125_000n);
   const userUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, userKp.publicKey, true, TOKEN_2022_PROGRAM_ID);
   assert.equal(skim.keys[0].pubkey.toBase58(), userUsdcxAta.toBase58(), "skim from the user's USDC.x ATA");
   assert.equal(skim.keys[1].pubkey.toBase58(), feeAta.toBase58(), "skim to the fee wallet's USDC.x ATA");
 
-  // The burn amount = gross − skim = 24.75 USDC.x (24750000 base).
+  // The burn amount = gross − skim = 24.875 USDC.x (24875000 base).
   const burn = tx.instructions[2];
   assert.equal(burn.programId.toBase58(), WARP_PROGRAM_ID.toBase58());
   let amt = 0n; const amountLE = burn.data.slice(16, 24);
   for (let i = 7; i >= 0; i--) amt = (amt << 8n) | BigInt(amountLE[i]);
-  assert.equal(amt, 24_750_000n, "bridge_out burns the net (gross − 1% skim)");
+  assert.equal(amt, 24_875_000n, "bridge_out burns the net (gross − 0.5% skim)");
 
   // ONE guarded send: fresh blockhash → sim → signTransaction → app
   // sendRawTransaction. The ATA creation is NOT a separate broadcast.
@@ -840,37 +840,37 @@ test("runReverse (live mode): missing fee ATA → create+transfer+burn in ONE tx
   assert.equal(wallet.calls.length, 1, "ONE wallet signature (no separate ATA-creation prompt)");
 });
 
-test("runReverse (live mode): 1% skim transfer FIRST, then the burn; broadcast through the X1 connection", async () => {
+test("runReverse (live mode): 0.5% skim transfer FIRST, then the burn; broadcast through the X1 connection", async () => {
   const userKp = Keypair.generate();
   const conn = mockX1Connection({ userPubkey: userKp.publicKey, feePayerExists: true, feeAtaExists: true, simOk: true });
   const wallet = mockWallet({ keypairs: [userKp] });
   const res = await runReverse({
-    connection: conn, userPubkey: userKp.publicKey, amountHuman: 24.75,
-    feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: true, provider: wallet,
+    connection: conn, userPubkey: userKp.publicKey, amountHuman: 24.875,
+    feeAmount: 0.125, feeWallet: FEE_WALLET, allowLive: true, provider: wallet,
   });
   assert.equal(res.stage, "sent");
   assert.equal(res.signature, "x1-burn-sig");
 
-  // Instruction order: [0] = our 1% skim transfer, [1] = Warp bridge_out burn.
+  // Instruction order: [0] = our 0.5% skim transfer, [1] = Warp bridge_out burn.
   const tx = res.built.transaction;
   assert.equal(tx.instructions.length, 2);
   assert.equal(tx.instructions[0].programId.toBase58(), TOKEN_2022_PROGRAM_ID.toBase58(), "skim transfer uses Token-2022 (USDC.x)");
   assert.equal(tx.instructions[1].programId.toBase58(), WARP_PROGRAM_ID.toBase58(), "burn follows the skim");
 
-  // The skim transfers 1% (0.25 USDC.x = 250000 base) to the fee wallet's X1 ATA.
+  // The skim transfers 0.5% (0.125 USDC.x = 125000 base) to the fee wallet's X1 ATA.
   const skim = tx.instructions[0];
   const skimAmount = Buffer.from(skim.data).readBigUInt64LE(1);
-  assert.equal(skimAmount, 250_000n, "skim = 1% of 25 = 0.25 USDC.x (250000 base units)");
+  assert.equal(skimAmount, 125_000n, "skim = 0.5% of 25 = 0.125 USDC.x (125000 base units)");
   const userUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, userKp.publicKey, true, TOKEN_2022_PROGRAM_ID);
   const feeUsdcxAta = getAssociatedTokenAddressSync(X1_USDCX_MINT, FEE_WALLET, true, TOKEN_2022_PROGRAM_ID);
   assert.equal(skim.keys[0].pubkey.toBase58(), userUsdcxAta.toBase58(), "skim from the user's USDC.x ATA");
   assert.equal(skim.keys[1].pubkey.toBase58(), feeUsdcxAta.toBase58(), "skim to the fee wallet's USDC.x ATA");
 
-  // The burn amount = gross − skim = 24.75 USDC.x (24750000 base).
+  // The burn amount = gross − skim = 24.875 USDC.x (24875000 base).
   const burn = tx.instructions[1];
   let amt = 0n; const amountLE = burn.data.slice(16, 24);
   for (let i = 7; i >= 0; i--) amt = (amt << 8n) | BigInt(amountLE[i]);
-  assert.equal(amt, 24_750_000n, "bridge_out burns the net (gross − 1% skim)");
+  assert.equal(amt, 24_875_000n, "bridge_out burns the net (gross − 0.5% skim)");
 
   // Deterministic broadcast: fresh blockhash → sim → signTransaction → app
   // sendRawTransaction through the X1 connection (PR #30 pattern).
@@ -895,7 +895,7 @@ test("runReverse is FAIL-CLOSED: a rejected burn simulation blocks — no send, 
 
 test("runReverse: X1 USDC.x balance preflight — a shortfall throws an ACTIONABLE error BEFORE anything is built (the real v2 live failure)", async () => {
   // The v2 armed-preview failure was Token-2022 `custom program error: 0x1` =
-  // Custom(1) InsufficientFunds — the burn's total debit (1% skim + Warp
+  // Custom(1) InsufficientFunds — the burn's total debit (0.5% skim + Warp
   // gross) exceeded the user's balance and the sim died cryptically inside
   // Warp's burn CPI. The preflight turns that into an actionable message.
   const conn = mockX1Connection({ feePayerExists: true, feeAtaExists: true, usdcBalance: 25_000_000n }); // 25.00 < 25.25 required
@@ -903,14 +903,14 @@ test("runReverse: X1 USDC.x balance preflight — a shortfall throws an ACTIONAB
   await assert.rejects(
     () => runReverse({
       connection: conn, userPubkey: USER, amountHuman: 25,
-      feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: true, provider: wallet,
+      feeAmount: 0.125, feeWallet: FEE_WALLET, allowLive: true, provider: wallet,
     }),
     (err) => {
       assert.ok(err instanceof X1UsdcBalanceError);
       assert.match(err.message, /Not enough USDC\.x on X1/);
       assert.match(err.message, /holds 25\.00 USDC\.x/);
       assert.equal(err.available, 25_000_000n);
-      assert.equal(err.required, 25_250_000n);
+      assert.equal(err.required, 25_125_000n);
       return true;
     },
   );
@@ -937,7 +937,7 @@ test("runReverse: X1 USDC.x balance preflight — exact balance passes; missing 
   await assert.rejects(
     () => runReverse({
       connection: conn2, userPubkey: USER, amountHuman: 25,
-      feeAmount: 0.25, feeWallet: FEE_WALLET, allowLive: false, provider: wallet,
+      feeAmount: 0.125, feeWallet: FEE_WALLET, allowLive: false, provider: wallet,
     }),
     (err) => err instanceof X1UsdcBalanceError && /holds 0\.00 USDC\.x/.test(err.message),
   );
@@ -1247,7 +1247,7 @@ test("runReverse (wSOL.X, sim mode): bundled fee-ATA create → 9-dec skim trans
   const res = await runReverse({
     connection: conn, userPubkey: USER,
     amountHuman: 99, // burn gross (post-skim)
-    feeAmount: 1,    // 1% skim of a 100 wSOL.X gross, in wSOL.X
+    feeAmount: 0.5,  // 0.5% skim of a 100 wSOL.X gross, in wSOL.X
     feeWallet: FEE_WALLET,
     allowLive: false, // the WARP_LIVE_SEND gate — must hold
     provider: wallet,
@@ -1346,10 +1346,10 @@ test("buildStage2 (destToken=wSOL.X): WSOL source mint, per-mint vault PDAs, Gxf
   for (let i = 0; i < 12; i++) {
     assert.ok(burnIx.keys[i].pubkey.equals(expected[i]), `slot ${i}: expected ${expected[i].toBase58()}, got ${burnIx.keys[i].pubkey.toBase58()}`);
   }
-  // 9-dec skim math: 25 WSOL gross → 0.25 skim → 24.75 bridge amount.
+  // 9-dec skim math: 25 WSOL gross → 0.125 skim → 24.875 bridge amount (0.5%).
   const amountLE = burnIx.data.slice(16, 24);
   let amt = 0n; for (let i = 7; i >= 0; i--) amt = (amt << 8n) | BigInt(amountLE[i]);
-  assert.equal(amt, 24_750_000_000n, "bridge amount = 24.75 WSOL (25 − 1% skim) in 9-dec base");
+  assert.equal(amt, 24_875_000_000n, "bridge amount = 24.875 WSOL (25 − 0.5% skim) in 9-dec base");
 });
 
 test("deriveVaultAccounts: WSOL vault derivation matches the live mainnet PDA (9ZFmvmJk…) and the USDC derivation equals WARP_ACCOUNTS.vault", () => {

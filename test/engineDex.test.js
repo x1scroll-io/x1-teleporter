@@ -171,7 +171,7 @@ test("engine dex: lifi-evm-swap leg builds through runLeg (byte-identical to the
   const { results } = await runLeg(leg, ctx);
   const artifact = results.build.artifact;
   assert.equal(artifact.upstreamUrl, FIX_LIFI1.artifact.upstreamUrl);
-  assert.equal(artifact.policy.forcedFee, "0.01"); // same-chain → 1% integrator forced
+  assert.equal(artifact.policy.forcedFee, "0.005"); // same-chain → 0.5% integrator forced (fee-model v2)
 });
 
 // ── Leg validation + signer family mapping ──

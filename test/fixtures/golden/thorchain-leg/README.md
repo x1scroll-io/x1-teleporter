@@ -52,7 +52,7 @@ progress). The app-constructed deterministic artifacts are:
    the deposit address is shown ONLY after a fresh quote lands.
 
 The SOL-landing watcher (`solBalance.js` — a balance READER, nothing built)
-and the post-landing auto-advance (SOL→USDC swap → 1% skim → Warp hop) reuse
+and the post-landing auto-advance (SOL→USDC swap → 0.5% skim → Warp hop) reuse
 the SAME proven executors the Phase-1/2 engine legs already wrap
 (`executeLiFiSolanaTx` / `buildStage2` / `runStage2` — pinned by the
 forward/reverse oracles) and stay on their existing gated paths — documented
@@ -87,7 +87,7 @@ known (BTC rate 1) and the sample is at-cap.
 Derived: quote parse → `expectedAmountOut 0.4975 SOL` (raw 49,750,000),
 `slippageBps 50`, not halted; memo `=:SOL.SOL:wJs2CD1p…`; the three pre-send
 fee lines (real `computeFee`): THORChain affiliate **1.00%** (protocol,
-third-party) + Teleporter fee **1.00%** (warp-skim) + Warp bridge fee
+third-party) + Teleporter fee **0.50%** (warp-skim — fee-model v2) + Warp bridge fee
 **$1 flat**.
 
 ## Per-step sha256 (2026-09-02 capture)

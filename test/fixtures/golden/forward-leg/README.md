@@ -12,7 +12,7 @@ must reproduce them exactly, or `test/golden.test.js` fails.
 | `quote-eth-sol-usdc-25.65.json` | INPUT | The FROZEN live LiFi quote (Relay route, 25.65 USDC ETH→SOL, captured 2026-09-02 via the stable v2 proxy `/api/lifi/quote`). Stands in for the LiFi network so everything is reproducible offline. The stage-1 EVM bridge calldata rides inside it (`transactionRequest`) — the engine must pass the quote through UNCHANGED. |
 | `step1-approval.json` | 1 | The EXACT-amount ERC-20 approval — `approve(LiFi Diamond, 25,650,000)` calldata + the `eth_sendTransaction` params the leg sends (PR #3 shape: never MaxUint256). |
 | `step2a-x1-ata-prep.json` | 2a | The X1 recipient ATA create tx (idempotent, Token-2022, payer = user) the leg broadcasts on X1 BEFORE the Solana lock — the bridge_in_v2 prerequisite. Serialized unsigned (base64) + sha256. |
-| `step2b-warp-lock.json` | 2b | The stage-2 Solana lock tx: ComputeBudget(60k) + the 1% skim SPL transfer (user → fee wallet) + Warp `BridgeOut(seq, bridgeBase)` — one transaction, serialized unsigned (base64) + sha256. |
+| `step2b-warp-lock.json` | 2b | The stage-2 Solana lock tx: ComputeBudget(60k) + the 0.5% skim SPL transfer (user → fee wallet) + Warp `BridgeOut(seq, bridgeBase)` — one transaction, serialized unsigned (base64) + sha256. |
 | `step3-bridge-in-v2.json` | 3 | The `WARP_BRIDGE_IN_V2_ACCOUNTS_SPEC` (14 rows) serialized canonically (`specSha256`) + the concrete wrapped-USDC.x account list (11 offline-derivable keys in spec order — the vault pair is native-only and omitted; `signature_set` is guardian-signed and recorded as its seed template). |
 | `forward-leg-summary.json` | — | Sample input, derived amounts, per-step sha256s, the stage-1 bridge-calldata reference sha256, and the quote-box display strings computed by the REAL fee code (the browser harness asserts against these). |
 
@@ -35,7 +35,7 @@ All wallet addresses are the repo's own test constants (warpBridge `USER` /
 `FEE_WALLET`, teleportQuote `EVM_ADDR`) — reproducible offline, no live wallet.
 
 Derived from the frozen quote: LiFi delivers **25.554929 USDC** to Solana
-(`estimate.toAmount` 25554929); stage 2 skims **1% = 255549 base** and locks
+(`estimate.toAmount` 25554929); stage 2 skims **0.5% = 127774 base** (fee-model v2; old 1% = 255549) and locks
 **25299380 base** via BridgeOut.
 
 ## Per-step sha256 (2026-09-02 capture)

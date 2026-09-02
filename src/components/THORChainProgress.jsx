@@ -10,7 +10,7 @@
  * (max 90 min), renders the stage sequence with the teleport-branded motion
  * language (charging → in transit → rematerializing), detects the SOL landing
  * in the connected Solana wallet (balance delta ≥ expected − tolerance), then
- * auto-advances into the EXISTING SOL→USDC swap → 1% skim → Warp sequence.
+ * auto-advances into the EXISTING SOL→USDC swap → 0.5% skim → Warp sequence.
  *
  * Closed-tab resume: every stage change persists `{inboundTxid, stage}` in
  * window.storage (keyed by txid, no server state). On mount, a pending entry
@@ -373,7 +373,7 @@ export default function THORChainProgress({
     ) : phase === "advancing" ? (
       <div style={{ ...S.banner, ...S.bannerInfo }} data-testid="tc-banner-advancing">
         <span>◈</span>
-        <span>SOL landed — executing the X1 hop: SOL→USDC swap, 1% skim, then Warp.</span>
+        <span>SOL landed — executing the X1 hop: SOL→USDC swap, 0.5% skim, then Warp.</span>
       </div>
     ) : null;
 

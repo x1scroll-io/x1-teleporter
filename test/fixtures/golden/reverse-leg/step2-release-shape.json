@@ -19,10 +19,10 @@
     "sourceTokenMint": "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8",
     "localMint": "So11111111111111111111111111111111111111112",
     "nativeVariant": true,
-    "burnAmountBase": "396000000",
-    "warpFeeBase": "990000",
-    "releaseBase": "395010000",
-    "releaseHuman": 0.39501,
+    "burnAmountBase": "398000000",
+    "warpFeeBase": "995000",
+    "releaseBase": "397005000",
+    "releaseHuman": 0.397005,
     "accountCount": 11,
     "accountList": [
       {
@@ -111,7 +111,7 @@
       }
     ]
   },
-  "sha256": "33716a7fbe2b44ed318cd1b90979cc0d2dfa2b5ef7c4ab417e83abdf085cbe26",
+  "sha256": "08388c902300264d7c6975cfbff1c8681ce7ae7c212a801641e55e617c76da71",
   "spec": {
     "rows": [
       {

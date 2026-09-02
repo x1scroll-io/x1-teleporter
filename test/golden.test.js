@@ -11,7 +11,7 @@
  *
  *   step1  ERC-20 EXACT-amount approval  (lifiApproval.buildApprovalData)
  *   step2a X1 recipient ATA create tx    (warpBridge.ensureX1RecipientAta)
- *   step2b Warp lock tx — 1% skim + BridgeOut (warpBridge.buildStage2)
+ *   step2b Warp lock tx — 0.5% skim + BridgeOut (warpBridge.buildStage2)
  *   step3  bridge_in_v2 account construction (WARP_BRIDGE_IN_V2_ACCOUNTS_SPEC)
  *
  * Fixtures: test/fixtures/golden/forward-leg/*.json
@@ -158,7 +158,7 @@ test("golden step2b: stage-2 Warp lock tx rebuild is byte-identical (serialized)
   const a = rebuilt.artifact;
   assert.equal(a.seq, seq.toString());
   assert.equal(a.grossBase, "25554929"); // what LiFi delivered (base units)
-  // 1% skim = floor(gross × SKIM_BPS / 10000); the bridge locks the remainder.
+  // 0.5% skim = floor(gross × SKIM_BPS / 10000); the bridge locks the remainder.
   assert.equal(a.skimBase, ((25554929n * SKIM_BPS) / 10_000n).toString());
   assert.equal(a.bridgeBase, (25554929n - (25554929n * SKIM_BPS) / 10_000n).toString());
   assert.equal(a.feeAtaCreated, false); // live shape: fee wallet's USDC ATA exists
@@ -259,10 +259,11 @@ test("golden: full capture is reproducible + deterministic (rebuild twice, same 
     );
   }
 
-  // Derived math: skim base = 1% of delivered, bridge = delivered − skim.
+  // Derived math (fee-model v2): skim base = 0.5% of delivered, bridge =
+  // delivered − skim. (Old 1% values: skim 255549 / bridge 25299380.)
   assert.equal(c1.derived.deliveredBase, "25554929");
-  assert.equal(c1.derived.skimBase, "255549");
-  assert.equal(c1.derived.bridgeBase, "25299380");
+  assert.equal(c1.derived.skimBase, "127774");
+  assert.equal(c1.derived.bridgeBase, "25427155");
   assert.equal(c1.derived.amountHuman, 25.554929);
   assert.equal(c1.derived.seq, encodeWarpSeq(FIXED_SEQ_SLOT, 0).toString());
 

@@ -11,8 +11,8 @@
  * params are sent — buildLifiQuoteParams only sets allowSwitchChain=false,
  * which gates chain-switching, NOT source-chain DEX swaps), and the server
  * fee policy (api/lifi/quote.js resolveForcedFee) already classifies
- * non-x1-class (same-chain) routes: the 1% integrator fee is FORCED
- * (fee=0.01) — the policy text calls same-chain routes out explicitly.
+ * non-x1-class (same-chain) routes: the 0.5% integrator fee is FORCED
+ * (fee=0.005) — the policy text calls same-chain routes out explicitly.
  * Conclusion: EVM swap legs are DONE by LiFi — a future same-chain EVM lane
  * runs the existing /api/lifi/quote → stepTransaction/status path with the
  * params this leg pins.
@@ -21,7 +21,7 @@
  * quote REQUEST — the params the UI would send to OUR proxy
  * /api/lifi/quote (mirror of buildLifiQuoteParams' conventions, both ends on
  * the same EVM chain), plus the server-side fee policy applied
- * (resolveForcedFee → integrator forced + fee 0.01 for a same-chain route).
+ * (resolveForcedFee → integrator forced + fee 0.005 for a same-chain route).
  * The oracle pins: the client params, the policy decision, and the exact
  * upstream URL the proxy fetches (li.quest/v1/quote + params) — with the
  * frozen live swap-route quote as the input fixture.
@@ -109,11 +109,11 @@ export function shapeLifiSameChainSwapArtifact({
 
   // The server fee policy on the proxy (api/lifi/quote.js — the REAL code):
   // a same-chain request carries no x1Class marker → NOT x1-class → the 1%
-  // integrator fee is FORCED (fee=0.01) — that fee IS the once-per-journey
-  // Teleporter fee on non-X1 routes (policy header).
+  // integrator fee is FORCED (fee=0.005) — that fee IS the once-per-journey
+  // Teleporter fee on non-X1 routes (fee-model v2: 0.5% capped at $250).
   const qs = new URLSearchParams(params);
   const policy = {
-    forcedFee: resolveForcedFee(qs), // "0.01" — same-chain routes are not x1-class
+    forcedFee: resolveForcedFee(qs), // "0.005" — same-chain routes are not x1-class
     x1ClassPresent: qs.get(X1_CLASS_MARKER) === "1",
   };
   // Apply the policy exactly as the proxy does before forwarding:
@@ -154,7 +154,7 @@ export function createLifiEvmSwapLeg() {
       "The LiFi EVM same-chain swap leg — the canonical quote request for an EVM DEX swap " +
       "(USDC→USDT etc.) through OUR /api/lifi/quote policy: both ends on the same chain → " +
       "LiFi returns a swap route (verified live: type lifi / tool sushiswap, includedSteps " +
-      "[feeCollection, swap:sushiswap]) and the server FORCES the 1% integrator fee " +
+      "[feeCollection, swap:sushiswap]) and the server FORCES the 0.5% integrator fee " +
       "(resolveForcedFee — same-chain routes are not x1-class). EVM swap legs are DONE by " +
       "LiFi — this leg pins the construction (golden dex-leg fixtures).",
     goldenStep: "lifi-samechain",

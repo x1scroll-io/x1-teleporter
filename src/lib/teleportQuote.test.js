@@ -9,7 +9,7 @@
  *     false), and the real connected wallet addresses (NO PLACEHOLDERS — a
  *     missing address returns null so the UI prompts to connect),
  *   - the quote-box fee picture comes from computeFee via quoteFees (the
- *     single source): the 1% Teleporter skim (leg-1-delivered base — on what
+ *     single source): the 0.5% Teleporter skim (leg-1-delivered base — on what
  *     LiFi actually delivers) + Warp's $1 third-party line, and "you receive"
  *     nets both.
  */
@@ -68,7 +68,7 @@ test("buildLifiQuoteParams: raw amount floors at base units (no fractional dust)
   assert.equal(qs.get("fromAmount"), "100999900");
 });
 
-test("deriveQuoteFromLifi: fee lines from quoteFees — 1% skim + Warp $1, net honest", () => {
+test("deriveQuoteFromLifi: fee lines from quoteFees — 0.5% skim (max $250) + Warp's fee, net honest", () => {
   // LiFi delivers $99 on Solana for a $100 input (slippage/gas already netted).
   const q = deriveQuoteFromLifi({ data: { estimate: { toAmount: "99000000" } }, from: "eth", token: "USDC", amount: 100 });
   assert.equal(q.out, 99);
@@ -76,17 +76,17 @@ test("deriveQuoteFromLifi: fee lines from quoteFees — 1% skim + Warp $1, net h
 
   const skim = q.feeLines.find((l) => l.id === "warp-skim");
   assert.ok(skim, "warp-skim line present");
-  assert.equal(skim.label, "Teleporter fee (1%)");
+  assert.equal(skim.label, "Teleporter fee (0.5%, max $250)");
   assert.equal(skim.party, "teleporter");
-  assert.ok(Math.abs(skim.amountUsd - 0.99) < 1e-9, "1% skim on the DELIVERED amount (leg-1-delivered base)");
+  assert.ok(Math.abs(skim.amountUsd - 0.495) < 1e-9, "0.5% skim on the DELIVERED amount (leg-1-delivered base)");
 
   const flat = q.feeLines.find((l) => l.id === "warp-flat");
   assert.ok(flat, "warp-flat line present");
-  assert.equal(flat.label, "Warp bridge fee");
+  assert.equal(flat.label, "Warp bridge fee ($1 flat)");
   assert.equal(flat.party, "third-party", "Warp's $1 is a pass-through, never a Teleporter fee");
   assert.equal(flat.amountUsd, 1);
 
-  assert.ok(Math.abs(q.net - 97.01) < 1e-9, "net = delivered − 1% skim − $1");
+  assert.ok(Math.abs(q.net - 97.505) < 1e-9, "net = delivered − 0.5% skim − $1");
   assert.equal(q.recvToken, "USDC.x");
   assert.equal(q.recvChain, "X1");
   assert.deepEqual(

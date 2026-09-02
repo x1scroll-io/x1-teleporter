@@ -39,7 +39,7 @@ export const THORCHAIN_AFFILIATE_NAME = "";
 /**
  * THORChain affiliate basis points — the PROTOCOL fee rate paid to our
  * THORName (docs/BRIEF.md: "affiliate_bps (start 100)"). This is a THORChain
- * protocol fee, NOT Teleporter's 1% — see the fee-policy note in fees.ts.
+ * protocol fee, NOT Teleporter's 0.5% — see the fee-policy note in fees.ts.
  * Ignored while THORCHAIN_AFFILIATE_NAME is empty (no affiliate params sent).
  */
 export const THORCHAIN_AFFILIATE_BPS = 100;

@@ -7,7 +7,7 @@
  *   1. evm-approval     the exact-amount ERC-20 approval (golden step1)
  *   2. lifi-evm-bridge  the LiFi stage-1 bridge tx (quote forwarded verbatim)
  *   3. x1-ata-create    the X1 recipient ATA-create, Token-2022 (golden step2a)
- *   4. warp-lock        the Warp lock: 1% skim + BridgeOut + the bridge_in_v2
+ *   4. warp-lock        the Warp lock: 0.5% skim + BridgeOut + the bridge_in_v2
  *                       account pre-image (golden step2b + step3)
  *
  * The two UI stages map onto contiguous leg slices:
@@ -18,7 +18,7 @@
  * its own plan* function — three legs, grouped into the reverse UI stages:
  *
  *   burn stage (Step 1 of 2):  x1-reverse-burn    the X1 Warp burn: bundled
- *                                fee-ATA create (when missing) + 1% skim
+ *                                fee-ATA create (when missing) + 0.5% skim
  *                                transfer + BridgeOut (golden step1)
  *   release (auto, relaying):   warp-release-wait  the poll for the official
  *                                submitter's Solana release (golden step2)
@@ -41,7 +41,7 @@
  *   the user's external wallet (copy address + memo, send, paste txid) —
  *   the engine's SignerResolver returns null for them by design (no in-app
  *   session signer exists for the deposit-address lane). The SOL-landing
- *   watcher + the post-landing auto-advance (SOL→USDC swap, 1% skim, Warp
+ *   watcher + the post-landing auto-advance (SOL→USDC swap, 0.5% skim, Warp
  *   hop) reuse the SAME proven executors the forward/reverse engine legs
  *   already wrap (executeLiFiSolanaTx / buildStage2 / runStage2 — pinned by
  *   the Phase-1/2 oracles) and stay on their existing gated paths; the
@@ -315,7 +315,7 @@ export function planLifiEvmSwap({ chain = "eth" } = {}) {
  *
  * Canonical use (the THORChain post-landing auto-advance, documented in
  * docs/ROUTING-ENGINE.md §Phase 4): SOL lands → swap SOL→USDC on Jupiter →
- * 1% skim + Warp hop into X1. That route is
+ * 0.5% skim + Warp hop into X1. That route is
  *   composeRoute(planJupiterSwap(), planForward(), { id: "forward-sol-x1-via-jupiter" })
  * with the run ctx supplying the swap amount (the landed SOL) to the swap
  * leg and the Warp legs reading the post-swap USDC balance — the planner

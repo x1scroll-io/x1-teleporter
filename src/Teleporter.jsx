@@ -104,31 +104,30 @@ const PENDING_KEY = "teleporter.pending";
 
 // ── LiFi integrator config ──
 // IMPORTANT: INTEGRATOR must be your registered LiFi integrator string for fees
-// to actually collect to your account. INTEGRATOR_FEE is a float: 0.01 = 1%.
+// to actually collect to your account. INTEGRATOR_FEE is a float: 0.005 = 0.5%
+// (fee-model v2, 2026-09-02 — capped at $250 in the quote).
 // Fees are withdrawn later via /v1/integrators/{INTEGRATOR}/withdraw/{chainId}.
 const INTEGRATOR = "x1-teleporter-labs"; // registered LiFi integrator string
-const INTEGRATOR_FEE = FEE_RATES.LIFI_INTEGRATOR; // 1% — LiFi max is 10% (0.10) — sourced from src/lib/fees.ts (Step 1.3C)
+const INTEGRATOR_FEE = FEE_RATES.LIFI_INTEGRATOR; // 0.5% — LiFi max is 10% (0.10) — sourced from src/lib/fees.ts (Step 1.3C)
 // Proxy base — Vercel serves /api/* as serverless functions on the same origin.
 const API_BASE = "";
 
 // ── Warp Bridge (Solana ↔ X1) — VERIFIED from live mainnet tx ──
 // Program 6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD, instruction BridgeOut.
-// The bridge charges a FLAT 1 USDC fee (hardcoded, not %), and rejects bridges
-// under $10. We skim our 1% BEFORE the bridge, so the post-skim amount must
-// still clear Warp's $10 floor. Hence a $25 minimum into X1 (after 1% = $24.75,
-// safely above $10 even if the LiFi leg lands a little short).
+// The bridge charges a FLAT 1 USDC fee (USDC.x, verified on-chain 2026-09-02 —
+// not 0.25%), and rejects bridges under $10. We skim our 0.5% BEFORE the
+// bridge, so the post-skim amount must still clear Warp's $10 floor.
 // Warp's flat $1 is a THIRD-PARTY pass-through (policy) — it lives in
 // src/lib/fees.ts as the warp-flat component (labeled "Warp bridge fee"),
 // rendered as its own quote line, never as a Teleporter fee.
 const WARP_MIN = 10;         // Warp rejects bridges below this (USDC)
-// Minimum into X1. 25 (post-1%-skim must clear Warp's $10 floor with a buffer
-// for LiFi slippage on the EVM->X1 path). $25 post-skim = $24.75, safely above
-// Warp's $10 floor even if the LiFi leg lands a little short.
-const X1_MIN = 25;
-// $25 minimum BOTH directions (in and out of X1). Out of X1 the $25 covers
-// Warp's flat $1 fee + our 1% with room for a second LiFi leg if the user is
-// bridging onward past Solana to another chain.
-const X1_REVERSE_MIN = 25;
+// Minimum into X1 — REMOVED 2026-09-02 (fee-model v2): the Teleporter fee is
+// now 0.5% capped at $250, so small bridges are viable — NO floor (kept as 0
+// so the dormant v1 fallback's gate can never block; v1 mirrors v2 policy).
+const X1_MIN = 0;
+// Minimum OUT of X1 — REMOVED 2026-09-02 (fee-model v2): NO floor, same
+// reasoning as X1_MIN (kept as 0 so the v1 gate can never block).
+const X1_REVERSE_MIN = 0;
 // WARP_LIVE gates the REAL Solana→X1 Warp execution (warpBridge.js).
 // false (default) = stage 2 stays in safe demo animation; the real bridge code
 // is NOT fired. Flip to true ONLY after runStage2({allowLive:false}) simulates
@@ -159,7 +158,7 @@ const SOLANA_RPC =
 const X1_RPC =
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_X1_RPC) ||
   "https://rpc.mainnet.x1.xyz";
-// Your SVM fee wallet — where the Warp X1-hop 1% skim lands. (LiFi-collected
+// Your SVM fee wallet — where the Warp X1-hop 0.5% skim lands. (LiFi-collected
 // fees go to the wallets you registered in the LiFi portal; this address is
 // used ONLY for the pure Warp Solana→X1 skim that LiFi doesn't touch.)
 const FEE_WALLET_SVM = FEE_WALLETS.SVM; // "tip" vanity SVM wallet — sourced from src/lib/fees.ts (Step 1.3C)
@@ -1151,7 +1150,7 @@ export default function Teleporter() {
     // POLICY (Step 1.3D): x1-class legs OMIT the LiFi fee param entirely —
     // absent means absent, no fee=0, no API-interpretation ambiguity (the
     // stage-2 skim is the only Teleporter fee on the journey). Non-X1 legs
-    // carry fee=0.01 (the integrator IS the once-per-journey Teleporter fee).
+    // carry fee=0.005 (the integrator IS the once-per-journey Teleporter fee).
     // The server re-forces the same decision (api/lifi/quote.js).
     const isX1Leg = routeType === "x1" || routeType === "x1_onward"; // the only x1-class routes with a LiFi leg
     const effectiveFee = feeOverride != null ? feeOverride : lifiIntegratorFeeFor(routeType);
@@ -1215,9 +1214,9 @@ export default function Teleporter() {
       order: "CHEAPEST",
     };
     // POLICY: x1-class legs OMIT the fee key entirely (absent means absent —
-    // never fee=0); non-X1 legs carry fee=0.01. The server re-forces the same
+    // never fee=0); non-X1 legs carry fee=0.005. The server re-forces the same
     // decision (api/lifi/quote.js).
-    if (!isX1Leg) qsObj.fee = String(effectiveFee); // "0.01" on non-X1 legs
+    if (!isX1Leg) qsObj.fee = String(effectiveFee); // "0.005" on non-X1 legs
     // x1-class marker — the server validates it (the leg must touch Solana)
     // and strips any fee param for x1-class journeys; see api/lifi/quote.js.
     if (isX1Leg) qsObj.x1Class = "1";
@@ -1260,12 +1259,12 @@ export default function Teleporter() {
     const amt = parseFloat(amount);
 
     // Routes that END in a Warp hop into X1 (x1 on-ramp + pure sol_x1) must clear
-    // the bridge's $10 floor AFTER our 1% skim.
+    // the bridge's $10 floor AFTER our 0.5% skim.
     const endsInX1 = routeType === "x1" || routeType === "sol_x1";
     if (endsInX1 && amt < X1_MIN) {
       return flash(`Bridge $${X1_MIN}+ into X1 to get started`, "err");
     }
-    // Reverse (X1→Sol) and onward (X1→other): $25 floor, same as forward.
+    // Reverse (X1→Sol) and onward (X1→other): floor removed 2026-09-02 (fee-model v2).
     if ((routeType === "x1_reverse" || routeType === "x1_onward") && amt < X1_REVERSE_MIN) {
       return flash(`Bridge $${X1_REVERSE_MIN}+ out of X1 to get started`, "err");
     }
@@ -1277,12 +1276,12 @@ export default function Teleporter() {
     const limits = await fetchWarpLimits(WARP_API.mainnet);
     if (limits.ok) setWarpLimits(limits);
 
-    // sol_x1 — pure Warp bridge, no LiFi leg. Our 1% skim. In HANDOFF mode we
+    // sol_x1 — pure Warp bridge, no LiFi leg. Our 0.5% skim. In HANDOFF mode we
     // land USDC on Solana and the user finishes on Warp Bridge (Warp charges
     // their own flat $1 there, so we don't deduct it on our side).
     if (routeType === "sol_x1") {
       await new Promise((r) => setTimeout(r, 400));
-      // POLICY: x1-class Teleporter fee = the 1% skim only (integrator 0); Warp's
+      // POLICY: x1-class Teleporter fee = the 0.5% skim only (integrator 0); Warp's
       // $1 is a third-party pass-through line. In HANDOFF mode Warp charges their
       // own $1 on their side, so it's excluded here (not shown, not deducted).
       if (!AUTO_X1_HOP) {
@@ -1310,7 +1309,7 @@ export default function Teleporter() {
       return;
     }
 
-    // x1_reverse — X1 → Solana via Warp BURN. No LiFi. Our 1% skim + Warp's
+    // x1_reverse — X1 → Solana via Warp BURN. No LiFi. Our 0.5% skim + Warp's
     // flat 1 USDC.x token fee (deducted inside bridge_out on mainnet).
     if (routeType === "x1_reverse") {
       await new Promise((r) => setTimeout(r, 300));
@@ -1327,7 +1326,7 @@ export default function Teleporter() {
     }
 
     // x1_onward — X1 → other chain. Two legs: Warp burn (X1→Sol) + LiFi
-    // (Sol→destination). Quote shows our 1% + Warp's $1; the LiFi leg's own
+    // (Sol→destination). Quote shows our 0.5% + Warp's fee; the LiFi leg's own
     // fee/slippage is quoted live when leg 2 fires.
     if (routeType === "x1_onward") {
       await new Promise((r) => setTimeout(r, 300));
@@ -1350,7 +1349,7 @@ export default function Teleporter() {
 
     // DEMO MODE — simulate, no backend needed. Fee lines come from the same
     // quoteFees() the live paths use, so the demo shows the policy picture
-    // (x1-class: 1% skim + Warp's $1 third-party line; non-X1: 1% once).
+    // (x1-class: 0.5% skim + Warp's fee third-party line; non-X1: 0.5% once).
     if (DEMO_MODE) {
       await new Promise((r) => setTimeout(r, 650));
       const qf = quoteFees({ from, to, routeType, amount: amt }, amt);
@@ -1585,7 +1584,7 @@ export default function Teleporter() {
     setPhase("bridging"); setProgress(0.6);
     try {
       // Leg 2 bridges what actually LANDED on Solana after leg 1 (Warp burn):
-      // original − 1% skim − Warp flat $1. Use that net, not the original input,
+      // original − 0.5% skim − Warp's fee. Use that net, not the original input,
       // or LiFi would quote/attempt more USDC than the wallet holds.
       const original = parseFloat(amount);
       const netOnSolana = quote?.net != null ? quote.net
@@ -1707,7 +1706,7 @@ export default function Teleporter() {
           const { runReverse, pollWarpStatus } = await import("./warpBridge.js");
           const connection = new Connection(X1_RPC, "confirmed");
           let amountHuman = quote?.amount ?? pending?.amount;
-          // Deduct Teleporter 1% fee before burning (fee charged on Warp bridge_out).
+          // Deduct Teleporter 0.5% fee before burning (fee charged on Warp bridge_out).
           // The UI already showed the net amount to receive, so we skim it here.
           const teleporterFee = quote?.feeUsd
             ? computeFee({ from, to, routeType, amount: amountHuman }).component("warp-skim").amountUsd(amountHuman)
@@ -2039,11 +2038,11 @@ export default function Teleporter() {
 
             <div style={S.fieldLabel}>Fees</div>
             <div style={{ fontSize: 13, color: "#9aa6bb", lineHeight: 1.5 }}>
-              Teleporter's fee is exactly 1%, charged once per journey. On X1
-              routes it's the pre-bridge skim (the LiFi integrator fee is 0); on
-              non-X1 routes it's the LiFi integrator fee. Warp's flat $1 bridge
-              fee is a third-party pass-through. The quote shows every line, and
-              "you receive" reflects them all.
+              Teleporter's fee is 0.5% per journey (max $250), charged once. On
+              X1 routes it's the pre-bridge skim (the LiFi integrator fee is 0);
+              on non-X1 routes it's the LiFi integrator fee. Warp's bridge fee
+              (USDC.x flat $1 / wSOL.X 0.25%) is a third-party pass-through. The
+              quote shows every line, and "you receive" reflects them all.
             </div>
           </div>
         )}
@@ -2092,12 +2091,12 @@ export default function Teleporter() {
                 placeholder="0.00" style={S.amountInput} />
               {(routeType === "x1" || routeType === "sol_x1") && (
                 <div style={{ fontSize: 11, color: "#5B9DFF", marginTop: 6, paddingLeft: 2 }}>
-                  Bridge ${X1_MIN}+ into X1 to get started
+                  No minimum to bridge into X1 (fee 0.5%, max $250)
                 </div>
               )}
               {(routeType === "x1_reverse" || routeType === "x1_onward") && (
                 <div style={{ fontSize: 11, color: "#5B9DFF", marginTop: 6, paddingLeft: 2 }}>
-                  Bridge ${X1_REVERSE_MIN}+ out of X1 to get started
+                  No minimum out of X1 (fee 0.5%, max $250)
                 </div>
               )}
             </div>

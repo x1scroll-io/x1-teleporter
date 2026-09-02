@@ -15,7 +15,7 @@
   "artifact": {
     "chainPair": "source=0 dest=1",
     "seq": "72057899037927936",
-    "amountBase": "25299380",
+    "amountBase": "25427155",
     "sourceTokenMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     "localMint": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
     "wrappedVariant": true,
@@ -99,7 +99,7 @@
       }
     ]
   },
-  "sha256": "ff40e375daa872ff2369b3f20035f33819508fe7806d88b432c334c883771576",
+  "sha256": "78262f738c1ca8f4e54e4d7245013c26bad55ec4607ab1d80542fa66da0fffa0",
   "spec": {
     "rows": [
       {

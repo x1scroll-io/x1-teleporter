@@ -279,7 +279,7 @@ test("balance line fail-soft inside the form: dead RPCs show —, form still wor
 
 // ── QUOTE FLOW against the mocked endpoint + fee lines ─────────────────────
 
-test("quote flow: mocked endpoint → x1-class query pinned, fee lines 1% + $1, honest net", async () => {
+test("quote flow: mocked endpoint → x1-class query pinned, fee lines 0.5% + $1, honest net", async () => {
   const qf = mockQuoteFetch();
   const { container, unmount } = renderForm(FORM_PROPS());
   try {
@@ -300,13 +300,13 @@ test("quote flow: mocked endpoint → x1-class query pinned, fee lines 1% + $1, 
     const box = container.querySelector('[data-testid="quote-box"]');
     assert.ok(box, "quote box rendered");
     const skim = container.querySelector('[data-testid="fee-line-warp-skim"]');
-    assert.ok(skim && skim.textContent.includes("Teleporter fee (1%)") && skim.textContent.includes("$0.99"),
-      `1% Teleporter fee line, got: ${skim?.textContent}`);
+    assert.ok(skim && skim.textContent.includes("Teleporter fee (0.5%, max $250)") && skim.textContent.includes("$0.49"),
+      `0.5% Teleporter fee line (0.5% of the $99 delivered), got: ${skim?.textContent}`);
     const flat = container.querySelector('[data-testid="fee-line-warp-flat"]');
-    assert.ok(flat && flat.textContent.includes("Warp bridge fee") && flat.textContent.includes("$1.00"),
+    assert.ok(flat && flat.textContent.includes("Warp bridge fee ($1 flat)") && flat.textContent.includes("$1.00"),
       `Warp $1 third-party line, got: ${flat?.textContent}`);
     const recv = container.querySelector('[data-testid="you-receive"]');
-    assert.ok(recv && recv.textContent.includes("97.01") && recv.textContent.includes("USDC.x") && recv.textContent.includes("X1"),
+    assert.ok(recv && recv.textContent.includes("97.50") && recv.textContent.includes("USDC.x") && recv.textContent.includes("X1"),
       `honest net, got: ${recv?.textContent}`);
     assert.ok(container.querySelector('[data-testid="bridge-now"]'), "send button appears when quoted");
   } finally {
@@ -315,16 +315,18 @@ test("quote flow: mocked endpoint → x1-class query pinned, fee lines 1% + $1, 
   }
 });
 
-test("quote flow: sub-floor amount → explicit floor error, no quote call", async () => {
+test("quote flow: small amounts quote — the $25 floor is GONE (fee-model v2)", async () => {
   const qf = mockQuoteFetch();
   const { container, unmount } = renderForm(FORM_PROPS());
   try {
     setInput(container.querySelector('[data-testid="amount"]'), "10");
     click(container.querySelector('[data-testid="get-quote"]'));
     await flush();
-    assert.equal(qf.calls.length, 0, "no quote call below the $25 floor");
-    const err = container.querySelector('[data-testid="form-error"]');
-    assert.ok(err && err.textContent.includes("$25"), `floor error surfaced, got: ${err?.textContent}`);
+    assert.equal(qf.calls.length, 1, "a $10 bridge quotes — no minimum floor");
+    const box = container.querySelector('[data-testid="quote-box"]');
+    assert.ok(box, "quote box renders for a $10 bridge");
+    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no floor error");
+    assert.ok(container.querySelector('[data-testid="bridge-now"]'), "send button available");
   } finally {
     qf.restore();
     unmount();
@@ -652,16 +654,16 @@ test("stage 1 sent but the Solana session can't sign → honest handoff (funds s
 // ════════════════════════════════════════════════════════════════════════════
 //  REVERSE LEG (X1 → ETH): the direction toggle + the off-ramp flow.
 //  Forward behavior is unchanged (all tests above pass untouched); these pin
-//  the NEW path: toggle → reverse quote (1% + $1 + LiFi leg) → stage 1 X1 burn
+//  the NEW path: toggle → reverse quote (0.5% + $1 + LiFi leg) → stage 1 X1 burn
 //  (WARP_LIVE_SEND-gated) → Warp release poll → stage 2 LiFi Solana→EVM →
 //  done / honest handoff.
 // ════════════════════════════════════════════════════════════════════════════
 
-/** Mocked /api/lifi/quote for the REVERSE leg (SOL→EVM). $98 net on Solana →
- *  $97.02 delivered on Ethereum (toAmount in base units). Carries the
- *  fromToken's LIVE priceUSD (real LiFi shape — the USD-aware min gate reads
- *  it; default $1 so the stable regressions behave like the raw-count era). */
-function mockReverseQuoteFetch({ priceUSD = 1, fromAmount = "98000000", toAmount = "97020000" } = {}) {
+/** Mocked /api/lifi/quote for the REVERSE leg (SOL→EVM). $98.5 net on Solana
+ *  (100 − 0.5% skim − Warp's $1 — fee-model v2) → $97.02 delivered on
+ *  Ethereum (toAmount in base units). Carries the fromToken's LIVE priceUSD
+ *  (real LiFi shape; default $1 for the stable regressions). */
+function mockReverseQuoteFetch({ priceUSD = 1, fromAmount = "98500000", toAmount = "97020000" } = {}) {
   const calls = [];
   const lifiQuote = {
     id: "0xmock-reverse-quote",
@@ -714,7 +716,7 @@ test("direction toggle: default forward; X1→ETH switch flips the form to the r
   }
 });
 
-test("reverse quote flow: pinned SOL→EVM query (x1Class=1, fee OMITTED), fee lines 1% + $1, honest Ethereum net", async () => {
+test("reverse quote flow: pinned SOL→EVM query (x1Class=1, fee OMITTED), fee lines 0.5% + $1, honest Ethereum net", async () => {
   const qf = mockReverseQuoteFetch();
   const { container, unmount } = renderForm(FORM_PROPS());
   try {
@@ -726,7 +728,7 @@ test("reverse quote flow: pinned SOL→EVM query (x1Class=1, fee OMITTED), fee l
     assert.equal(url.searchParams.get("toChain"), "eth");
     assert.equal(url.searchParams.get("fromToken"), "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "Solana USDC source");
     assert.equal(url.searchParams.get("toToken"), "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "Ethereum USDC destination");
-    assert.equal(url.searchParams.get("fromAmount"), "98000000", "the net that lands on Solana ($98), in base units");
+    assert.equal(url.searchParams.get("fromAmount"), "98500000", "the net that lands on Solana ($98.50), in base units");
     assert.equal(url.searchParams.get("fromAddress"), SOL_ADDR, "real connected Solana address — no placeholders");
     assert.equal(url.searchParams.get("toAddress"), EVM_ADDR, "real connected EVM address — no placeholders");
     assert.equal(url.searchParams.get("x1Class"), "1", "x1-class marker");
@@ -735,10 +737,10 @@ test("reverse quote flow: pinned SOL→EVM query (x1Class=1, fee OMITTED), fee l
     const box = container.querySelector('[data-testid="quote-box"]');
     assert.ok(box, "quote box rendered");
     const skim = container.querySelector('[data-testid="fee-line-warp-skim"]');
-    assert.ok(skim && skim.textContent.includes("Teleporter fee (1%)") && skim.textContent.includes("$1.00"),
-      `1% Teleporter fee line, got: ${skim?.textContent}`);
+    assert.ok(skim && skim.textContent.includes("Teleporter fee (0.5%, max $250)") && skim.textContent.includes("$0.50"),
+      `0.5% Teleporter fee line, got: ${skim?.textContent}`);
     const flat = container.querySelector('[data-testid="fee-line-warp-flat"]');
-    assert.ok(flat && flat.textContent.includes("Warp bridge fee") && flat.textContent.includes("$1.00"),
+    assert.ok(flat && flat.textContent.includes("Warp bridge fee ($1 flat)") && flat.textContent.includes("$1.00"),
       `Warp $1 third-party line, got: ${flat?.textContent}`);
     const recv = container.querySelector('[data-testid="you-receive"]');
     assert.ok(recv && recv.textContent.includes("97.02") && recv.textContent.includes("USDC") && recv.textContent.includes("Ethereum"),
@@ -761,7 +763,7 @@ test("reverse quote without a LiFi route → honest handoff note; stage 1 (the X
     const note = container.querySelector('[data-testid="reverse-lifi-note"]');
     assert.ok(note, "honest handoff note rendered");
     const recv = container.querySelector('[data-testid="you-receive"]');
-    assert.ok(recv && recv.textContent.includes("98.00") && recv.textContent.includes("Solana"),
+    assert.ok(recv && recv.textContent.includes("98.50") && recv.textContent.includes("Solana"),
       `you-receive is the USDC on Solana (not an invented EVM figure), got: ${recv?.textContent}`);
     assert.ok(container.querySelector('[data-testid="bridge-now"]'), "stage 1 (burn) still available");
   } finally {
@@ -786,7 +788,7 @@ test("REVERSE stage 1 gated by WARP_LIVE_SEND: runner receives allowLive=false (
     assert.equal(runnerCalls.length, 1, "reverse stage-1 runner invoked once");
     assert.equal(runnerCalls[0].allowLive, false,
       "WARP_LIVE_SEND gate: default flag state → allowLive=false (no real X1 burn). Arm VITE_WARP_LIVE_SEND=true to broadcast.");
-    assert.equal(runnerCalls[0].amountHuman, 100, "runner receives the GROSS — it skims 1% and burns the net");
+    assert.equal(runnerCalls[0].amountHuman, 100, "runner receives the GROSS — it skims 0.5% and burns the net");
 
     const done = container.querySelector('[data-testid="done"]');
     assert.ok(done && done.textContent.includes("not sent"),
@@ -828,7 +830,7 @@ test("REVERSE AUTO-FIRE: release poll resolves ok:true → stage-2 runner invoke
     assert.equal(stage2Calls[0].to, "eth");
     assert.equal(stage2Calls[0].toTokenSymbol, "USDC", "default destination stable USDC flows into the LiFi leg");
     assert.equal(stage2Calls[0].evmAddress, EVM_ADDR, "destination = the connected EVM wallet");
-    assert.equal(stage2Calls[0].netOnSolana, 98, "bridges the net that LANDED on Solana (100 − 1% − $1)");
+    assert.equal(stage2Calls[0].netOnSolana, 98.5, "bridges the net that LANDED on Solana (100 − 0.5% − $1)");
     // The journey is ONE continuous flow (burn → guardians → released → LiFi
     // → done) — no manual stage-2 button remains in the auto-fired flow.
     assert.equal(container.querySelector('[data-testid="bridge-step2"]'), null, "no manual stage-2 button in the auto-fired flow");
@@ -1006,7 +1008,7 @@ test("REVERSE destination token drives the LiFi leg: USDT on Ethereum → quote 
       "destination = the SELECTED USDT, not hardcoded USDC");
     assert.equal(url.searchParams.get("fromToken"), "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "source stays Solana USDC (the Warp release)");
-    assert.equal(url.searchParams.get("fromAmount"), "98000000", "source-side amount stays USDC 6 decimals");
+    assert.equal(url.searchParams.get("fromAmount"), "98500000", "source-side amount stays USDC 6 decimals (100 − 0.5% − $1 = 98.5)");
     const recv = container.querySelector('[data-testid="you-receive"]');
     assert.ok(recv && recv.textContent.includes("USDT") && recv.textContent.includes("Ethereum"),
       `you-receive names the selected destination stable, got: ${recv?.textContent}`);
@@ -1043,7 +1045,7 @@ test("REVERSE stage-2 delivers the SELECTED destination token: the auto-fired Li
     assert.equal(stage2Calls.length, 1, "stage-2 runner invoked (auto-fire)");
     assert.equal(stage2Calls[0].toTokenSymbol, "DAI", "the SELECTED destination stable flows into the LiFi leg");
     assert.equal(stage2Calls[0].to, "eth");
-    assert.equal(stage2Calls[0].netOnSolana, 98, "stage-2 math unchanged — fees stay on the X1/Solana source side");
+    assert.equal(stage2Calls[0].netOnSolana, 98.5, "stage-2 net = 100 − 0.5% skim − Warp $1 (fee-model v2)");
     const done = container.querySelector('[data-testid="done"]');
     assert.ok(done && done.textContent.includes("DAI on Ethereum"),
       `done state names the selected destination stable, got: ${done?.textContent}`);
@@ -1103,17 +1105,34 @@ function reverseWithToken(container, tokenSymbol, amountValue) {
   click(container.querySelector('[data-testid="get-quote"]'));
 }
 
-test("REVERSE USD min: 0.3 wSOL.X at live priceUSD 100 → $30 ≥ $25 — PASSES (the live bug, fixed)", async () => {
-  // REPRODUCTION: pre-fix `amt < X1_REVERSE_MIN` blocked this with
-  // "Bridge $25+ out of X1" because 0.3 < 25 — even though 0.3 wSOL.X ≈ $30.
+test("REVERSE min: the $25 floor is GONE — 0.1 wSOL.X (~$10) quotes and reaches the send button (fee-model v2)", async () => {
+  // The old USD-aware gate (PR #38) blocked 0.1 wSOL.X ≈ $10 with
+  // "Bridge $25+ out of X1". Fee-model v2 removed the floor: small reverse
+  // bridges are viable at 0.5% capped at $250 — the quote proceeds.
+  const qf = mockReverseQuoteFetch({ priceUSD: 100, fromAmount: "98752500", toAmount: "9800000" });
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    reverseWithToken(container, "wSOL.X", "0.1");
+    await flush();
+
+    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no floor error — the $25 minimum is gone");
+    const box = container.querySelector('[data-testid="quote-box"]');
+    assert.ok(box, "quote proceeds — 0.1 wSOL.X ≈ $10 is a valid bridge now");
+    assert.ok(container.querySelector('[data-testid="bridge-now"]'), "send button available — the burn preflight is the real guard");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("REVERSE min: 0.3 wSOL.X at live priceUSD 100 → quotes (was the $30-clears-$25 case; now floor-free)", async () => {
   const qf = mockReverseQuoteFetch({ priceUSD: 100, fromAmount: "296257500", toAmount: "29600000" });
   const { container, unmount } = renderForm(FORM_PROPS());
   try {
     reverseWithToken(container, "wSOL.X", "0.3");
     await flush();
 
-    assert.equal(qf.calls.length, 1, "the LiFi leg is quoted FIRST (the gate reads its live price)");
-    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no floor error — the USD value clears the gate");
+    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no floor error");
     const box = container.querySelector('[data-testid="quote-box"]');
     assert.ok(box, "quote proceeds — 0.3 wSOL.X ≈ $30 is a valid bridge");
     assert.ok(container.querySelector('[data-testid="bridge-now"]'), "send button available");
@@ -1123,50 +1142,17 @@ test("REVERSE USD min: 0.3 wSOL.X at live priceUSD 100 → $30 ≥ $25 — PASSE
   }
 });
 
-test("REVERSE USD min: 0.1 wSOL.X at the same live price → $10 < $25 — BLOCKED with the same message", async () => {
-  const qf = mockReverseQuoteFetch({ priceUSD: 100, fromAmount: "98752500", toAmount: "9800000" });
-  const { container, unmount } = renderForm(FORM_PROPS());
-  try {
-    reverseWithToken(container, "wSOL.X", "0.1");
-    await flush();
-
-    const err = container.querySelector('[data-testid="form-error"]');
-    assert.ok(err && err.textContent.includes("Bridge $25+ out of X1"),
-      `same clear message, got: ${err?.textContent}`);
-    assert.equal(container.querySelector('[data-testid="quote-box"]'), null, "no quote — genuinely below the $25 USD floor");
-    assert.ok(container.querySelector('[data-testid="get-quote"]'), "back to idle — retry available");
-  } finally {
-    qf.restore();
-    unmount();
-  }
-});
-
-test("REVERSE USD min regression: 25 USDC.x at ~$1 → $25 ≥ $25 — PASSES (raw-count era behavior kept)", async () => {
+test("REVERSE min regression: 24 USDC.x at ~$1 → quotes (raw-count era floor behavior REMOVED)", async () => {
   const qf = mockReverseQuoteFetch(); // priceUSD defaults to 1
-  const { container, unmount } = renderForm(FORM_PROPS());
-  try {
-    reverseWithToken(container, "USDC.x", "25");
-    await flush();
-
-    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no floor error");
-    assert.ok(container.querySelector('[data-testid="quote-box"]'), "25 USDC.x still quotes");
-  } finally {
-    qf.restore();
-    unmount();
-  }
-});
-
-test("REVERSE USD min regression: 24 USDC.x at ~$1 → $24 < $25 — BLOCKED (raw-count era behavior kept)", async () => {
-  const qf = mockReverseQuoteFetch();
   const { container, unmount } = renderForm(FORM_PROPS());
   try {
     reverseWithToken(container, "USDC.x", "24");
     await flush();
 
-    const err = container.querySelector('[data-testid="form-error"]');
-    assert.ok(err && err.textContent.includes("Bridge $25+ out of X1"),
-      `same clear message, got: ${err?.textContent}`);
-    assert.equal(container.querySelector('[data-testid="quote-box"]'), null, "no quote below the floor");
+    assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no floor error — $24 < old $25 floor no longer blocks");
+    const box = container.querySelector('[data-testid="quote-box"]');
+    assert.ok(box, "24 USDC.x quotes — the $25 reverse floor is gone");
+    assert.ok(container.querySelector('[data-testid="bridge-now"]'), "send button available");
   } finally {
     qf.restore();
     unmount();
@@ -1187,7 +1173,7 @@ test("REVERSE USD min: NO price resolvable (LiFi price missing + fallback down) 
   mock.method(globalThis, "fetch", fetcher);
   const { container, unmount } = renderForm(FORM_PROPS());
   try {
-    reverseWithToken(container, "wSOL.X", "0.1"); // would block at $10 IF a price were known — proves fail-open
+    reverseWithToken(container, "wSOL.X", "0.1"); // no floor AND no price — the quote proceeds (never blocks)
     await flush();
 
     assert.equal(container.querySelector('[data-testid="form-error"]'), null, "no floor error — fail-open on the min gate");

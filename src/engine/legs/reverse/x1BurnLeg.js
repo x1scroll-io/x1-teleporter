@@ -1,7 +1,7 @@
 /**
  * x1BurnLeg.js — the X1 reverse burn leg of the reverse route (X1 → EVM):
  * the Warp `bridge_out` BURN of the X1 token (USDC.x / wSOL.X — Token-2022)
- * with the prepended 1% Teleporter skim transfer (and the bundled idempotent
+ * with the prepended 0.5% Teleporter skim transfer (and the bundled idempotent
  * fee-wallet ATA create when that ATA is missing). This leg is the engine
  * home of runReverse's construction half (src/warpBridge.js) — the proven
  * reverse stage-1 path (X1 → Solana release):
@@ -27,7 +27,7 @@
  * and the engine, so the two cannot drift.
  *
  * ctx: { connection (X1 RPC), userPubkey, amountHuman (the BURN amount =
- *        gross − skim), feeAmount (the 1% skim, token units), feeWallet,
+ *        gross − skim), feeAmount (the 0.5% skim, token units), feeWallet,
  *        token ("USDC.x" | "wSOL.X"), seq?, blockhash?, seqSlot? }
  */
 import { createLeg } from "../../legContract.js";
@@ -55,7 +55,7 @@ export function shapeReverseBurnArtifact({
   built,
   prep,
   amountHuman, // the burn amount (gross − skim) in human units
-  feeAmount = 0, // the 1% skim in human units (token units)
+  feeAmount = 0, // the 0.5% skim in human units (token units)
   grossHuman = null, // the user-entered gross (defaults to burn + skim)
   token = "USDC.x",
   blockhash,
@@ -120,7 +120,7 @@ export function createX1BurnLeg() {
     family: "svm",
     chain: "x1",
     description:
-      "The X1 reverse burn tx — bundled fee-wallet ATA create (when missing) + 1% skim " +
+      "The X1 reverse burn tx — bundled fee-wallet ATA create (when missing) + 0.5% skim " +
       "transfer + Warp BridgeOut(seq, burn amount) in ONE transaction (golden step1). " +
       "Token-aware: wSOL.X 9-dec / 25bps fee account; USDC.x 6-dec / flat-$1 fee account.",
     goldenStep: "step1-x1-burn",
@@ -165,7 +165,7 @@ export function createX1BurnLeg() {
     meta: {
       wraps:
         "warpBridge.buildReverseBurnWithSkim (the construction half of runReverse — fee-ATA " +
-        "prep + buildReverseBurn + prepended 1% skim) + simulateStage2 + sendStage2ViaPhantom; " +
+        "prep + buildReverseBurn + prepended 0.5% skim) + simulateStage2 + sendStage2ViaPhantom; " +
         "the preflights (assertX1FeePayer + assertX1TokenBalance) run in the stage runner, " +
         "mirroring runReverse's order",
     },

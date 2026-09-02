@@ -211,8 +211,11 @@ test("golden thorchain: the three pre-send fee lines match the summary display s
   const lines = feeLinesForSource("BTC");
   assert.deepEqual(lines.map((l) => l.id), ["thorchain-affiliate", "warp-skim", "warp-flat"]);
   assert.deepEqual(lines, SUMMARY.derived.feeLines);
-  assert.deepEqual(lines.map((l) => l.display), ["1.00%", "1.00%", "$1 flat"]);
-  assert.equal(lines[1].party, "teleporter"); // our 1% — the once-per-journey Teleporter fee
+  // Fee-model v2: Teleporter skim display = 0.50% (was 1.00%).
+  assert.deepEqual(lines.map((l) => l.display), ["1.00%", "0.50%", "$1 flat"]);
+  assert.equal(lines[1].party, "teleporter"); // our 0.5% — the once-per-journey Teleporter fee
+  assert.equal(lines[1].label, "Teleporter fee (0.5%, max $250)");
+  assert.equal(lines[2].label, "Warp bridge fee ($1 flat)"); // verified on-chain 2026-09-02
 });
 
 // ── Full capture: reproducible + deterministic ──

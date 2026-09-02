@@ -5,24 +5,26 @@
  * THE REVERSE JOURNEY (X1 USDC.x/wSOL.X → Solana → EVM stable):
  *   Stage 1 — X1 → Solana: the Warp `bridge_out` BURN of the X1 token
  *     (Token-2022: USDC.x or wSOL.X). No LiFi. Fees come from quoteFees
- *     (x1_onward class): our 1% warp-skim (collector fee-wallet-x1, computed
- *     on the SOURCE amount) + the Warp program's own fee (third-party,
- *     deducted on-chain inside bridge_out on X1 mainnet). Both are the exact
- *     components the burn tx charges: runReverse prepends the 1% skim
- *     transfer to the fee wallet and bridge_out burns the remainder.
- *     TOKEN-AWARE Warp fee (live Warp config, verified on-chain):
+ *     (x1_onward class): our 0.5% warp-skim (collector fee-wallet-x1,
+ *     capped at $250, computed on the SOURCE amount) + the Warp program's
+ *     own fee (third-party, deducted on-chain inside bridge_out on X1
+ *     mainnet). Both are the exact components the burn tx charges:
+ *     runReverse prepends the 0.5% skim transfer to the fee wallet and
+ *     bridge_out burns the remainder.
+ *     TOKEN-AWARE Warp fee (live Warp config + on-chain logs, VERIFIED
+ *     2026-09-02 — the rumored USDC flat→0.25% change did NOT happen):
  *       - USDC.x: flat $1 (1.0 USDC.x) carved out of the bridge gross
  *       - wSOL.X: 25 bps (0.25%) of the bridge gross, flat 0
  *   Stage 2 — Solana → EVM: a LiFi leg on the net that actually LANDED on
- *     Solana (X − 1% − Warp fee — deterministic, the burn amount is explicit
- *     in the tx). The LiFi query is SOL → the destination EVM chain for the
- *     USER-SELECTED stable (USDC / USDT / DAI — whatever TOKENS[to] defines;
- *     the destination token symbol flows through buildReverseLifiQuoteParams
- *     and deriveReverseQuote), marked x1Class=1 so the server omits the LiFi
- *     integrator fee entirely (policy: the 1% warp-skim is the ONLY
- *     Teleporter fee on x1-class routes; api/lifi/quote.js validates the
- *     marker against Solana on one end of the leg). The Solana-side FROM
- *     token is token-aware too:
+ *     Solana (X − 0.5% − Warp fee — deterministic, the burn amount is
+ *     explicit in the tx). The LiFi query is SOL → the destination EVM chain
+ *     for the USER-SELECTED stable (USDC / USDT / DAI — whatever TOKENS[to]
+ *     defines; the destination token symbol flows through
+ *     buildReverseLifiQuoteParams and deriveReverseQuote), marked x1Class=1
+ *     so the server omits the LiFi integrator fee entirely (policy: the
+ *     0.5% warp-skim is the ONLY Teleporter fee on x1-class routes;
+ *     api/lifi/quote.js validates the marker against Solana on one end of
+ *     the leg). The Solana-side FROM token is token-aware too:
  *       - USDC.x burn → USDC (6 dec) on Solana → LiFi fromToken = USDC
  *       - wSOL.X burn → WSOL (9 dec) on Solana → LiFi fromToken = WSOL
  *     LiFi quotes WSOL (So111…) → EVM stables DIRECTLY (verified live,
@@ -61,14 +63,20 @@ export function reverseSolanaToken(token) {
  * The deterministic Stage-1 math for the reverse journey, from fees.ts
  * (single source — if the rate ever changes there, this follows) + the live
  * Warp token registry (per-token fee shape):
- *   skim        = 1% of the source amount (our Teleporter fee, in the SOURCE
- *                 token — USDC.x or wSOL.X, transferred to FEE_WALLETS.X1 as
- *                 a pre-bridge SPL transfer)
+ *   skim        = 0.5% of the source amount (our Teleporter fee, capped at
+ *                 $250 in USD accounting — in TOKEN units the pure rate
+ *                 applies; the cap cannot bind on executable reverse
+ *                 journeys because Warp's own per-tx maxAmount caps them far
+ *                 below a $50k route total — USDC.x 5,000 / wSOL.X 50, live
+ *                 config 2026-09-02). In the SOURCE token — USDC.x or
+ *                 wSOL.X, transferred to FEE_WALLETS.X1 as a pre-bridge SPL
+ *                 transfer)
  *   burnAmount  = source − skim (what bridge_out burns on X1; alias
  *                 warpGross — the amount the Warp program debits)
  *   warpFee     = the Warp program's OWN fee, carved out of the burn gross
  *                 INSIDE bridge_out on X1 mainnet (third-party pass-through):
- *                 USDC.x → flat 1.0; wSOL.X → 25 bps of the gross
+ *                 USDC.x → flat 1.0; wSOL.X → 25 bps of the gross (both
+ *                 VERIFIED on-chain 2026-09-02)
  *   netOnSolana = burnAmount − warpFee (what the guardians release on Solana:
  *                 USDC 6-dec for a USDC.x burn, WSOL 9-dec for a wSOL.X burn)
  * The LiFi leg (stage 2) bridges netOnSolana — the exact token that lands.
@@ -143,22 +151,22 @@ export async function defaultPriceFetch(coingeckoId) {
 }
 
 /**
- * The USD-AWARE reverse minimum gate (the live-bug fix: the old check
- * compared the RAW TOKEN COUNT to the $25 floor, so 0.3 wSOL.X ≈ $30 was
- * blocked because 0.3 < 25).
+ * The USD-AWARE reverse minimum gate (the live-bug fix from PR #38 — the old
+ * check compared the RAW TOKEN COUNT to the $25 floor, so 0.3 wSOL.X ≈ $30
+ * was blocked because 0.3 < 25).
  *
- * The $25 floor is a USD VALUE: gross input × the LIVE source-token price.
- *   - USDC.x ≈ $1 → 25 units ≈ $25 (behavior unchanged for the stable)
- *   - wSOL.X ≈ $100 → ~0.25 units already clears the floor
- * FAILS OPEN when no live price resolves (LiFi + fallback both miss): a
- * missing price must not block a valid user — the burn preflight (sim) still
- * guards an actually-too-small amount.
+ * FLOOR REMOVED 2026-09-02 (fee-model v2): the $25 minimum is GONE — the
+ * 0.5%-capped Teleporter fee makes small reverse bridges viable. The default
+ * minUsd is now X1_REVERSE_MIN = 0, so this gate can never block; the
+ * function stays exported for DI/tests and its fail-open semantics are
+ * unchanged (a missing price never blocks). The burn preflight (balance) is
+ * a DIFFERENT guard and still runs.
  *
  * @param {{amount: number, token?: string, lifiData?: ?object, minUsd?:
  *          number, fetchPrice?: (id: string) => Promise<?number>}} args
  * @returns {Promise<{blocked: boolean, usdValue: ?number, priceUSD: ?number}>}
- *   blocked = usdValue < minUsd; usdValue/priceUSD are null on the fail-open
- *   path (no price resolvable).
+ *   blocked = usdValue < minUsd (false always while minUsd is 0);
+ *   usdValue/priceUSD are null on the fail-open path (no price resolvable).
  */
 export async function checkReverseMin({ amount, token = "USDC.x", lifiData, minUsd = X1_REVERSE_MIN, fetchPrice = defaultPriceFetch }) {
   const priceUSD = await resolveReversePriceUSD({ token, lifiData, fetchPrice });

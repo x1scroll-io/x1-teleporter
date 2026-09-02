@@ -125,15 +125,18 @@ test("golden reverse step1: the X1 burn tx rebuild is byte-identical (serialized
   assert.equal(rebuilt.bytesSha256, FIX_STEP1.bytesSha256);
 
   const a = rebuilt.artifact;
-  // The deterministic stage-1 math: 0.4 gross → 1% skim 4,000,000 → bridge_out 396,000,000
-  // (wSOL.X 9-dec). The 25bps Warp fee is carved out of the bridge gross inside
-  // bridge_out (the live burn's fee collector ATA received exactly 990,000).
+  // The deterministic stage-1 math (fee-model v2): 0.4 gross → 0.5% skim
+  // 2,000,000 → bridge_out 398,000,000 (wSOL.X 9-dec). The 25bps Warp fee is
+  // carved out of the bridge gross inside bridge_out (the live burn's fee
+  // collector ATA received exactly 990,000 at the OLD 1% skim; the new-model
+  // burn is 398,000,000 → Warp fee 995,000). Old 1% values: skim 4,000,000 /
+  // bridge 396,000,000.
   assert.equal(a.seq, SEQ.toString());
   assert.equal(a.token, "wSOL.X");
   assert.equal(a.decimals, 9);
   assert.equal(a.grossBase, "400000000");
-  assert.equal(a.skimBase, "4000000");
-  assert.equal(a.bridgeBase, "396000000");
+  assert.equal(a.skimBase, "2000000");
+  assert.equal(a.bridgeBase, "398000000");
   assert.equal(a.feeAtaCreated, false); // live shape: the fee wallet's wSOL.X ATA exists on X1
   // CHAIN OF CUSTODY to ground truth: the skim destination ATA is the SAME
   // ATA the live burn tx 3q7H3kV4… transferred to (8YxSUo3… — the fee wallet
@@ -175,7 +178,7 @@ test("golden reverse step1: the X1 burn tx rebuild is byte-identical (serialized
 // ── STEP 2 — the release SHAPE (bridge_in_v2 native variant + release math) ──
 test("golden reverse step2: the release shape rebuild is byte-identical + spec sha256 + release math", () => {
   const skim = (400000000n * SKIM_BPS) / 10_000n;
-  const bridgeBase = 400000000n - skim; // 396,000,000
+  const bridgeBase = 400000000n - skim; // 398,000,000 (0.5% skim — was 396,000,000 at 1%)
   const rebuilt = buildReverseReleaseShape({ seq: SEQ, bridgeBase });
 
   assert.equal(canonicalJson(rebuilt.artifact), canonicalJson(FIX_STEP2.artifact));
@@ -230,21 +233,21 @@ test("golden reverse step2: the release shape rebuild is byte-identical + spec s
   const sc = a.submitterConstructed.map((r) => r.name);
   assert.deepEqual(sc, ["signature_set", "incoming_msg", "payer", "recipient_token_account_create"]);
 
-  // THE RELEASE MATH (the poll leg's completion contract): bridge 396,000,000
-  // − Warp 25bps (990,000) = 395,010,000 released on Solana — matches the
-  // live release tx (the vault was debited exactly 395,010,000 base).
-  assert.equal(a.burnAmountBase, "396000000");
-  assert.equal(a.warpFeeBase, "990000");
-  assert.equal(a.releaseBase, "395010000");
-  assert.equal(a.releaseHuman, 0.39501);
+  // THE RELEASE MATH (the poll leg's completion contract, fee-model v2):
+  // bridge 398,000,000 − Warp 25bps (995,000) = 397,005,000 released on
+  // Solana. (Old 1% values: bridge 396,000,000 − 990,000 = 395,010,000.)
+  assert.equal(a.burnAmountBase, "398000000");
+  assert.equal(a.warpFeeBase, "995000");
+  assert.equal(a.releaseBase, "397005000");
+  assert.equal(a.releaseHuman, 0.397005);
 
   // Cross-check vs the app's deterministic stage-1 math (computeReverseLegs):
-  // the SAME numbers the quote box + the stage-2 LiFi leg use.
+  // the SAME numbers the quote box + the stage-2 LiFi leg use (fee-model v2).
   const legs = computeReverseLegs({ amount: 0.4, token: "wSOL.X" });
-  assert.ok(Math.abs(legs.skim - 0.004) < 1e-12);
-  assert.ok(Math.abs(legs.burnAmount - 0.396) < 1e-12);
-  assert.ok(Math.abs(legs.warpFee - 0.00099) < 1e-12);
-  assert.ok(Math.abs(legs.netOnSolana - 0.39501) < 1e-9);
+  assert.ok(Math.abs(legs.skim - 0.002) < 1e-12);
+  assert.ok(Math.abs(legs.burnAmount - 0.398) < 1e-12);
+  assert.ok(Math.abs(legs.warpFee - 0.000995) < 1e-12);
+  assert.ok(Math.abs(legs.netOnSolana - 0.397005) < 1e-9);
 });
 
 // ── STEP 3 — the LiFi WSOL→USDC-on-ETH query (the toAddress PIN) ──
@@ -266,8 +269,9 @@ test("golden reverse step3: the LiFi-out query rebuild is byte-identical + sha25
   // The destination: USDC on Ethereum (chainId 1).
   assert.equal(a.toToken, "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
   assert.equal(a.toChain, "eth");
-  // The deterministic net: 0.39501 WSOL (what actually lands on Solana).
-  assert.equal(a.fromAmountRaw, "395010000");
+  // The deterministic net (fee-model v2): 0.397005 WSOL — what actually
+  // lands on Solana after the 0.5% skim + Warp 25bps. (Old 1%: 0.39501.)
+  assert.equal(a.fromAmountRaw, "397005000");
   assert.equal(a.fromAddress, SAMPLE_INPUT.solanaAddress);
   // x1-class query shape: no fee param (absent means absent — policy).
   assert.equal(a.hasFeeParam, false);
@@ -288,7 +292,7 @@ test("golden reverse step3: the LiFi-out query rebuild is byte-identical + sha25
     token: "wSOL.X",
   });
   assert.equal(direct.qs.get("toAddress"), REVERSE_EVM_ADDRESS);
-  assert.equal(direct.qs.get("fromAmount"), "395010000");
+  assert.equal(direct.qs.get("fromAmount"), "397005000");
 });
 
 test("golden reverse: the frozen quote's recipient == the PINNED EVM wallet (the engine cannot drift)", () => {
@@ -326,20 +330,22 @@ test("golden reverse: full capture is reproducible + deterministic (rebuild twic
     );
   }
 
-  // Derived math (the stage-1 → release chain): 0.4 gross → skim 4,000,000 →
-  // bridge 396,000,000 → Warp 25bps 990,000 → release 395,010,000.
+  // Derived math (the stage-1 → release chain, fee-model v2): 0.4 gross →
+  // skim 2,000,000 → bridge 398,000,000 → Warp 25bps 995,000 → release
+  // 397,005,000. (Old 1% values: 4,000,000 / 396,000,000 / 990,000 /
+  // 395,010,000.)
   assert.equal(c1.derived.rawAmountGrossBase, "400000000");
-  assert.equal(c1.derived.skimBase, "4000000");
-  assert.equal(c1.derived.bridgeBase, "396000000");
-  assert.equal(c1.derived.warpFeeBase, "990000");
-  assert.equal(c1.derived.releaseBase, "395010000");
+  assert.equal(c1.derived.skimBase, "2000000");
+  assert.equal(c1.derived.bridgeBase, "398000000");
+  assert.equal(c1.derived.warpFeeBase, "995000");
+  assert.equal(c1.derived.releaseBase, "397005000");
   assert.equal(c1.derived.seq, SEQ.toString());
 
   // Cross-step chain of custody: the release shape's burn amount == the burn
   // tx's bridge amount == the deterministic stage-1 math.
   assert.equal(c1.steps.step2.artifact.burnAmountBase, c1.steps.step1.artifact.bridgeBase);
   assert.equal(c1.steps.step1.artifact.bridgeBase, reverseBurnMath({ amountGross: 0.4 }).bridgeBase.toString());
-  assert.equal(c1.steps.step2.artifact.releaseBase, reverseReleaseMath({ bridgeBase: 396000000n }).releaseBase.toString());
+  assert.equal(c1.steps.step2.artifact.releaseBase, reverseReleaseMath({ bridgeBase: 398000000n }).releaseBase.toString());
   assert.equal(c1.steps.step3.artifact.fromAmountRaw, c1.steps.step2.artifact.releaseBase); // LiFi bridges the net release
 
   // The sample's mock connection reports the live shape (fee ATA exists).

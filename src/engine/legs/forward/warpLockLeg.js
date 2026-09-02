@@ -1,6 +1,6 @@
 /**
  * warpLockLeg.js — the Warp lock leg of the forward route (Solana → X1):
- * the 1% skim SPL transfer + BridgeOut in ONE transaction, plus the
+ * the 0.5% skim SPL transfer + BridgeOut in ONE transaction, plus the
  * bridge_in_v2 account pre-image the guardians will use to mint on X1.
  * Reproduces golden step2b (step2b-warp-lock.json) + step3
  * (step3-bridge-in-v2.json) and is the engine home of runStage2's Solana
@@ -8,7 +8,7 @@
  *
  *   preflight  (stage runner)  — assertSolanaFeePayer (actionable error
  *                                instead of the bare AccountNotFound)
- *   build      — buildStage2: ComputeBudget(60k) + 1% skim transfer (user →
+ *   build      — buildStage2: ComputeBudget(60k) + 0.5% skim transfer (user →
  *                fee wallet) + Warp BridgeOut(seq, bridge gross − skim).
  *                ALSO derives the bridge_in_v2 account list (step3): the
  *                recipient_token_account the guardians mint into is EXACTLY
@@ -207,7 +207,7 @@ export function createWarpLockLeg() {
     family: "svm",
     chain: "sol",
     description:
-      "The Warp lock tx — ComputeBudget + 1% skim transfer + BridgeOut(seq, net) in ONE " +
+      "The Warp lock tx — ComputeBudget + 0.5% skim transfer + BridgeOut(seq, net) in ONE " +
       "transaction (golden step2b), plus the bridge_in_v2 account pre-image for the " +
       "guardians' mint (golden step3).",
     goldenStep: "step2b-warp-lock + step3-bridge-in-v2",

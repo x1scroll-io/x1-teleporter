@@ -19,7 +19,7 @@
  *     quote lands — the "get quote" moment sits immediately before the
  *     address; a failed quote BLOCKS the address with a Retry; changing the
  *     source or the amount invalidates the quote (quotes expire)
- *   - the THREE fees (THORChain affiliate protocol fee + our 1% skim +
+ *   - the THREE fees (THORChain affiliate protocol fee + our 0.5% skim +
  *     Warp's $1) render before the user sends
  *   - SIZE CAP (3.3): over-cap requests are blocked with a clear message,
  *     at-cap is allowed, unknown-rate assets show a note
@@ -337,7 +337,7 @@ test("QUOTE GATE: the quote fetcher receives the source asset, SOL destination, 
 // ─────────────────────────────────────────────────────────────────────────────
 // FEE DISPLAY (Step 3.3) — three fees, exactly, before the user sends
 // ─────────────────────────────────────────────────────────────────────────────
-test("FEES: exactly three fee lines render before sending — THORChain affiliate (protocol) + our 1% skim + Warp's $1", async () => {
+test("FEES: exactly three fee lines render before sending — THORChain affiliate (protocol) + our 0.5% skim + Warp's $1", async () => {
   const factory = fakeRefresherFactory();
   const { container, unmount } = render({ createInboundRefresher: factory });
   try {
@@ -353,7 +353,7 @@ test("FEES: exactly three fee lines render before sending — THORChain affiliat
       lines.map((l) => l.getAttribute("data-fee-id")),
       ["thorchain-affiliate", "warp-skim", "warp-flat"],
     );
-    // The three parties: protocol/third-party affiliate, Teleporter 1%, third-party Warp.
+    // The three parties: protocol/third-party affiliate, Teleporter 0.5%, third-party Warp.
     assert.deepEqual(
       lines.map((l) => l.getAttribute("data-party")),
       ["third-party", "teleporter", "third-party"],
@@ -361,7 +361,7 @@ test("FEES: exactly three fee lines render before sending — THORChain affiliat
     assert.match(lines[0].textContent, /THORChain affiliate/);
     assert.match(lines[0].textContent, /1\.00%/, "affiliate 100 bps from config");
     assert.match(lines[1].textContent, /Teleporter fee/);
-    assert.match(lines[1].textContent, /1\.00%/, "our 1% skim");
+    assert.match(lines[1].textContent, /0\.50%/, "our 0.5% skim (fee-model v2 — was 1.00%)");
     assert.match(lines[2].textContent, /Warp bridge fee/);
     assert.match(lines[2].textContent, /\$1 flat/, "Warp's $1 pass-through");
   } finally {
