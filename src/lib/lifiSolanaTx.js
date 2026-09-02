@@ -16,9 +16,74 @@
  * PURE OF WINDOW: the wallet and the provider-lister are injected, so this
  * module never reads injected globals (noWindowProbe rule) and runs under
  * node --test with mocks.
+ *
+ * WALLET SHAPE (THE REVERSE-LEG BUG): the v2 wallet layer holds ONE session
+ * per family, but a session's `provider` is the CONNECT WRAPPER
+ * (createSolanaProviderAdapter → `{ family, id, isReal, walletName, adapter,
+ * connect, disconnect }`) — the sign functions live at `provider.adapter`
+ * (the Wallet Standard adapter). Reading `solWallet?.provider` raw and
+ * checking it for sign functions therefore ALWAYS fails on a real v2
+ * session — "Connect your Solana/X1 wallet to sign", the exact stage-2
+ * error — and the LiFi tx is never built or submitted. The signer is
+ * resolved through resolveSolanaAdapter — the SAME resolver stage 1's burn
+ * path uses — which unwraps `.adapter`. The v2 form additionally passes the
+ * ALREADY-RESOLVED adapter down (defaultReverseStage2Runner), so
+ * resolveSolSigner accepts both shapes (see below).
  */
 
 import { simulateSolanaTx, SimulationError } from "./simulateTx.js";
+import { resolveSolanaAdapter } from "./wallet/sessionProviders.js";
+
+const canSignSolana = (x) =>
+  Boolean(
+    x &&
+      (typeof x.signAndSendTransaction === "function" ||
+        typeof x.signTransaction === "function"),
+  );
+
+/**
+ * Resolve the sign-capable Solana surface from whatever the caller injected.
+ *
+ * Three shapes arrive here (all covered by ONE resolver — the fix lives in
+ * this function, not at the call sites):
+ *   1. The RESOLVED adapter — the v2 form's defaultReverseStage2Runner passes
+ *      `solAdapter` (resolveSolanaAdapter output) straight through.
+ *   2. A wallet SESSION `{ provider }` — v1 Teleporter.jsx and the THORChain
+ *      auto-advance pass the session; the provider may be a legacy injected
+ *      wallet (sign fns at top level) or the v2 CONNECT WRAPPER (sign fns at
+ *      `provider.adapter`). resolveSolanaAdapter — the proven stage-1
+ *      resolver — handles both.
+ *   3. The v2 connect wrapper itself (`provider.adapter`), defensively.
+ * The listSolProviders fallback (v1) yields `{ key, label, provider }`
+ * entries; those resolve the same way.
+ *
+ * @param {object|null} solWallet connected wallet session ({provider}), a
+ *   resolved adapter, or null
+ * @param {() => Array<{provider:object}>} [listSolProviders] fallback lister
+ * @returns {Promise<object|null>} the sign-capable adapter, or null when
+ *   nothing can sign (caller surfaces the honest error).
+ */
+export async function resolveSolSigner(solWallet, listSolProviders) {
+  // 1. Already a sign-capable adapter/provider (form's resolved adapter,
+  //    legacy injected wallet, test fake).
+  if (canSignSolana(solWallet)) return solWallet;
+  // 3. The v2 connect wrapper itself (no session envelope).
+  if (canSignSolana(solWallet?.adapter)) return solWallet.adapter;
+  // 2. Session shape — the proven stage-1 resolver (unwrap raw provider OR
+  //    the wrapper's `.adapter`; returns null when it can't sign).
+  if (solWallet?.provider) {
+    const resolved = await resolveSolanaAdapter(solWallet);
+    if (resolved) return resolved;
+  }
+  // Fallback lister (v1 Teleporter.jsx): entries are { key, label, provider }.
+  const first = listSolProviders?.()?.[0];
+  if (first) {
+    const entry = first.provider ?? first;
+    if (canSignSolana(entry)) return entry;
+    if (canSignSolana(entry?.adapter)) return entry.adapter;
+  }
+  return null;
+}
 
 /** Locate the executable Solana tx payload inside a LI.Fi quote (any shape). */
 export function extractSolanaTxPayload(lifiData) {
@@ -40,6 +105,9 @@ export function extractSolanaTxPayload(lifiData) {
  * @param {() => Array<{provider:object}>} [args.listSolProviders] fallback provider lister
  * @param {string} [args.apiBase] API base for the /api/lifi/stepTransaction proxy
  * @param {string} [args.solanaRpc] Solana RPC URL for simulation + RPC sends
+ * @param {(conn:object, vtx:object) => Promise<{ok:boolean}>} [args.simulate]
+ *   pre-send simulation override (default: simulateSolanaTx). Test seam — the
+ *   fail-closed Step 1.3A gate is untouched.
  * @returns {Promise<string>} the transaction signature
  */
 export async function executeLiFiSolanaTx({
@@ -48,6 +116,7 @@ export async function executeLiFiSolanaTx({
   listSolProviders,
   apiBase = "",
   solanaRpc,
+  simulate = simulateSolanaTx,
 }) {
   const SOLANA_RPC =
     solanaRpc ||
@@ -90,8 +159,12 @@ export async function executeLiFiSolanaTx({
     throw new Error("LiFi returned no executable Solana transaction for this route");
   }
 
-  const sol = solWallet?.provider || listSolProviders?.()[0]?.provider || null;
-  if (!sol?.signAndSendTransaction && !sol?.signTransaction) {
+  // THE FIX: resolve the sign-capable adapter (unwraps the v2 connect
+  // wrapper's `.adapter`; accepts the already-resolved adapter too) instead
+  // of reading the raw provider shape. Same honest error when nothing can
+  // sign.
+  const sol = await resolveSolSigner(solWallet, listSolProviders);
+  if (!sol) {
     throw new Error("Connect your Solana/X1 wallet to sign");
   }
 
@@ -102,7 +175,7 @@ export async function executeLiFiSolanaTx({
 
   // ── MANDATORY PRE-SEND SIMULATION (Step 1.3A, fail-closed) ──
   const conn = new Connection(SOLANA_RPC, "confirmed");
-  const sim = await simulateSolanaTx(conn, vtx);
+  const sim = await simulate(conn, vtx);
   if (!sim.ok) {
     if (sim.simUnavailable) {
       throw new SimulationError(
