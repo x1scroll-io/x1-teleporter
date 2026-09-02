@@ -30,7 +30,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { WalletProvider } from "./WalletContext.jsx";
 import BridgeCard from "../../components/BridgeCard.jsx";
-import TeleportForm from "../../components/TeleportForm.jsx";
+import TeleportForm, { truncateAddress } from "../../components/TeleportForm.jsx";
 import { createInitialState } from "./walletReducer.js";
 import { WALLET_FAMILIES } from "./families.js";
 
@@ -1196,6 +1196,137 @@ test("REVERSE USD min: NO price resolvable (LiFi price missing + fallback down) 
     assert.ok(container.querySelector('[data-testid="bridge-now"]'), "send button available — the burn preflight is the real guard");
   } finally {
     mock.restoreAll();
+    unmount();
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DESTINATION ADDRESS DISPLAY (the safety pre-req): the reverse LiFi leg
+//  delivers USDC to the CONNECTED EVM wallet — a wrong EVM address is
+//  IRREVERSIBLE, so the UI must SHOW the destination before the user signs.
+//  The displayed address is EXACTLY the value that flows into the stage-2
+//  LiFi toAddress (evmSession.address): quote card + step-2 confirm (both
+//  required), plus the forward quote card for parity (X1 = the user's Solana
+//  address, solSession.address). Fail-soft: no session → no line, no crash.
+// ════════════════════════════════════════════════════════════════════════════
+
+test("truncateAddress: first 6 + last 4 with ... in between; null/short input fail-soft", () => {
+  assert.equal(truncateAddress(EVM_ADDR), "0x4634...e5f6", "0x EVM address truncates to 6+4");
+  assert.equal(truncateAddress("0x1870d4a1a2b3c4d5e6f708192a3b4c5d6e7f8C239"), "0x1870...C239", "the required format exactly (first 6 + last 4)");
+  assert.equal(truncateAddress(SOL_ADDR), "9xQeWv...VFin", "Solana address truncates to 6+4 too");
+  assert.equal(truncateAddress(null), null, "null → null (fail-soft)");
+  assert.equal(truncateAddress(""), null, "empty → null (fail-soft)");
+  assert.equal(truncateAddress("0x1234567890"), "0x1234567890", "short address (≤12 chars) passes through untouched — no bogus truncation");
+});
+
+test("REVERSE quote card shows the destination pre-sign: To: 0x4634...e5f6 (Ethereum), full address in title", async () => {
+  const qf = mockReverseQuoteFetch();
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    await reverseQuote(container);
+    const dest = container.querySelector('[data-testid="dest-address"]');
+    assert.ok(dest, "destination line rendered on the reverse quote card (the safety pre-req)");
+    assert.ok(dest.textContent.includes("0x4634...e5f6"), `truncated address shown, got: ${dest.textContent}`);
+    assert.ok(dest.textContent.includes("Ethereum"), `destination chain named, got: ${dest.textContent}`);
+    const addrSpan = dest.querySelector("span[title]");
+    assert.ok(addrSpan, "the address span carries the hover title");
+    assert.equal(addrSpan.getAttribute("title"), EVM_ADDR, "FULL address in the title attr (hover) — never truncated in title");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("REVERSE step-2 confirm shows the destination at the final LiFi sign: To: 0x4634...e5f6 (Ethereum)", () => {
+  // The reverse step2 commit is TRANSIENT in the auto-fire flow (the release
+  // poll sets phase=step2 and the LiFi leg fires immediately — React batches
+  // both into the bridging commit), so the confirm state is mounted directly
+  // via the initialPhase/initialDirection restore seam.
+  const { container, unmount } = renderForm(FORM_PROPS({ initialPhase: "step2", initialDirection: "reverse" }));
+  try {
+    const box = container.querySelector('[data-testid="dest-address-step2"]');
+    assert.ok(box, "destination line on the step-2 confirm box");
+    assert.ok(box.textContent.includes("To: 0x4634...e5f6 (Ethereum)"), `exact display format, got: ${box.textContent}`);
+    assert.equal(box.getAttribute("title"), EVM_ADDR, "FULL address in the title attr (hover)");
+    assert.ok(container.querySelector('[data-testid="bridge-step2"]'), "the final LiFi sign button is present");
+  } finally {
+    unmount();
+  }
+});
+
+test("destination display fail-soft: no EVM session → no line, no crash (step-2 confirm + quoted state)", () => {
+  const { container, unmount } = renderForm(
+    FORM_PROPS({ evmSession: { status: "disconnected" }, initialPhase: "step2", initialDirection: "reverse" }),
+  );
+  try {
+    assert.equal(container.querySelector('[data-testid="dest-address-step2"]'), null, "no destination line without a session");
+    assert.ok(container.querySelector('[data-testid="bridge-step2"]'), "the confirm state still renders — no crash, no bogus address");
+  } finally {
+    unmount();
+  }
+  // Same guard on the quote card: a quoted state with no session renders no
+  // destination line and no crash (the quote itself can't exist without a
+  // session, so this is purely the defensive branch).
+  const { container: c2, unmount: u2 } = renderForm(
+    FORM_PROPS({ evmSession: { status: "disconnected" }, initialPhase: "quoted", initialDirection: "reverse" }),
+  );
+  try {
+    assert.equal(c2.querySelector('[data-testid="dest-address"]'), null, "no destination line without a session");
+    assert.ok(c2.querySelector('[data-testid="bridge-now"]'), "the form still renders");
+  } finally {
+    u2();
+  }
+});
+
+test("CONSISTENCY: the displayed destination is EXACTLY the toAddress the stage-2 runner receives", async () => {
+  const qf = mockReverseQuoteFetch();
+  const fakeRunner1 = async () => ({ stage: "sent", success: true, signature: "burn-sig" });
+  const fakePoller = async () => ({ ok: true, destinationTx: "release-tx" });
+  const stage2Calls = [];
+  const fakeRunner2 = async (args) => { stage2Calls.push(args); return "lifi-final-hash"; };
+  const { container, unmount } = renderForm(FORM_PROPS({
+    reverseStage1Runner: fakeRunner1,
+    releasePoller: fakePoller,
+    reverseStage2Runner: fakeRunner2,
+  }));
+  try {
+    await reverseQuote(container);
+    // Capture the DISPLAYED destination before signing.
+    const dest = container.querySelector('[data-testid="dest-address"]');
+    assert.ok(dest, "destination line rendered");
+    const addrSpan = dest.querySelector("span[title]");
+    const displayedFull = addrSpan.getAttribute("title");
+    const displayedText = addrSpan.textContent;
+    // Sign: stage-1 X1 burn → auto-fired stage-2 LiFi leg → done.
+    click(container.querySelector('[data-testid="bridge-now"]'));
+    await flush();
+    assert.equal(stage2Calls.length, 1, "stage-2 runner invoked (auto-fire)");
+    assert.equal(stage2Calls[0].evmAddress, EVM_ADDR, "runner receives the connected EVM address as toAddress");
+    assert.equal(displayedFull, stage2Calls[0].evmAddress,
+      "displayed FULL address === the toAddress passed to the runner (a wrong address can never hide in the title)");
+    assert.equal(displayedText, `${truncateAddress(stage2Calls[0].evmAddress)} (Ethereum)`,
+      "displayed text is the truncation of the EXACT toAddress");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("FORWARD quote card shows the X1 destination (parity): To: 9xQeWv...VFin (X1)", async () => {
+  const qf = mockQuoteFetch();
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    setInput(container.querySelector('[data-testid="amount"]'), "100");
+    click(container.querySelector('[data-testid="get-quote"]'));
+    await flush();
+    const dest = container.querySelector('[data-testid="dest-address-forward"]');
+    assert.ok(dest, "forward destination line rendered (parity)");
+    assert.ok(dest.textContent.includes("9xQeWv...VFin"), `truncated Solana address, got: ${dest.textContent}`);
+    assert.ok(dest.textContent.includes("X1"), `destination chain named, got: ${dest.textContent}`);
+    const addrSpan = dest.querySelector("span[title]");
+    assert.equal(addrSpan.getAttribute("title"), SOL_ADDR, "FULL Solana address in the title attr (hover)");
+  } finally {
+    qf.restore();
     unmount();
   }
 });
