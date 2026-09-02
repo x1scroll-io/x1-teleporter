@@ -57,6 +57,24 @@ import { FEE_WALLETS } from "../lib/fees.ts";
 import BalancesLine from "./BalancesLine.jsx";
 
 /**
+ * truncateAddress — display helper for the destination-address lines.
+ * The reverse LiFi leg delivers USDC to the connected EVM wallet; the UI
+ * MUST show that address before the user signs (a wrong EVM address is
+ * IRREVERSIBLE — the funds land somewhere they can't get back). Displays
+ * first 6 + last 4 chars with "..." between; the FULL address rides in the
+ * title attr (hover). Same shape as the LiFi toAddress — the source of
+ * truth is the connected session (evmSession.address reverse,
+ * solSession.address forward). Fail-soft: null/empty/short input is
+ * returned as-is, never a bogus truncation.
+ */
+export function truncateAddress(addr) {
+  if (!addr) return null;
+  const s = String(addr);
+  if (s.length <= 12) return s;
+  return `${s.slice(0, 6)}...${s.slice(-4)}`;
+}
+
+/**
  * The real stage-2 (Warp Solana→X1) runner. Default for the form; tests
  * inject a fake to pin the WARP_LIVE_SEND gate without touching a chain.
  * The form passes `allowLive: WARP_LIVE_SEND` — the flag is read here only
@@ -241,7 +259,8 @@ const PLACEHOLDER_EVM = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
  *
  * @param {{evmSession: object, solSession: object,
  *          stage2Runner?: (args) => Promise<object>,
- *          onConnectWallet?: () => void}} props
+ *          onConnectWallet?: () => void,
+ *          initialPhase?: string}} props
  *   evmSession / solSession: the WalletContext sessions (sessions.evm /
  *   sessions.solana). stage2Runner: DI'd Warp stage-2 runner for tests
  *   (default: defaultStage2Runner — the real runStage2 path).
@@ -250,12 +269,21 @@ const PLACEHOLDER_EVM = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
  *   that open the connect modal — the multi-wallet fix: after the first
  *   connect the modal is gone, so the form's "connect your wallet" prompts
  *   must be able to bring it back.
+ *   initialPhase: TEST/RESTORE seam — mount directly into a given phase
+ *   ("step2" renders the final-leg confirm box without driving the whole
+ *   burn→release→auto-fire journey; the reverse step2 commit is otherwise
+ *   transient and unobservable). Defaults to "idle"; no behavior change
+ *   when omitted. Also the natural hook for resuming a mid-journey state
+ *   after a refresh.
+ *   initialDirection: TEST/RESTORE seam — mount directly in a direction
+ *   (the toggle resets the phase, so a reverse-phase test needs the
+ *   direction set at mount). Defaults to "forward".
  */
-export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, reverseStage1Runner = defaultReverseStage1Runner, reverseStage2Runner = defaultReverseStage2Runner, releasePoller = defaultReleasePoller, onConnectWallet, balancesDeps = {} }) {
+export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, reverseStage1Runner = defaultReverseStage1Runner, reverseStage2Runner = defaultReverseStage2Runner, releasePoller = defaultReleasePoller, onConnectWallet, balancesDeps = {}, initialPhase, initialDirection }) {
   // direction: "forward" = EVM → X1 (the proven on-ramp), "reverse" = X1 → EVM
   // (the off-ramp: Warp burn X1→Solana, then LiFi Solana→EVM). The forward
   // flow is byte-identical in behavior — the toggle only adds the reverse path.
-  const [direction, setDirection] = useState("forward");
+  const [direction, setDirection] = useState(initialDirection || "forward");
   const [from, setFrom] = useState("eth");
   const [to, setTo] = useState("eth"); // reverse destination (EVM chains)
   // The user's chosen stable: the SOURCE token on the forward leg (EVM → X1,
@@ -270,7 +298,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   const [destToken, setDestToken] = useState("USDC.x");
   const [amount, setAmount] = useState("");
   const [quote, setQuote] = useState(null);
-  const [phase, setPhase] = useState("idle"); // idle|quoting|quoted|bridging|step2|relaying|handoff|done
+  const [phase, setPhase] = useState(initialPhase || "idle"); // idle|quoting|quoted|bridging|step2|relaying|handoff|done
   const [error, setError] = useState(null);
   const [status, setStatus] = useState(null);
   const [warpSig, setWarpSig] = useState(null);
@@ -763,6 +791,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
                 <span style={S.quoteKey}>You receive</span>
                 <span data-testid="you-receive" style={S.quoteValHi}>≈ {quote.net.toFixed(2)} {quote.recvToken} on {quote.recvChain}</span>
               </div>
+              {/* SAFETY parity: the forward hop mints on X1 — the user's
+                  Solana wallet. Same value that flows into the LiFi stage-1
+                  toAddress (solSession.address); fail-soft: no session → no
+                  line. */}
+              {solSession?.address && (
+                <div style={S.quoteRow} data-testid="dest-address-forward">
+                  <span style={S.quoteKey}>To</span>
+                  <span style={S.quoteVal} title={solSession.address}>{truncateAddress(solSession.address)} ({CHAINS.x1.name})</span>
+                </div>
+              )}
               {quote.note && <div style={S.note}>{quote.note}</div>}
               <div style={S.steps}>
                 {(quote.steps || []).map((s, i) => (
@@ -941,6 +979,17 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
                 <span style={S.quoteKey}>You receive</span>
                 <span data-testid="you-receive" style={S.quoteValHi}>≈ {quote.net.toFixed(2)} {quote.recvToken} on {quote.recvChain}</span>
               </div>
+              {/* SAFETY: the LiFi leg delivers to the CONNECTED EVM wallet —
+                  show that address pre-sign (a wrong EVM address is
+                  irreversible). Same value that flows into the stage-2
+                  toAddress (evmSession.address); fail-soft: no session →
+                  no line. */}
+              {evmSession?.address && (
+                <div style={S.quoteRow} data-testid="dest-address">
+                  <span style={S.quoteKey}>To</span>
+                  <span style={S.quoteVal} title={evmSession.address}>{truncateAddress(evmSession.address)} ({CHAINS[quote?.to || to].name})</span>
+                </div>
+              )}
               {!quote.lifiQuoted && (
                 <div style={S.note} data-testid="reverse-lifi-note">
                   The Solana → {CHAINS[quote.to].name} leg couldn't be quoted right now — stage 1 (the X1 burn) still works; your {reverseToken === "wSOL.X" ? "WSOL" : "USDC"} will rest safely on Solana and you can finish the hop later.
@@ -976,6 +1025,15 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         <>
           <div style={S.box}>
             <b>{reverseToken === "wSOL.X" ? "WSOL" : "USDC"} released on Solana ✓</b> — now finish the hop — {quote?.recvToken || token} on {CHAINS[quote?.to || to].name} — via LiFi.
+            {/* SAFETY: the final LiFi sign delivers to the CONNECTED EVM
+                wallet — repeat the destination here, at the moment of the
+                irreversible sign (same value that flows into the stage-2
+                toAddress). Fail-soft: no session → no line. */}
+            {evmSession?.address && (
+              <div data-testid="dest-address-step2" title={evmSession.address} style={{ marginTop: 6 }}>
+                To: {truncateAddress(evmSession.address)} ({CHAINS[quote?.to || to].name})
+              </div>
+            )}
             If you stop here, your funds rest safely as {reverseToken === "wSOL.X" ? "WSOL" : "USDC"} on Solana.
           </div>
           <button data-testid="bridge-step2" style={step2Busy ? { ...S.cta, ...S.ctaDisabled } : S.cta} onClick={executeReverseStage2} disabled={step2Busy}>
