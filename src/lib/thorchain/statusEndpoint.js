@@ -13,9 +13,15 @@
  *   - No API key required for STATUS (the aggregator key belongs to the
  *     Step 3.3 QUOTE endpoint and lives server-side only — see
  *     api/thorchain/quote.js).
- *   - Public hosts: `https://liquify.thorchain.org` (Liquify gateway, per the
- *     brief) and `https://thornode.thorchain.info` (public THORNode). Override
- *     via VITE_THORCHAIN_STATUS_URL.
+ *   - LIVE gateway (LIVE-VERIFIED 2026-09-02): the Liquify gateway at
+ *     `https://gateway.liquify.com` mirrors THORNode's /thorchain/* surface
+ *     under the `/chain/thorchain_api` prefix — the default base below is
+ *     https://gateway.liquify.com/chain/thorchain_api and the resolved status
+ *     URL is {base}/thorchain/tx/status/{inboundTxid} (the gateway answered a
+ *     status probe with a real THORNode body — host + path confirmed). The
+ *     previously documented hosts are RETIRED/DNS-dead: liquify.thorchain.org
+ *     (HTTP 000), thornode.thorchain.info (HTTP 000) and the *.ninerealms.com
+ *     mirrors (retired 2026-04-20). Override via VITE_THORCHAIN_STATUS_URL.
  *
  * RESPONSE SHAPES ACCEPTED (THORNode versions differ; we accept all):
  *   1. Top-level `status` string in the stage vocabulary:
@@ -67,11 +73,7 @@ function readEnv() {
 
 const env = readEnv();
 export const THORCHAIN_STATUS_BASE_URL =
-  env.VITE_THORCHAIN_STATUS_URL || "https://liquify.thorchain.org";
-
-/** Public THORNode fallback — documented, not used unless the gateway URL is
- *  overridden or the caller passes it explicitly. */
-export const THORCHAIN_PUBLIC_NODE_URL = "https://thornode.thorchain.info";
+  env.VITE_THORCHAIN_STATUS_URL || "https://gateway.liquify.com/chain/thorchain_api";
 
 /** Build the status URL for an inbound txid. */
 export function statusUrl(baseUrl, inboundTxid) {

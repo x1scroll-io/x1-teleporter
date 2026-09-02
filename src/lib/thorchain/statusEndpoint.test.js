@@ -1,12 +1,14 @@
 /**
  * statusEndpoint.test.js — THORChain tx-status response parsing (Step 3.1).
  *
- * The live THORChain hosts (liquify.thorchain.org / thornode.thorchain.info)
- * do not resolve from the sandbox DNS, so the wire shape is verified against
- * the documented THORNode contract with DEFENSIVE parsing: every known
- * response variant (top-level `status` string, stage-object flags, the
- * `stages` map, and the newer `observed_tx` key) must map onto the canonical
- * stage vocabulary observed → swapping → outbound_signed → done.
+ * The wire shape is verified against the documented THORNode contract with
+ * DEFENSIVE parsing: every known response variant (top-level `status` string,
+ * stage-object flags, the `stages` map, and the newer `observed_tx` key) must
+ * map onto the canonical stage vocabulary observed → swapping →
+ * outbound_signed → done. The default host is the LIVE Liquify gateway
+ * (gateway.liquify.com/chain/thorchain_api — probed 2026-09-02); the older
+ * hosts (liquify.thorchain.org / thornode.thorchain.info / *.ninerealms.com)
+ * are retired or DNS-dead.
  */
 
 import { test } from "node:test";
@@ -25,18 +27,32 @@ test("canonical stage vocabulary is observed → swapping → outbound_signed �
 
 test("statusUrl builds the brief's endpoint shape: {base}/thorchain/tx/status/{txid}", () => {
   assert.equal(
-    statusUrl("https://liquify.thorchain.org", "abc123"),
-    "https://liquify.thorchain.org/thorchain/tx/status/abc123",
+    statusUrl("https://gateway.liquify.com/chain/thorchain_api", "abc123"),
+    "https://gateway.liquify.com/chain/thorchain_api/thorchain/tx/status/abc123",
   );
   assert.equal(
-    statusUrl("https://liquify.thorchain.org/", "abc123"),
-    "https://liquify.thorchain.org/thorchain/tx/status/abc123",
+    statusUrl("https://gateway.liquify.com/chain/thorchain_api/", "abc123"),
+    "https://gateway.liquify.com/chain/thorchain_api/thorchain/tx/status/abc123",
     "trailing slash trimmed",
   );
   assert.equal(
     statusUrl(undefined, "abc 123"),
     `${THORCHAIN_STATUS_BASE_URL}/thorchain/tx/status/abc%20123`,
     "txid is URL-encoded",
+  );
+});
+
+test("default status base is the LIVE Liquify gateway (retired hosts gone from src)", () => {
+  assert.equal(
+    THORCHAIN_STATUS_BASE_URL,
+    "https://gateway.liquify.com/chain/thorchain_api",
+  );
+  assert.ok(!THORCHAIN_STATUS_BASE_URL.includes("liquify.thorchain.org"), "DNS-dead host retired");
+  assert.ok(!THORCHAIN_STATUS_BASE_URL.includes("ninerealms.com"), "ninerealms mirrors retired");
+  assert.equal(
+    statusUrl(undefined, "abc123"),
+    "https://gateway.liquify.com/chain/thorchain_api/thorchain/tx/status/abc123",
+    "default resolves to the live-gateway status URL",
   );
 });
 

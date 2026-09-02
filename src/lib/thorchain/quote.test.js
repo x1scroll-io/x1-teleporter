@@ -55,7 +55,7 @@ test("the client routes quotes to OUR proxy path (same-origin; the server holds 
     destination: SOL_DEST,
   });
   assert.ok(url.startsWith(THORCHAIN_QUOTE_PROXY_PATH + "?"), url);
-  assert.ok(!url.includes("liquify.thorchain.org"), "client no longer targets THORNode directly");
+  assert.ok(!url.includes("://"), "client stays same-origin (proxy path) — never an absolute upstream URL");
   assert.ok(!url.includes("thornode"), "client no longer targets THORNode directly");
 });
 
