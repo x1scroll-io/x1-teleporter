@@ -1,9 +1,20 @@
 /**
  * xdexSwapLeg.js — the XDEX swap leg of the routing engine's DEX family
- * (Phase 4). XDEX = X1's DEX — a Raydium CP-Swap fork running ON X1. The
- * leg is a DIRECT integration (no aggregator router, no HTTP swap API —
+ * (Phase 4). XDEX = X1's DEX — a Raydium-CP-Swap-style AMM running ON X1.
+ * The leg is a DIRECT integration (no aggregator router, no HTTP swap API —
  * XDEX has none; see the discovery note): the swap is a single on-chain
  * instruction to the XDEX program that the app constructs + signs itself.
+ *
+ * ⛔ NEBULA WALL-OFF — READ FIRST. Nebula DEX is a SEPARATE project (sibling
+ * dirs: nebula-dex, nebula-dex-fork, nebula-dex-site + audit zips in the
+ * workspace). Its notes/docs must NEVER inform XDEX or Teleporter reasoning.
+ * XDEX truth = its own live on-chain data ONLY (the anchor tx below, live
+ * pool snapshots, the program's real logs). This module was once
+ * contaminated by nebula-derived discriminator claims (Phase-4 pinned
+ * 13bddf5c73d6bd24 from a misread sample); that is corrected here and every
+ * nebula reference purged. If you are tempted to "fix" a value from a
+ * nebula note or any doc — STOP: the anchor tx below is the source of
+ * truth.
  *
  * DISCOVERY (2026-09-02 — the real API is not HTTP): api.xdex.xyz exposes
  * price/token endpoints only (/api/token-price/price works; /api/pools is
@@ -11,47 +22,59 @@
  * The REAL swap surface is the XDEX program on X1 mainnet:
  *
  *   program     sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN
- *               (upgradeable-loader, authority NONE — immutable; last deploy
- *               slot 21,171,632 ≈ 2026-01-07)
+ *               owner BPFLoaderUpgradeab1e — UPGRADEABLE (verified on-chain
+ *               2026-09-02, slot 76,017,299). NOT immutable. The values
+ *               pinned below are the CURRENT live code's; if the program is
+ *               ever upgraded, re-verify against a NEW live swap — never
+ *               against a note.
  *   method      SwapBaseInput (Anchor log "Instruction: SwapBaseInput" on
  *               live txs) — args (amount_in u64, minimum_amount_out u64)
- *   data        24 bytes: 8-byte discriminator 13bddf5c73d6bd24 + amount_in
+ *   data        24 bytes: 8-byte discriminator 8fbe5adac41e33de + amount_in
  *               u64 LE + minimum_amount_out u64 LE
- *   accounts    13 metas (verified order + writable flags on live txs):
- *               payer(signer,wr) authority(ro) amm_config(ro) pool(wr)
- *               input ATA(wr) output ATA(wr) input vault(wr) output
- *               vault(wr) input token program(ro) output token program(ro)
- *               input mint(ro) output mint(ro) observation(wr)
+ *   accounts    13 metas (verified order + writable flags on the live
+ *               anchor tx): payer(signer,wr) authority(ro) amm_config(ro)
+ *               pool(wr) input ATA(wr) output ATA(wr) input vault(wr)
+ *               output vault(wr) input token program(ro) output token
+ *               program(ro) input mint(ro) output mint(ro) observation(wr)
  *
- * DISCRIMINATOR CORRECTION (important — the earlier 8fbe5ada note is
- * WRONG for the live program): the repo's Aug-2026 nebula-dex notes claim
- * the swap discriminator is 8fbe5adac41e33de (= sha256("global:
- * swap_base_input")[..8] under classic Anchor). EVERY live XDEX pool swap
- * sampled (273 txs across 12,504 pool signatures, slots 72.87M→76.0M,
- * Aug 20→Sep 2 2026) carries 13bddf5c73d6bd24 instead — and Raydium's own
- * live Solana CP-Swap program (CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C)
- * carries the SAME 13bddf5c73d6bd24 on its live swaps. XDEX is a faithful
- * fork of the CURRENT Raydium build (its AmmConfig account decodes
- * byte-for-byte against the current Raydium struct — len 236, fee fields at
- * the current offsets; pool account discriminator f7ede3f5d7c3de46 =
- * sha256("account:PoolState")). The Phase-4 oracle pins the OBSERVED live
- * discriminator.
+ * 🔒 LIVE-TX ANCHOR (source of truth — do NOT "correct" from any doc):
+ *   tx      65xjdHVdHKgnDgdBN7DDcUQEwMXWjRJoTHQgbSibojWY433MW7mPdLFUiuzxtf
+ *           kumK52vHGR2ipYB6Bv4hsjQ3SR (Mr. Esters' controlled $5 swap)
+ *   slot    76,014,947 — err ok (getTransaction, jsonParsed, 2026-09-02)
+ *   swap    5 USDC.x → ~12.74 XNT on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA
+ *           3E5HQoxRvR (wXNT/USDC.x)
+ *   data    8fbe5adac41e33de + 404b4c0000000000 (amount_in = 5,000,000 LE)
+ *           + 0000000000000000 (min_out = 0 LE) — decoded from the tx
+ *   accounts the 13-metas order above, 1:1 with this leg's construction
+ *           (user FKBMEQ6yyEyaK49hEnct3HnKXrCDy5o6W3LcU2ojBtrZ signer;
+ *           authority 9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU;
+ *           amm_config 2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c; pool
+ *           CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR; input ATA
+ *           GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V; output ATA
+ *           RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd; input vault
+ *           7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg; output vault
+ *           8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb; Token-2022;
+ *           Token; USDC.x mint B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq;
+ *           wXNT mint So11111111111111111111111111111111111111112;
+ *           observation 4oUvUgziz4S6VXxMkjqorjgPrgT3wrxXN9kDuja8pkPZ)
  *
- * ARG-SEMANTICS HONESTY BOUNDARY (flagged integration prerequisite): the
- * swap layout above (args = amount_in u64 LE + min_out u64 LE) is the
- * Raydium CP-Swap source layout that the wire evidence is consistent with
- * (13-account Swap struct, 24-byte payload, per-tx-varying args). The pool's
- * recent live txs are relayer/AA-driven (native-XNT payers, ATA
- * create+sync patterns) whose arg bytes do NOT literally equal the observed
- * vault deltas — so arg byte semantics are NOT live-confirmed 1:1. Before
- * real funds: run ONE tiny controlled swap through this leg on the
- * operator's go-ahead and compare the vault deltas + program logs against
- * the fixture construction (the oracle's rebuild path doubles as the test
- * harness). The quote math below IS live-confirmed: the CP curve + the fee
- * config (trade 0.28% = 2800/1e6, protocol 25% + fund 5% of the trade fee,
- * creator 0 — decoded from the live AmmConfig) reproduce the observed
- * swap economics within rounding (raw-ratio price 0.3973 vs the XNT price
- * API 0.3926 USD — sane).
+ * The discriminator 8fbe5adac41e33de = sha256("global:swap_base_input")[..8]
+ * under classic Anchor — verified on the anchor tx above AND on 3 further
+ * live XDEX swaps (5cRHH7p…, 33x2Dbp…, 5vuNvHL…), all err:ok. (The
+ * Phase-4 pin 13bddf5c73d6bd24 was a misread — sampled non-swap
+ * instructions / confused program — and has been corrected.)
+ *
+ * ARG-SEMANTICS — LIVE-CONFIRMED 1:1 (2026-09-02, the anchor tx): the
+ * controlled swap above proves the layout (amount_in u64 LE + min_out u64
+ * LE, 13-account order, disc 8fbe5adac41e33de) byte-for-byte: the decoded
+ * args (5,000,000 / 0) + the inner Token-2022 TransferChecked into the
+ * USDC.x vault + the Token TransferChecked out of the wXNT vault match the
+ * CP quote within vault drift. The quote math below is also live-confirmed:
+ * the CP curve + the fee config (trade 0.28% = 2800/1e6, protocol 25% +
+ * fund 5% of the trade fee, creator 0 — decoded from the live AmmConfig in
+ * the pool snapshot) reproduce the observed swap economics within rounding
+ * (raw-ratio price 0.3973 vs the XNT price API 0.3926 USD — sane).
+ * Refresh the pool snapshot before any real flow (vault balances move).
  *
  * QUOTE MATH (constant product, fee on input — Raydium curve):
  *   tradeFee  = ceil(amountInRaw × tradeFeeRate / 1_000_000)
@@ -71,16 +94,22 @@ import { createLeg } from "../../legContract.js";
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 
-/** The live XDEX program id on X1 mainnet (immutable since 2026-01-07). */
+/** The live XDEX program id on X1 mainnet — owner BPFLoaderUpgradeab1e
+ *  (UPGRADEABLE — verified on-chain 2026-09-02; NOT immutable). Values in
+ *  this module are the CURRENT live code's; re-verify against a NEW live
+ *  swap if the program is ever upgraded. */
 export const XDEX_PROGRAM_ID = "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN";
-/** The live SwapBaseInput discriminator — OBSERVED on every live pool swap
- *  (see the module header: the 8fbe5ada… note in nebula-dex docs is stale —
- *  it does not match the live program). */
-export const XDEX_SWAP_BASE_INPUT_DISCRIMINATOR = "13bddf5c73d6bd24";
+/** The live SwapBaseInput discriminator = sha256("global:swap_base_input")[..8]
+ *  — LIVE-VERIFIED on the anchor swap tx 65xjdHVd… (slot 76,014,947, err ok,
+ *  5 USDC.x → ~12.74 XNT) + 3 further live swaps (5cRHH7p…, 33x2Dbp…,
+ *  5vuNvHL…). Anchor = source of truth; never "correct" from a note. */
+export const XDEX_SWAP_BASE_INPUT_DISCRIMINATOR = "8fbe5adac41e33de";
 /** Raydium/XDEX fee denominator (fee rates are hundredths of a bip, 1e-6). */
 export const XDEX_FEE_DENOMINATOR = 1_000_000;
-/** The pool's vault-authority PDA (constant per program — read from the
- *  snapshot in the artifact; exported for the fixed key documentation). */
+/** The pool's vault-authority PDA — read from the live pool snapshot
+ *  (vault0/vault1 accountOwner) AND position 1 of the live anchor swap ix
+ *  (9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU). Exported for the fixed
+ *  key documentation. */
 export const XDEX_AUTHORITY = "9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU";
 
 function toPubkey(pk) {
@@ -326,12 +355,13 @@ export function createXdexSwapLeg() {
     family: "svm",
     chain: "x1",
     description:
-      "The XDEX swap leg (X1's Raydium-CP-Swap-fork DEX — DIRECT on-chain integration, " +
+      "The XDEX swap leg (X1's Raydium-CP-Swap-style DEX — DIRECT on-chain integration, " +
       "no HTTP swap API): the constant-product quote from the pool snapshot (0.28% trade " +
-      "fee from the live AmmConfig) + the SwapBaseInput instruction (13 metas, disc " +
-      "13bddf5c73d6bd24 — the OBSERVED live discriminator — + amount_in u64 LE + min_out " +
-      "u64 LE) + the unsigned serialized tx (golden dex-leg fixtures). family svm — the " +
-      "signer is the engine's single SignerResolver.",
+      "fee from the live AmmConfig) + the SwapBaseInput instruction (13 metas in the live " +
+      "order, disc 8fbe5adac41e33de — LIVE-VERIFIED on the anchor swap tx 65xjdHVd…, slot " +
+      "76,014,947 — + amount_in u64 LE + min_out u64 LE) + the unsigned serialized tx " +
+      "(golden dex-leg fixtures). family svm — the signer is the engine's single " +
+      "SignerResolver.",
     goldenStep: "xdex",
     phases: {
       async build(ctx) {
@@ -356,12 +386,15 @@ export function createXdexSwapLeg() {
     meta: {
       wraps:
         "GREENFIELD DIRECT integration (no HTTP API — the discovery): XDEX program " +
-        "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN SwapBaseInput (disc 13bddf5c73d6bd24 — " +
-        "observed live; the nebula 8fbe5ada note is stale) + the Raydium CP curve (fee on " +
-        "input; live AmmConfig trade 2800/1e6, protocol 250000/1e6, fund 50000/1e6, creator 0). " +
-        "ARG-SEMANTICS PREREQUISITE: layout source-consistent + wire-size-verified; run one " +
-        "tiny controlled swap on the operator's go-ahead before real funds (sampled live txs " +
-        "are relayer-driven and do not 1:1 expose the arg↔vault-delta mapping).",
+        "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN (UPGRADEABLE — BPFLoaderUpgradeab1e) " +
+        "SwapBaseInput (disc 8fbe5adac41e33de = sha256(global:swap_base_input)[..8], " +
+        "LIVE-VERIFIED on the anchor tx 65xjdHVd… slot 76,014,947 err ok — see the module " +
+        "header) + the CP curve (fee on input; live AmmConfig trade 2800/1e6, protocol " +
+        "250000/1e6, fund 50000/1e6, creator 0). ARG SEMANTICS LIVE-CONFIRMED 1:1 by the " +
+        "anchor swap (amount_in 5,000,000 / min_out 0 decodes + vault deltas match). " +
+        "Refresh the pool snapshot before any real flow. NEBULA WALL-OFF: nebula-dex is a " +
+        "separate project — its notes never inform this leg; XDEX truth = its own live " +
+        "on-chain data (anchor tx + snapshots) only.",
     },
   });
 }

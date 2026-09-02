@@ -23,16 +23,18 @@
  *      the quote response forwarded VERBATIM as quoteResponse + the pinned
  *      session pubkey + the fixed option set wrapAndUnwrapSol /
  *      dynamicComputeUnitLimit / prioritizationFeeLamports).
- *   B. XDEX (X1's Raydium-CP-Swap-fork DEX — DIRECT on-chain integration,
+ *   B. XDEX (X1's Raydium-CP-Swap-style DEX — DIRECT on-chain integration,
  *      no HTTP swap API): step1 = the constant-product quote from the LIVE
  *      pool snapshot (fee on input: trade 2800/1e6 from the live AmmConfig
  *      — 0.28%; protocol 25% + fund 5% of the trade fee are internal
  *      accounting; creator 0) + minOut at slippage; step2 = the
- *      SwapBaseInput instruction (13 metas in the verified order, disc
- *      13bddf5c73d6bd24 — the OBSERVED live discriminator, NOT the stale
- *      8fbe5ada… from the nebula notes — + amount_in u64 LE + min_out u64
- *      LE) + the unsigned serialized transaction (deterministic DI'd
- *      blockhash).
+ *      SwapBaseInput instruction (13 metas in the LIVE-VERIFIED order, disc
+ *      8fbe5adac41e33de — sha256("global:swap_base_input")[..8], verified on
+ *      the live anchor swap tx 65xjdHVd…, slot 76,014,947, err ok — + amount_in
+ *      u64 LE + min_out u64 LE) + the unsigned serialized transaction
+ *      (deterministic DI'd blockhash). XDEX truth = its own live on-chain
+ *      data ONLY (the anchor tx + live pool snapshot) — nebula-dex is a
+ *      SEPARATE project and never informs this leg.
  *   C. LIFI EVM same-chain swap (VERDICT LEG — verified live 2026-09-02):
  *      li.quest/v1/quote with both ends on the same chain returns a SWAP
  *      route (observed tools: sushiswap AND nordstern — type "lifi",
@@ -52,12 +54,15 @@
  *     (vault raw balances + the AmmConfig fee decode) — dated in the file;
  *     refresh on first live use (the fixture's quote math is deterministic
  *     FROM the snapshot).
- *   - XDEX arg semantics: the (amount_in u64 LE, min_out u64 LE) layout is
- *     the Raydium CP-Swap source layout, consistent with the wire evidence
- *     (13-account Swap struct, 24-byte payload). The pool's recent live txs
- *     are relayer/AA-driven and do NOT 1:1 expose the arg↔vault-delta
- *     mapping — flagged integration prerequisite: run ONE tiny controlled
- *     swap on the operator's go-ahead and compare against this construction
+ *   - XDEX arg semantics are LIVE-CONFIRMED 1:1 by the anchor swap tx
+ *     65xjdHVd… (slot 76,014,947 — Mr. Esters' controlled $5 swap: 5 USDC.x
+ *     → ~12.74 XNT on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR,
+ *     err ok): the decoded args (disc 8fbe5adac41e33de, amount_in 5,000,000
+ *     LE, min_out 0 LE) + the inner Token-2022/Token TransferChecked vault
+ *     moves match this construction. The sample below IS the live swap
+ *     (user = the anchor signer, amount = the anchor amount_in; slippageBps
+ *     10000 reproduces the anchor's min_out = 0 byte-for-byte — a real flow
+ *     passes the operator's actual slippage policy, leg default 100 bps).
  *     before real funds.
  *
  * DETERMINISM
@@ -112,15 +117,20 @@ export const JUPITER_SAMPLE = Object.freeze({
   quoteFile: "jupiter-quote-input.json",
 });
 
-/** The XDEX sample: sell 10 USDC.x → wXNT on the live wXNT/USDC.x pool,
- *  100 bps slippage. The pool snapshot is the frozen LIVE input fixture. */
+/** The XDEX sample = THE LIVE ANCHOR SWAP (tx 65xjdHVd…, slot 76,014,947,
+ *  Mr. Esters' controlled $5 swap — 5 USDC.x → ~12.74 XNT on the live
+ *  wXNT/USDC.x pool, err ok). userPubkey/amountInRaw are the anchor tx's;
+ *  slippageBps 10000 reproduces the anchor's min_out = 0 byte-for-byte. The
+ *  pool snapshot is the frozen LIVE input fixture. */
 export const XDEX_SAMPLE = Object.freeze({
+  liveTx: "65xjdHVdHKgnDgdBN7DDcUQEwMXWjRJoTHQgbSibojWY433MW7mPdLFUiuzxtfkumK52vHGR2ipYB6Bv4hsjQ3SR",
+  liveSlot: "76014947",
   pool: "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
   inputMint: "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq", // USDC.x (token_1)
   outputMint: "So11111111111111111111111111111111111111112", // wXNT (token_0)
-  amountInRaw: "10000000", // 10 USDC.x raw (6 dp)
-  slippageBps: 100,
-  userPubkey: SOLANA_ADDRESS,
+  amountInRaw: "5000000", // 5 USDC.x raw (6 dp) — the anchor tx's amount_in
+  slippageBps: 10000, // → minOutRaw = 0 = the anchor tx's min_out (no minimum)
+  userPubkey: "FKBMEQ6yyEyaK49hEnct3HnKXrCDy5o6W3LcU2ojBtrZ", // the anchor tx signer
   blockhash: "96BfNwYAmZ29CRUHtMGVj6K3wESXTCVbFUVZHSXKfuXP", // deterministic SYNTHETIC (DI)
   snapshotFile: "xdex-pool-snapshot.json",
 });
@@ -230,10 +240,13 @@ export function buildXdexStep1({} = {}) {
     sha256: sha256Of(artifact),
     meta: {
       note:
-        "The XDEX constant-product quote (Raydium curve — fee on input): tradeFee = ceil(" +
+        "The XDEX constant-product quote (CP curve — fee on input): tradeFee = ceil(" +
         "in × 2800/1e6) from the LIVE AmmConfig decode, out = floor(Rout × net / (Rin + net)) " +
-        "on the LIVE vault raw balances, minOut at 100 bps slippage. Deterministic FROM the " +
-        "frozen pool snapshot (refresh the snapshot on first live use).",
+        "on the LIVE vault raw balances. The sample = the LIVE ANCHOR swap (tx 65xjdHVd…, " +
+        "slot 76,014,947 — 5 USDC.x in): slippageBps 10000 reproduces the anchor's " +
+        "min_out = 0 byte-for-byte (a real flow passes the operator's slippage policy; " +
+        "leg default 100 bps). Deterministic FROM the frozen pool snapshot (refresh the " +
+        "snapshot on first live use).",
     },
   };
 }
@@ -258,11 +271,20 @@ export function buildXdexStep2({} = {}) {
     txSha256: sha256Text(artifact.transaction.serializedBase64),
     meta: {
       note:
-        "The XDEX SwapBaseInput instruction + unsigned tx: disc 13bddf5c73d6bd24 (OBSERVED on " +
-        "every live pool swap — the canonical live discriminator; the nebula-dex note's " +
-        "8fbe5adac41e33de does NOT match the live program) + amount_in u64 LE + min_out u64 " +
-        "LE; 13 accounts in the verified order; ATAs derived offline. dataSha256 pins the " +
-        "instruction bytes; txSha256 pins the serialized tx (synthetic DI'd blockhash).",
+        "The XDEX SwapBaseInput instruction + unsigned tx — ANCHORED TO THE LIVE MAINNET SWAP " +
+        "tx 65xjdHVd… (slot 76,014,947, err ok — Mr. Esters' controlled $5 swap, 5 USDC.x → " +
+        "~12.74 XNT on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR): disc " +
+        "8fbe5adac41e33de (sha256(global:swap_base_input)[..8] — LIVE-VERIFIED) + amount_in " +
+        "u64 LE (5,000,000) + min_out u64 LE (0); 13 accounts in the LIVE-VERIFIED order " +
+        "(payer signer, authority 9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU, amm_config " +
+        "2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c, pool, input ATA GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V, " +
+        "output ATA RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd, input vault " +
+        "7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg, output vault " +
+        "8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb, Token-2022, Token, USDC.x mint, wXNT " +
+        "mint, observation 4oUvUgziz4S6VXxMkjqorjgPrgT3wrxXN9kDuja8pkPZ); ATAs derived " +
+        "offline. dataSha256 pins the instruction bytes; txSha256 pins the serialized tx " +
+        "(synthetic DI'd blockhash). If the program is ever upgraded, re-anchor from a NEW " +
+        "live swap — never from a note.",
     },
   };
 }
@@ -321,10 +343,10 @@ export function captureDexLeg() {
       note:
         "Input fixtures are LIVE read-only captures (2026-09-02): the Jupiter quote, the LiFi " +
         "same-chain quote and the XDEX pool snapshot. The oracle pins the CONSTRUCTION given " +
-        "the same inputs. XDEX arg semantics (amount_in u64 LE + min_out u64 LE) are " +
-        "source-consistent + wire-size-verified but NOT 1:1 live-confirmed (the pool's recent " +
-        "live txs are relayer/AA-driven) — run one tiny controlled swap on the operator's " +
-        "go-ahead before real funds.",
+        "the same inputs. XDEX arg semantics (disc 8fbe5adac41e33de, amount_in u64 LE + min_out " +
+        "u64 LE) are LIVE-CONFIRMED 1:1 by the anchor swap tx 65xjdHVd… (slot 76,014,947, " +
+        "err ok — Mr. Esters' controlled $5 swap on pool " +
+        "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR); the xdex sample IS that swap.",
       replaceWith:
         "On first live use: refresh the XDEX pool snapshot (tools/capture-xdex-snapshot.mjs " +
         "equivalent — read-only RPC) and re-run tools/capture-dex-golden-fixtures.mjs.",

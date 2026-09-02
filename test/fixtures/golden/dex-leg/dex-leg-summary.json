@@ -1,8 +1,8 @@
 {
   "tool": "golden-transaction fixtures — the DEX swap legs (regression oracle, Phase 4)",
-  "capturedAt": "2026-09-02T10:49:52.859Z",
+  "capturedAt": "2026-09-02T12:03:22.134Z",
   "liveStatus": {
-    "note": "Input fixtures are LIVE read-only captures (2026-09-02): the Jupiter quote, the LiFi same-chain quote and the XDEX pool snapshot. The oracle pins the CONSTRUCTION given the same inputs. XDEX arg semantics (amount_in u64 LE + min_out u64 LE) are source-consistent + wire-size-verified but NOT 1:1 live-confirmed (the pool's recent live txs are relayer/AA-driven) — run one tiny controlled swap on the operator's go-ahead before real funds.",
+    "note": "Input fixtures are LIVE read-only captures (2026-09-02): the Jupiter quote, the LiFi same-chain quote and the XDEX pool snapshot. The oracle pins the CONSTRUCTION given the same inputs. XDEX arg semantics (disc 8fbe5adac41e33de, amount_in u64 LE + min_out u64 LE) are LIVE-CONFIRMED 1:1 by the anchor swap tx 65xjdHVd… (slot 76,014,947, err ok — Mr. Esters' controlled $5 swap on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR); the xdex sample IS that swap.",
     "replaceWith": "On first live use: refresh the XDEX pool snapshot (tools/capture-xdex-snapshot.mjs equivalent — read-only RPC) and re-run tools/capture-dex-golden-fixtures.mjs."
   },
   "samples": {
@@ -17,9 +17,9 @@
       "pool": "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
       "inputMint": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
       "outputMint": "So11111111111111111111111111111111111111112",
-      "amountInRaw": "10000000",
-      "slippageBps": 100,
-      "userPubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+      "amountInRaw": "5000000",
+      "slippageBps": 10000,
+      "userPubkey": "FKBMEQ6yyEyaK49hEnct3HnKXrCDy5o6W3LcU2ojBtrZ",
       "blockhash": "96BfNwYAmZ29CRUHtMGVj6K3wESXTCVbFUVZHSXKfuXP"
     },
     "lifi": {
@@ -76,16 +76,16 @@
     },
     "xdexStep1SwapQuote": {
       "file": "xdex-step1-swap-quote.json",
-      "sha256": "60e30d623de6abbde03ad979900a02bc6512df30dbc85d7f07dfa06649da8118",
-      "outRaw": "25024894496",
-      "minOutRaw": "24774645551"
+      "sha256": "5556ecca3de3e8cdc2708d9ebfd8fbcc446b41d89840198698467497fcfb855c",
+      "outRaw": "12531771639",
+      "minOutRaw": "0"
     },
     "xdexStep2SwapIx": {
       "file": "xdex-step2-swap-ix.json",
-      "sha256": "86f647e08ccd120750476bf97e85719b304777cd8d9061274e5d7645d1b0467f",
-      "dataSha256": "e991515f94433a05d96ec9c000a06ff9f01a0bf9e13b98068dacbadf582f688e",
-      "txSha256": "1ca2fa84bb887be82fc04391d80218e43ed4eb6a80585a9695108f46a1e51479",
-      "discriminator": "13bddf5c73d6bd24"
+      "sha256": "b215c72ea0ed4a6c35869868718e526cbf58e1c62b0e808339476cc0b3aae2d1",
+      "dataSha256": "75ddd912b1ba19a2bfd3b8e79f82a6a71646ecbca2220e95765e64545db71541",
+      "txSha256": "a504c8d3e28a28cfc0def36a5ce51055363869c26f7e1c1f460fc0c3da1386f9",
+      "discriminator": "8fbe5adac41e33de"
     },
     "lifiStep1SameChainSwapRequest": {
       "file": "lifi-step1-samechain-swap-request.json",
@@ -94,5 +94,5 @@
       "urlSha256": "d21594c4f6b925354724e28ce4e440dcc4a01b51e8614e9feb2f753f6a398427"
     }
   },
-  "verify": "test/goldenDex.test.js rebuilds every step from the same inputs and asserts byte-identical + sha256 match + the dex-leg invariants (raw amounts, verbatim quote forwarding, the observed XDEX discriminator, the forced same-chain fee)."
+  "verify": "test/goldenDex.test.js rebuilds every step from the same inputs and asserts byte-identical + sha256 match + the dex-leg invariants (raw amounts, verbatim quote forwarding, the LIVE-VERIFIED XDEX discriminator 8fbe5adac41e33de anchored to tx 65xjdHVd…, the forced same-chain fee)."
 }

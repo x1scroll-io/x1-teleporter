@@ -2,23 +2,23 @@
   "step": "xdex-step2-swap-ix",
   "artifact": {
     "programId": "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN",
-    "discriminator": "13bddf5c73d6bd24",
+    "discriminator": "8fbe5adac41e33de",
     "pool": "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
-    "userPubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
-    "inputAta": "B6cMvQyFi9yUAttuY4GHDjoSN4LjoEonxAw1RdAq7uc4",
-    "outputAta": "KHc1hKunyrAeMYBPbww84hp2DZs2qPLkqsKKAJhXuaV",
-    "amountInRaw": "10000000",
-    "minOutRaw": "24774645551",
+    "userPubkey": "FKBMEQ6yyEyaK49hEnct3HnKXrCDy5o6W3LcU2ojBtrZ",
+    "inputAta": "GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V",
+    "outputAta": "RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd",
+    "amountInRaw": "5000000",
+    "minOutRaw": "0",
     "quote": {
       "tradeFeeRate": "2800",
-      "tradeFeeRaw": "28000",
-      "netInRaw": "9972000",
-      "inRaw": "10000000",
-      "outRaw": "25024894496",
-      "minOutRaw": "24774645551",
-      "outHuman": 25.024894496,
-      "priceImpactBps": 58,
-      "slippageBps": 100,
+      "tradeFeeRaw": "14000",
+      "netInRaw": "4986000",
+      "inRaw": "5000000",
+      "outRaw": "12531771639",
+      "minOutRaw": "0",
+      "outHuman": 12.531771639,
+      "priceImpactBps": 43,
+      "slippageBps": 10000,
       "inputMint": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
       "outputMint": "So11111111111111111111111111111111111111112",
       "inputDecimals": 6,
@@ -28,7 +28,7 @@
       "programId": "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN",
       "keys": [
         {
-          "pubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+          "pubkey": "FKBMEQ6yyEyaK49hEnct3HnKXrCDy5o6W3LcU2ojBtrZ",
           "isSigner": true,
           "isWritable": true
         },
@@ -48,12 +48,12 @@
           "isWritable": true
         },
         {
-          "pubkey": "B6cMvQyFi9yUAttuY4GHDjoSN4LjoEonxAw1RdAq7uc4",
+          "pubkey": "GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V",
           "isSigner": false,
           "isWritable": true
         },
         {
-          "pubkey": "KHc1hKunyrAeMYBPbww84hp2DZs2qPLkqsKKAJhXuaV",
+          "pubkey": "RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd",
           "isSigner": false,
           "isWritable": true
         },
@@ -93,20 +93,20 @@
           "isWritable": true
         }
       ],
-      "dataBase64": "E73fXHPWvSSAlpgAAAAAAC8Xr8QFAAAA",
-      "dataHex": "13bddf5c73d6bd2480969800000000002f17afc405000000"
+      "dataBase64": "j75a2sQeM95AS0wAAAAAAAAAAAAAAAAA",
+      "dataHex": "8fbe5adac41e33de404b4c00000000000000000000000000"
     },
     "transaction": {
       "blockhash": "96BfNwYAmZ29CRUHtMGVj6K3wESXTCVbFUVZHSXKfuXP",
-      "feePayer": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+      "feePayer": "FKBMEQ6yyEyaK49hEnct3HnKXrCDy5o6W3LcU2ojBtrZ",
       "instructionCount": 1,
-      "serializedBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAcODemPkGJ7C08djOeZ2XzHRO9CYCPEyaz5lQkfwWtbo8g4e1l6y/Q00RVCg4aBSdPYSUjBMuTpiWFdZy55tz2nEGPkBgXHlWXfYf/K5BBtzEu2PxwpyqyAHqOOqlXlUMFhAgkqk8ufu2fvWbjcJpzXwWyZp6m/YS1RpvgJHrSMpnCWBMF7Mg5KBex3KkJdbuvcJ3nmsGkDCOyjnOOV9Uwq0aXSvHnmj4mol2d19eLFqc7nEpA1AkEJiyjBSRA2I0tSBK86dtcuYCcpV2FeIuEJfC+Rkk9LEmjIYGhcmHYRAPYYZnIUGpH6fC7Hx+EJQIh0+54i005Yhsm3xx/tyHGf/XomcfRlVXmYEiaWBT3EqFdxk1FOldHDEbDHYvT5+8dVleaDzRxdqwl1MVtYFbZOxsY4noG/Qm5OTRvapTS80qQM3rmQUIx+5XCPdq4CZQUanddRluVuaCZ+IIsUlK+DvQabiFf+q4GE+2h/Y0YYwDXaxDncGus7VZig8AAAAAABBt324ddloZPZy+FGzut5rBy0he1fWzeROoz1hX7/AKkG3fbh7nWP3hhCXbzkbM3athr8TYO5DSf+vfko2KGL/HgxdGVsZXBvcnRlci14ZGV4LXN3YXAtbGVnLXYyAABCAQoNAAgHBQQGAgMNDAkLARgTvd9cc9a9JICWmAAAAAAALxevxAUAAAA="
+      "serializedBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAcO1KvF4VU2fIOKfwaUEd52uiQ6P8+XVhpBzI8buNk1iRY4e1l6y/Q00RVCg4aBSdPYSUjBMuTpiWFdZy55tz2nEGPkBgXHlWXfYf/K5BBtzEu2PxwpyqyAHqOOqlXlUMFhAgkqk8ufu2fvWbjcJpzXwWyZp6m/YS1RpvgJHrSMpnCl0rx55o+JqJdndfXixanO5xKQNQJBCYsowUkQNiNLUux+9vQfpejrkgV1CPq/myLDJMXUm3n+XHofG1Ybld8mBjJ0XZsQxJJdP6L+5UwhudF/rKRNB51a1jQZ4PN/NzwYZnIUGpH6fC7Hx+EJQIh0+54i005Yhsm3xx/tyHGf/XomcfRlVXmYEiaWBT3EqFdxk1FOldHDEbDHYvT5+8dVleaDzRxdqwl1MVtYFbZOxsY4noG/Qm5OTRvapTS80qQM3rmQUIx+5XCPdq4CZQUanddRluVuaCZ+IIsUlK+DvQabiFf+q4GE+2h/Y0YYwDXaxDncGus7VZig8AAAAAABBt324ddloZPZy+FGzut5rBy0he1fWzeROoz1hX7/AKkG3fbh7nWP3hhCXbzkbM3athr8TYO5DSf+vfko2KGL/HgxdGVsZXBvcnRlci14ZGV4LXN3YXAtbGVnLXYyAABCAQoNAAgHBAUGAgMNDAkLARiPvlraxB4z3kBLTAAAAAAAAAAAAAAAAAA="
     }
   },
-  "sha256": "86f647e08ccd120750476bf97e85719b304777cd8d9061274e5d7645d1b0467f",
-  "dataSha256": "e991515f94433a05d96ec9c000a06ff9f01a0bf9e13b98068dacbadf582f688e",
-  "txSha256": "1ca2fa84bb887be82fc04391d80218e43ed4eb6a80585a9695108f46a1e51479",
+  "sha256": "b215c72ea0ed4a6c35869868718e526cbf58e1c62b0e808339476cc0b3aae2d1",
+  "dataSha256": "75ddd912b1ba19a2bfd3b8e79f82a6a71646ecbca2220e95765e64545db71541",
+  "txSha256": "a504c8d3e28a28cfc0def36a5ce51055363869c26f7e1c1f460fc0c3da1386f9",
   "meta": {
-    "note": "The XDEX SwapBaseInput instruction + unsigned tx: disc 13bddf5c73d6bd24 (OBSERVED on every live pool swap — the canonical live discriminator; the nebula-dex note's 8fbe5adac41e33de does NOT match the live program) + amount_in u64 LE + min_out u64 LE; 13 accounts in the verified order; ATAs derived offline. dataSha256 pins the instruction bytes; txSha256 pins the serialized tx (synthetic DI'd blockhash)."
+    "note": "The XDEX SwapBaseInput instruction + unsigned tx — ANCHORED TO THE LIVE MAINNET SWAP tx 65xjdHVd… (slot 76,014,947, err ok — Mr. Esters' controlled $5 swap, 5 USDC.x → ~12.74 XNT on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR): disc 8fbe5adac41e33de (sha256(global:swap_base_input)[..8] — LIVE-VERIFIED) + amount_in u64 LE (5,000,000) + min_out u64 LE (0); 13 accounts in the LIVE-VERIFIED order (payer signer, authority 9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU, amm_config 2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c, pool, input ATA GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V, output ATA RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd, input vault 7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg, output vault 8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb, Token-2022, Token, USDC.x mint, wXNT mint, observation 4oUvUgziz4S6VXxMkjqorjgPrgT3wrxXN9kDuja8pkPZ); ATAs derived offline. dataSha256 pins the instruction bytes; txSha256 pins the serialized tx (synthetic DI'd blockhash). If the program is ever upgraded, re-anchor from a NEW live swap — never from a note."
   }
 }
