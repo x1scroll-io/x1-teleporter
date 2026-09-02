@@ -53,8 +53,16 @@ import {
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs, checkReverseMin } from "../lib/reverseQuote.js";
-import { resolveSolanaAdapter, solanaSessionCanSign } from "../lib/wallet/sessionProviders.js";
-import { SignerResolver, RoutePlanner, runForwardEvmStage, runForwardSvmStage } from "../engine/index.js";
+import { solanaSessionCanSign } from "../lib/wallet/sessionProviders.js";
+import {
+  SignerResolver,
+  RoutePlanner,
+  runForwardEvmStage,
+  runForwardSvmStage,
+  runReverseX1Stage,
+  runReleaseWait,
+  runReverseLiFiStage,
+} from "../engine/index.js";
 import { SimulationError } from "../lib/simulateTx.js";
 import { LiFiApprovalValidationError } from "../lib/lifiApproval.js";
 import { WARP_LIVE_SEND } from "../lib/flags.ts";
@@ -117,21 +125,21 @@ export async function defaultStage2Runner({ solAdapter, amountHuman, allowLive, 
  */
 export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allowLive, token = "USDC.x" }) {
   const { Connection, PublicKey } = await import("@solana/web3.js");
-  const { runReverse, SKIM_BPS } = await import("../warpBridge.js");
-  // X1 RPC: the burn executes on X1 mainnet (SVM-compatible) — sim + send
-  // both go through this connection (the PR #30 deterministic-broadcast
-  // pattern: signTransaction + app broadcast via the chain RPC).
+  // The routing engine runs the reverse burn stage (stage 1 of 2): the X1
+  // fee-payer + balance preflights, then the x1-reverse-burn leg (bundled
+  // fee-wallet ATA create when missing + 1% skim transfer + Warp BridgeOut)
+  // — exactly as runReverse did, now as a LegContract leg. The runner keeps
+  // runReverse's result shape + fail-closed gates + the WARP_LIVE_SEND gate.
+  const route = RoutePlanner.planReverse({ to: "eth" });
   const connection = new Connection(X1_RPC, "confirmed");
-  const skim = (amountHuman * Number(SKIM_BPS)) / 10_000; // 1% of the gross
-  return runReverse({
-    connection,
-    userPubkey: solAdapter.publicKey,
-    amountHuman: amountHuman - skim, // bridge_out burns the net
-    feeAmount: skim,                 // 1% skim to OUR X1 fee wallet (in the token's own units)
-    feeWallet: new PublicKey(FEE_WALLETS.X1),
+  return runReverseX1Stage({
+    route,
+    solAdapter,
+    amountHuman, // gross — the runner skims 1% + burns the net (reference math)
     allowLive, // WARP_LIVE_SEND gate — passed by the form (never hardcoded)
-    provider: solAdapter,
     token, // "USDC.x" | "wSOL.X" — mint/decimals/fee account for the burn
+    feeWallet: new PublicKey(FEE_WALLETS.X1),
+    connection, // X1 RPC: sim + send both go through this connection
   });
 }
 
@@ -147,22 +155,25 @@ export async function defaultReverseStage1Runner({ solAdapter, amountHuman, allo
  * gated step).
  */
 export async function defaultReverseStage2Runner({ solAdapter, evmAddress, to, toTokenSymbol = "USDC", netOnSolana, onStatus = () => {}, token = "USDC.x" }) {
-  const { executeLiFiSolanaTx } = await import("../lib/lifiSolanaTx.js");
-  const built = buildReverseLifiQuoteParams({
+  // The routing engine runs the reverse LiFi stage (stage 2 of 2): the
+  // lifi-solana-out leg — deterministic query artifact with the PINNED EVM
+  // destination (toAddress = evmAddress — the #44 display value), fresh
+  // quote for the net that landed on Solana, then materialise → fail-closed
+  // simulation → sign + send. THE SIGNER: the runner signs with the
+  // SignerResolver-resolved adapter (the form resolved it above) — the SAME
+  // single resolver the forward leg uses (one resolver, both directions;
+  // the #43 wrong-wallet-field bug class is structurally impossible).
+  const route = RoutePlanner.planReverse({ to });
+  return runReverseLiFiStage({
+    route,
+    solAdapter,
+    evmAddress,
     to,
-    toTokenSymbol, // the user-selected destination stable (USDC/USDT/DAI) — the LiFi leg delivers THIS
+    toTokenSymbol, // the user-selected destination stable — the LiFi leg delivers THIS
     netOnSolana,
-    fromAddress: solAdapter.publicKey?.toBase58 ? solAdapter.publicKey.toBase58() : String(solAdapter.publicKey),
-    toAddress: evmAddress, // the connected EVM session's address (no placeholders)
     token, // "USDC.x" → LiFi fromToken USDC (6 dec); "wSOL.X" → fromToken WSOL (9 dec)
+    onStatus,
   });
-  if (!built) throw new Error("No route for the selected destination chain");
-  onStatus("Quoting the Solana → " + to + " leg…");
-  const resp = await fetch(`/api/lifi/quote?${built.qs}`);
-  const d = await resp.json();
-  if (d?.error || d?.message) throw new Error(d.message || d.error);
-  onStatus("Sending the Solana → " + to + " leg…");
-  return executeLiFiSolanaTx({ lifiData: d, solWallet: solAdapter });
 }
 
 /**
@@ -173,12 +184,11 @@ export async function defaultReverseStage2Runner({ solAdapter, evmAddress, to, t
  * when the release is confirmed. Default for the form; tests inject a fake.
  */
 export async function defaultReleasePoller(sig, { onUpdate = () => {} } = {}) {
-  const { pollWarpStatus } = await import("../warpBridge.js");
-  return pollWarpStatus(sig, {
-    from: "x1", // reverse direction: source chain is X1
-    maxMs: 300_000,
-    onUpdate,
-  });
+  // The routing engine runs the release-wait (the warp-release-wait leg:
+  // pollWarpStatus through the same-origin /api/warp/* proxy, from=x1). The
+  // release tx itself is submitter-constructed — this only DETECTS it.
+  const route = RoutePlanner.planReverse({ to: "eth" });
+  return runReleaseWait({ route, sig, onUpdate });
 }
 
 const S = {
@@ -551,7 +561,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     // truth for the whole reverse journey).
     if (polling || step2Busy) return;
     setError(null); setStatus(null);
-    const solAdapter = await resolveSolanaAdapter(solSession);
+    const solAdapter = await SignerResolver.resolve("svm", solSession);
     if (!solAdapter) {
       setError("Connect your Solana/X1 wallet (Phantom/Backpack) to burn USDC.x on X1");
       setHandoffReason("burn");
@@ -652,7 +662,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     if (!quote || step2Busy) return; // one LiFi send at a time (auto-fire or manual retry)
     setError(null); setStatus(null);
     setStep2Busy(true);
-    const solAdapter = await resolveSolanaAdapter(solSession);
+    const solAdapter = await SignerResolver.resolve("svm", solSession);
     if (!solAdapter) {
       setError("Connect your Solana/X1 wallet to finish the hop");
       setHandoffReason("lifi");

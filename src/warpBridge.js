@@ -1018,6 +1018,88 @@ export function encodeReverseSeq(slot, ixIndex = 0) {
   return (BigInt(CHAIN_PAIR_X1_TO_SOL) << 56n) | baseSeq;
 }
 
+/**
+ * Build the full reverse burn tx — the construction half of runReverse,
+ * extracted so the routing engine's x1-burn leg and the reference path share
+ * ONE code path (wrap, don't rewrite): X1 fee-wallet ATA prep (bundled
+ * idempotent create when missing) + the Warp bridge_out burn + the prepended
+ * 1% skim transfer (create → transfer → burn in ONE tx when the fee ATA is
+ * missing; transfer → burn when it exists).
+ *
+ * PREFLIGHTS ARE NOT PART OF THIS HELPER — runReverse (and the engine's
+ * stage runner) run assertX1FeePayer + assertX1TokenBalance BEFORE calling
+ * it, exactly like the reference order.
+ *
+ * @param {{connection: object, userPubkey: PublicKey|string,
+ *          amountHuman: number, feeAmount?: number, feeWallet?: PublicKey|string,
+ *          token?: "USDC.x"|"wSOL.X", seq?: bigint|number}} args
+ *   amountHuman = the BURN amount (gross − skim — bridge_out burns the net;
+ *   the caller computes the 1% skim from the gross and passes it as
+ *   feeAmount). token drives the mint/decimals/fee account (wSOL.X: 9-dec,
+ *   25bps, per-token fee ATA — the token-aware path).
+ * @returns {Promise<{built: object, prep: object|null, mint: PublicKey,
+ *            decimals: number, feeAccount: PublicKey, sym: string}>}
+ *   built = the buildReverseBurn result with the skim transfer (+ create)
+ *   prepended to built.transaction; prep = the ensureX1FeeWalletAta result
+ *   (null when no fee is due).
+ */
+export async function buildReverseBurnWithSkim({ connection, userPubkey, amountHuman, feeAmount = 0, feeWallet = null, token = "USDC.x", seq }) {
+  // The bridged X1 token drives the mint, decimals and Warp fee account:
+  // USDC.x (6 dec, flat $1) or wSOL.X (9 dec, 25 bps — live Warp config).
+  const tok = X1_REVERSE_TOKENS[token] || X1_REVERSE_TOKENS["USDC.x"];
+  const { mint, decimals, feeAccount } = tok;
+
+  // 1) X1 fee-wallet ATA prep: our 1% skim is a Token-2022 transfer to
+  //    the FEE wallet's X1 ATA — which must EXIST for the transfer to work
+  //    (the step-1.2 root cause: "fee ATA missing on X1"). When it is missing
+  //    we do NOT broadcast a separate creation tx anymore: the idempotent
+  //    create instruction is BUNDLED into the burn transaction
+  //    (create → skim transfer → burn), so ONE simulation gates ONE send and
+  //    the reverse leg works on the FIRST run in both sim and live mode — no
+  //    dead-end while the fee ATA is missing, no double wallet prompt. This is
+  //    the same-chain analog of the forward leg's proven pattern (PR #28/#30:
+  //    idempotent ATA prep then guarded send).
+  let prep = null;
+  if (feeAmount > 0 && feeWallet) {
+    prep = await ensureX1FeeWalletAta({
+      connection,
+      userPubkey,
+      feeWallet,
+      payer: userPubkey, // the user's connected wallet pays rent + signs
+      mint, decimals, // the token's own mint (wSOL.X fee wallet ATA when token="wSOL.X")
+    });
+  }
+
+  const built = await buildReverseBurn({ connection, userPubkey, amountHuman, mint, decimals, feeAccount, seq });
+
+  // If a Teleporter fee is due, prepend the skim transfer (1% of the token to
+  // the fee wallet). When the fee wallet's ATA doesn't exist yet, the
+  // idempotent create comes FIRST so the transfer destination exists within
+  // the same tx.
+  if (feeAmount > 0 && feeWallet) {
+    const { PublicKey } = await import("@solana/web3.js");
+    const { getAssociatedTokenAddressSync } = await import("@solana/spl-token");
+    const userPk = userPubkey instanceof PublicKey ? userPubkey : new PublicKey(userPubkey);
+    const feeWalletPk = feeWallet instanceof PublicKey ? feeWallet : new PublicKey(feeWallet);
+
+    const userTokenAta = getAssociatedTokenAddressSync(mint, userPk, true, TOKEN_2022_PROGRAM_ID);
+    const feeTokenAta = getAssociatedTokenAddressSync(mint, feeWalletPk, true, TOKEN_2022_PROGRAM_ID);
+    const feeAmountBase = toBaseUnits(feeAmount, decimals);
+
+    // USDC.x and wSOL.X are Token-2022 mints — createTransferInstruction with
+    // the Token-2022 program id (there is no separate "Token2022Program" class).
+    const transferFeeIx = createTransferInstruction(
+      userTokenAta, feeTokenAta, userPk, feeAmountBase, [], TOKEN_2022_PROGRAM_ID
+    );
+    const prepend = prep?.needsCreation
+      ? [prep.instruction, transferFeeIx] // create → transfer → burn
+      : [transferFeeIx];                  // transfer → burn
+    built.transaction.instructions.unshift(...prepend);
+  }
+
+  return { built, prep, mint, decimals, feeAccount, sym: token };
+}
+
 export async function buildReverseBurn({ connection, userPubkey, amountHuman, seq, mint = X1_USDCX_MINT, decimals = 6, feeAccount = X1_REVERSE_TOKENS["USDC.x"].feeAccount }) {
   const toPk = (v) => {
     if (v instanceof PublicKey) return v;
@@ -1078,11 +1160,8 @@ export async function buildReverseBurn({ connection, userPubkey, amountHuman, se
 }
 
 export async function runReverse({ connection, userPubkey, amountHuman, feeAmount = 0, feeWallet = null, allowLive = false, provider = null, onBuilt = () => {}, token = "USDC.x" }) {
-  // The bridged X1 token drives the mint, decimals and Warp fee account:
-  // USDC.x (6 dec, flat $1) or wSOL.X (9 dec, 25 bps — live Warp config).
-  const tok = X1_REVERSE_TOKENS[token] || X1_REVERSE_TOKENS["USDC.x"];
-  const { mint, decimals, feeAccount } = tok;
   const sym = token;
+  const { mint, decimals } = X1_REVERSE_TOKENS[token] || X1_REVERSE_TOKENS["USDC.x"];
 
   // 0) X1 fee-payer preflight: the bare `AccountNotFound` on the X1 RPC was
   //    the fee payer missing on X1 (same failure class as the forward hop on
@@ -1103,54 +1182,13 @@ export async function runReverse({ connection, userPubkey, amountHuman, feeAmoun
     });
   }
 
-  // 1) X1 fee-wallet ATA prep: our 1% skim is a Token-2022 transfer to
-  //    the FEE wallet's X1 ATA — which must EXIST for the transfer to work
-  //    (the step-1.2 root cause: "fee ATA missing on X1"). When it is missing
-  //    we do NOT broadcast a separate creation tx anymore: the idempotent
-  //    create instruction is BUNDLED into the burn transaction
-  //    (create → skim transfer → burn), so ONE simulation gates ONE send and
-  //    the reverse leg works on the FIRST run in both sim and live mode — no
-  //    dead-end while the fee ATA is missing, no double wallet prompt. This is
-  //    the same-chain analog of the forward leg's proven pattern (PR #28/#30:
-  //    idempotent ATA prep then guarded send).
-  let prep = null;
-  if (feeAmount > 0 && feeWallet) {
-    prep = await ensureX1FeeWalletAta({
-      connection,
-      userPubkey,
-      feeWallet,
-      payer: userPubkey, // the user's connected wallet pays rent + signs
-      mint, decimals, // the token's own mint (wSOL.X fee wallet ATA when token="wSOL.X")
-    });
-  }
+  // 1) The construction — fee-wallet ATA prep + bridge_out burn + the
+  //    prepended 1% skim transfer — via the SHARED helper (the engine's
+  //    x1-burn leg uses the SAME code path: one construction, both callers).
+  const { built, prep } = await buildReverseBurnWithSkim({
+    connection, userPubkey, amountHuman, feeAmount, feeWallet, token,
+  });
 
-  const built = await buildReverseBurn({ connection, userPubkey, amountHuman, mint, decimals, feeAccount });
-  
-  // If a Teleporter fee is due, prepend the skim transfer (1% of the token to
-  // the fee wallet). When the fee wallet's ATA doesn't exist yet, the
-  // idempotent create comes FIRST so the transfer destination exists within
-  // the same tx.
-  if (feeAmount > 0 && feeWallet) {
-    const { PublicKey } = await import("@solana/web3.js");
-    const { getAssociatedTokenAddressSync } = await import("@solana/spl-token");
-    const userPk = userPubkey instanceof PublicKey ? userPubkey : new PublicKey(userPubkey);
-    const feeWalletPk = feeWallet instanceof PublicKey ? feeWallet : new PublicKey(feeWallet);
-    
-    const userTokenAta = getAssociatedTokenAddressSync(mint, userPk, true, TOKEN_2022_PROGRAM_ID);
-    const feeTokenAta = getAssociatedTokenAddressSync(mint, feeWalletPk, true, TOKEN_2022_PROGRAM_ID);
-    const feeAmountBase = toBaseUnits(feeAmount, decimals);
-    
-    // USDC.x and wSOL.X are Token-2022 mints — createTransferInstruction with
-    // the Token-2022 program id (there is no separate "Token2022Program" class).
-    const transferFeeIx = createTransferInstruction(
-      userTokenAta, feeTokenAta, userPk, feeAmountBase, [], TOKEN_2022_PROGRAM_ID
-    );
-    const prepend = prep?.needsCreation
-      ? [prep.instruction, transferFeeIx] // create → transfer → burn
-      : [transferFeeIx];                  // transfer → burn
-    built.transaction.instructions.unshift(...prepend);
-  }
-  
   onBuilt();
   const sim = await simulateStage2(connection, built.transaction);
   if (!sim.ok) return { stage: "simulation", success: false, sim, built, prep };
