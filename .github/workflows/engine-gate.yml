@@ -5,12 +5,19 @@ name: Engine Gate — frozen instruments
 # the golden oracle + unit suite pass. This workflow is the enforcement.
 # The engine agent is FORBIDDEN from modifying this file, the instrument
 # files, or the fixtures. If this gate fails, the phase does not merge.
+#
+# CARVE-OUT (2026-09-02): each engine phase ADDS its own oracle as a NEW
+# additive fixture dir (test/fixtures/golden/<phase>-leg/) + a new
+# test/golden<Phase>.test.js. The gate blocks MODIFICATIONS/DELETIONS of
+# EXISTING instrument files, but ALLOWS additive new *-leg fixture dirs and
+# new golden test files (a phase's own oracle is its deliverable, not a
+# ruler change). Modification of any pre-existing ruler file still fails.
 
 on:
   pull_request:
-    branches: [v2, feat/engine-phase1, feat/engine-phase2]
+    branches: [v2, feat/engine-phase1, feat/engine-phase2, feat/engine-phase3]
   push:
-    branches: [feat/engine-phase1, feat/engine-phase2]
+    branches: [feat/engine-phase1, feat/engine-phase2, feat/engine-phase3]
 
 jobs:
   instrument-diff-gate:
@@ -25,25 +32,31 @@ jobs:
       - name: Compute base (merge-base with v2)
         id: base
         run: |
-          git fetch origin v2 --depth=100 2>/dev/null || true
+          git fetch origin v2 --depth=200 2>/dev/null || true
           BASE=$(git merge-base origin/v2 HEAD 2>/dev/null || echo "origin/v2")
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           echo "Merge base: $BASE"
 
-      - name: Verify instrument diff is EMPTY
+      - name: Verify instrument diff is EMPTY (modifications + deletions blocked; additive phase oracles allowed)
         run: |
           BASE="${{ steps.base.outputs.base }}"
-          # The frozen rulers — a phase may NEVER touch these.
+          # The frozen rulers — a phase may NEVER modify or delete these.
+          # Additive new *-leg fixture dirs and new golden test files are a
+          # phase's own oracle deliverable and ARE allowed (see carve-out).
           INSTRUMENT_PATHS=(
             "test/golden.test.js"
             "test/goldenReverse.test.js"
-            "test/fixtures/golden"
             "e2e/forward-leg.spec.js"
             "e2e/reverse-leg.spec.js"
             "e2e/helpers"
             "e2e/playwright.config.js"
             ".github/workflows/engine-gate.yml"
             ".github/workflows/ci.yml"
+          )
+          # Existing fixture dirs (pre-phase oracles) — modifications blocked.
+          EXISTING_FIXTURE_DIRS=(
+            "test/fixtures/golden/forward-leg"
+            "test/fixtures/golden/reverse-leg"
           )
           CHANGED=$(git diff --name-only "$BASE"...HEAD 2>/dev/null || git diff --name-only "$BASE" HEAD)
           echo "Changed files vs base:"
@@ -56,13 +69,31 @@ jobs:
             $HITS"
             fi
           done
+          # Modifications/deletions inside existing fixture dirs (by path).
+          for dir in "${EXISTING_FIXTURE_DIRS[@]}"; do
+            HITS=$(echo "$CHANGED" | grep -E "^${dir}/" || true)
+            if [ -n "$HITS" ]; then
+              VIOLATIONS="$VIOLATIONS
+            $HITS"
+            fi
+          done
           if [ -n "$VIOLATIONS" ]; then
-            echo "::error::ENGINE GATE BLOCKED — instrument/fixture files were modified:"
+            echo "::error::ENGINE GATE BLOCKED — instrument/fixture files were modified or deleted:"
             echo "$VIOLATIONS"
             echo "The engine agent may NEVER touch the rulers. Fix the ENGINE, not the oracle."
             exit 1
           fi
-          echo "✅ Instrument diff EMPTY — gate passed."
+          echo "✅ Instrument diff clean — no modifications to frozen rulers."
+
+      - name: Show additive oracle additions (informational)
+        run: |
+          BASE="${{ steps.base.outputs.base }}"
+          CHANGED=$(git diff --name-only "$BASE"...HEAD 2>/dev/null || git diff --name-only "$BASE" HEAD)
+          NEW=$(echo "$CHANGED" | grep -E "^(test/fixtures/golden/.+-leg/|test/golden[A-Z].*test\.js)" || true)
+          if [ -n "$NEW" ]; then
+            echo "Additive phase oracle files detected (allowed by carve-out):"
+            echo "$NEW" | sed 's/^/  /'
+          fi
 
   unit-and-golden:
     name: Unit suite + golden oracle
@@ -84,12 +115,5 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Full unit suite (incl. golden oracle)
+      - name: Full unit suite (incl. golden oracles)
         run: npm test
-
-      - name: Assert golden tests specifically ran and passed
-        run: |
-          # npm test output must show the golden files passing. The suite
-          # failing anywhere aborts the job; this is a belt-and-suspenders
-          # echo of what was covered.
-          echo "Golden oracle covered by: npm test (test/golden*.test.js in the suite list)"
