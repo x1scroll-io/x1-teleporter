@@ -54,12 +54,17 @@ import {
   familyCanSign,
   SIGNER_FAMILIES,
 } from "../src/engine/signerResolver.js";
+import { resolveSolSigner } from "../src/lib/lifiSolanaTx.js";
+import { resolveSolanaAdapter as resolveSolanaAdapterFn } from "../src/lib/wallet/sessionProviders.js";
 import {
   planForward,
+  planReverse,
   plan,
   legById,
   legsForStage,
   FORWARD_LEG_IDS,
+  REVERSE_LEG_IDS,
+  REVERSE_STAGES,
 } from "../src/engine/routePlanner.js";
 import {
   buildApprovalArtifact,
@@ -67,18 +72,26 @@ import {
   shapeAtaCreateArtifact,
   shapeWarpLockArtifact,
   deriveBridgeInV2AccountList,
+  shapeReverseBurnArtifact,
+  buildLifiOutArtifact,
 } from "../src/engine/index.js";
 import { runForwardEvmStage } from "../src/engine/runners/forwardEvmStage.js";
 import { runForwardSvmStage } from "../src/engine/runners/forwardSvmStage.js";
+import { runReverseX1Stage } from "../src/engine/runners/reverseX1Stage.js";
+import { runReleaseWait } from "../src/engine/runners/reverseReleaseStage.js";
+import { runReverseLiFiStage } from "../src/engine/runners/reverseLiFiStage.js";
 import {
   encodeWarpSeq,
+  encodeReverseSeq,
+  buildReverseBurnWithSkim,
   X1_USDCX_MINT,
   USDC_MINT,
   SKIM_BPS,
   X1_FORWARD_TOKENS,
+  X1_REVERSE_TOKENS,
 } from "../src/warpBridge.js";
 import { SimulationError } from "../src/lib/simulateTx.js";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const FIX = join(here, "fixtures", "golden", "forward-leg");
@@ -90,6 +103,22 @@ const FIX_STEP2A = read("step2a-x1-ata-prep.json");
 const FIX_STEP2B = read("step2b-warp-lock.json");
 const FIX_STEP3 = read("step3-bridge-in-v2.json");
 const SUMMARY = read("forward-leg-summary.json");
+
+// ── Phase-2 reverse-leg fixtures (the golden oracle for X1→EVM) ──
+const REV_FIX = join(here, "fixtures", "golden", "reverse-leg");
+const readRev = (name) => JSON.parse(readFileSync(join(REV_FIX, name), "utf8"));
+const REV_STEP1 = readRev("step1-x1-burn.json");
+const REV_STEP2 = readRev("step2-release-shape.json");
+const REV_STEP3 = readRev("step3-lifi-out.json");
+const REV_SUMMARY = readRev("reverse-leg-summary.json");
+const REV_QUOTE = readRev("quote-wsol-usdc-eth-0.39501.json");
+const {
+  mockX1ReverseConnection,
+  REVERSE_EVM_ADDRESS,
+  canonicalJson: revCanonicalJson,
+  sha256Of: revSha256Of,
+} = await import("./golden/reverseLegBuilders.mjs");
+
 
 const USER = new PublicKey(SOLANA_ADDRESS);
 const FEE_WALLET = new PublicKey(FEE_WALLET_SVM);
@@ -388,12 +417,12 @@ test("engine routePlanner: the forward route plans EXACTLY the four legs in orde
   assert.equal(legById(route, "thorchain-deposit"), null);
 });
 
-test("engine routePlanner: unplanned directions return null — reverse/THORChain/DEX are NOT planned here", () => {
+test("engine routePlanner: unplanned directions return null — THORChain/DEX are NOT planned here (reverse IS — Phase 2)", () => {
   assert.equal(plan({ direction: "forward" }).id, "forward-eth-x1");
-  assert.equal(plan({ direction: "reverse" }), null);
+  assert.equal(plan({ direction: "reverse" }).id, "reverse-x1-eth"); // Phase 2 plans the reverse route
   assert.equal(plan({ direction: "thorchain" }), null);
   assert.equal(plan({ direction: "dex" }), null);
-  assert.equal(plan({}).id, "forward-eth-x1"); // forward is the Phase-1 default
+  assert.equal(plan({}).id, "forward-eth-x1"); // forward is the default
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -783,4 +812,397 @@ test("engine forwardSvmStage: wSOL.X destination routes the ATA leg to the wSOL.
   });
   assert.equal(res.stage, "simulated_ok");
   assert.equal(res.built.destToken, "wSOL.X");
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 6. PHASE 2 — the REVERSE route (X1 → EVM) on the engine. The reverse golden
+//    oracle (test/goldenReverse.test.js + test/fixtures/golden/reverse-leg/)
+//    pins the reference artifacts; these tests prove the ENGINE reproduces
+//    them byte-for-byte and that the reverse LiFi-out signer resolves through
+//    the SAME single SignerResolver the forward leg uses.
+// ════════════════════════════════════════════════════════════════════════════
+
+const REV_GROSS = 0.4; // the golden sample (0.4 wSOL.X on X1)
+
+/** Deterministic X1 connection for the reverse burn (the golden mock shape:
+ *  fee payer exists, user ATA funded, fee wallet's wSOL.X ATA EXISTS (the
+ *  live shape — no bundled create), fixed blockhash + slot. */
+function mockReverseX1Connection() {
+  return mockX1ReverseConnection();
+}
+
+/** The reverse route's deterministic seq (chain-pair 0x10: X1→Sol). */
+function reverseSeq() {
+  return encodeReverseSeq(FIXED_SEQ_SLOT, 0);
+}
+
+test("engine routePlanner (Phase 2): the reverse route plans EXACTLY the three legs in order, grouped into the reverse UI stages", () => {
+  const route = planReverse({ to: "eth" });
+  assert.equal(route.id, "reverse-x1-eth");
+  assert.equal(route.direction, "reverse");
+  assert.equal(route.sourceChain, "x1");
+  assert.equal(route.destChain, "eth");
+  assert.deepEqual(route.legs.map((l) => l.id), [...REVERSE_LEG_IDS]);
+  assert.deepEqual(route.legs.map((l) => l.id), ["x1-reverse-burn", "warp-release-wait", "lifi-solana-out"]);
+  assert.deepEqual(route.legs.map((l) => l.family), ["svm", "svm", "svm"]);
+  assert.deepEqual(legsForStage(route, "burn").map((l) => l.id), ["x1-reverse-burn"]);
+  assert.deepEqual(legsForStage(route, "release").map((l) => l.id), ["warp-release-wait"]);
+  assert.deepEqual(legsForStage(route, "lifi").map((l) => l.id), ["lifi-solana-out"]);
+  assert.equal(REVERSE_STAGES.burn.label, "stage 1 of 2 (X1 burn)");
+  assert.equal(REVERSE_STAGES.lifi.label, "stage 2 of 2 (LiFi Solana → EVM)");
+  assert.equal(legById(route, "x1-reverse-burn").goldenStep, "step1-x1-burn");
+  assert.equal(legById(route, "lifi-solana-out").goldenStep, "step3-lifi-out (toAddress pin + quote reference)");
+  // plan() dispatches reverse (Phase 2); THORChain/DEX stay unplanned.
+  assert.equal(plan({ direction: "reverse" }).id, "reverse-x1-eth");
+  assert.equal(plan({ direction: "thorchain" }), null);
+});
+
+test("engine reverse byte-identity step1: the x1-burn leg artifact == golden step1 (canonical JSON + sha256 + serialized bytes)", async () => {
+  const connection = mockReverseX1Connection();
+  const userPubkey = USER;
+  const feeWallet = FEE_WALLET;
+  const skim = (REV_GROSS * Number(SKIM_BPS)) / 10_000; // 1% of the gross (0.004)
+  const burnAmount = REV_GROSS - skim; // 0.396
+  const { built, prep } = await buildReverseBurnWithSkim({
+    connection,
+    userPubkey,
+    amountHuman: burnAmount,
+    feeAmount: skim,
+    feeWallet,
+    token: "wSOL.X",
+    seq: reverseSeq(),
+  });
+  const artifact = shapeReverseBurnArtifact({
+    built,
+    prep,
+    amountHuman: burnAmount,
+    feeAmount: skim,
+    token: "wSOL.X",
+    blockhash: FIXED_BLOCKHASH,
+    seqSlot: FIXED_SEQ_SLOT,
+  });
+  // Byte-identity with the golden step1 fixture (canonical JSON + sha256 +
+  // the raw serialized bytes). The ENGINE is the wrong one if this differs.
+  assert.equal(revCanonicalJson(artifact), revCanonicalJson(REV_STEP1.artifact));
+  assert.equal(revSha256Of(artifact), REV_STEP1.sha256);
+  const { sha256Bytes } = await import("./golden/forwardLegBuilders.mjs");
+  assert.equal(sha256Bytes(Buffer.from(artifact.serializedBase64, "base64")), REV_STEP1.bytesSha256);
+  // The pinned math + live-shape facts hold on the engine artifact too.
+  assert.equal(artifact.seq, reverseSeq().toString());
+  assert.equal(artifact.grossBase, "400000000");
+  assert.equal(artifact.skimBase, "4000000");
+  assert.equal(artifact.bridgeBase, "396000000");
+  assert.equal(artifact.feeAtaCreated, false);
+  assert.equal(artifact.instructionCount, 2);
+  assert.equal(artifact.feeAta, "8YxSUo3EjM14C3UnRw7kJqTcNwHnAtvW15vP9nCqCCmw"); // live ground truth
+  // Deserializes to the same 2-instruction tx (Token-2022 transfer + Warp burn).
+  const tx = Transaction.from(Buffer.from(artifact.serializedBase64, "base64"));
+  assert.equal(tx.instructions.length, 2);
+  assert.equal(tx.feePayer.toBase58(), SOLANA_ADDRESS);
+  assert.equal(tx.recentBlockhash, FIXED_BLOCKHASH);
+});
+
+test("engine reverse byte-identity step3: the lifi-solana-out leg artifact == golden step3 (canonical JSON + sha256 + the toAddress PIN)", async () => {
+  const artifact = buildLifiOutArtifact({
+    to: "eth",
+    toTokenSymbol: "USDC",
+    netOnSolana: REV_STEP3.artifact.netOnSolana,
+    fromAddress: SOLANA_ADDRESS,
+    toAddress: REVERSE_EVM_ADDRESS,
+    token: "wSOL.X",
+  });
+  assert.ok(artifact, "the sample chain/token/wallet set must resolve");
+  assert.equal(revCanonicalJson(artifact), revCanonicalJson(REV_STEP3.artifact));
+  assert.equal(revSha256Of(artifact), REV_STEP3.sha256);
+  // THE PIN: the engine's query artifact carries the EVM destination — the
+  // fixture's sampleInput.evmDestination — byte-for-byte.
+  assert.equal(artifact.toAddress, REV_STEP3.artifact.toAddress);
+  assert.equal(artifact.toAddress, REV_SUMMARY.sampleInput.evmDestination);
+  assert.equal(artifact.toAddress, REVERSE_EVM_ADDRESS);
+  assert.equal(artifact.fromAmountRaw, "395010000");
+  assert.equal(artifact.fromToken, "So11111111111111111111111111111111111111112");
+  assert.equal(artifact.hasFeeParam, false);
+});
+
+test("engine reverse: the release-wait leg + runner build the poll artifact and confirm via pollWarpStatus (the #40 proxy path)", async () => {
+  const route = planReverse();
+  const calls = [];
+  const fetcher = mock.fn(async (url) => {
+    calls.push(String(url));
+    if (String(url).includes("/api/warp/signatures")) {
+      return { ok: false, status: 404, json: async () => ({}) }; // pre-detection is NORMAL
+    }
+    if (String(url).includes("/api/warp/status")) {
+      return {
+        ok: true,
+        json: async () => ({
+          transaction: { status: "executed", destTxSig: "dest-release-sig" },
+          signatures: [1, 2, 3, 4, 5],
+        }),
+      };
+    }
+    return { ok: true, json: async () => ({}) };
+  });
+  mock.method(globalThis, "fetch", fetcher);
+  try {
+    const res = await runReleaseWait({ route, sig: "x1-burn-sig", maxMs: 5000 });
+    assert.equal(res.ok, true);
+    assert.equal(res.destinationTx, "dest-release-sig");
+    // The poll hit the app's OWN same-origin proxy endpoints (from=x1).
+    assert.ok(calls.some((u) => u.includes("/api/warp/signatures?sig=x1-burn-sig&from=x1")));
+    assert.ok(calls.some((u) => u.includes("/api/warp/status?sig=x1-burn-sig&from=x1")));
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("engine reverseX1Stage (sim mode): returns the runReverse shape { simulated_ok } and the built burn tx is BYTE-IDENTICAL to golden step1", async () => {
+  const route = planReverse();
+  const connection = mockReverseX1Connection();
+  const res = await runReverseX1Stage({
+    route,
+    solAdapter: makeSolAdapter(), // publicKey = USER (the golden sample wallet)
+    amountHuman: REV_GROSS,
+    allowLive: false, // WARP_LIVE_SEND gate held → confirm-mode
+    token: "wSOL.X",
+    feeWallet: FEE_WALLET,
+    connection,
+  });
+  assert.equal(res.stage, "simulated_ok");
+  assert.equal(res.success, true);
+  assert.equal(res.sent, null);
+  assert.ok(res.sim.ok, "the burn sim passed (fail-closed gate)");
+  // The runner-built burn tx serializes to the GOLDEN step1 bytes — the
+  // runner + leg reproduce the reference burn byte-for-byte end to end.
+  const tx = res.built.transaction;
+  tx.recentBlockhash = FIXED_BLOCKHASH; // the mock already returns it — belt+braces
+  const bytes = Buffer.from(tx.serialize({ requireAllSignatures: false }));
+  const { sha256Bytes } = await import("./golden/forwardLegBuilders.mjs");
+  assert.equal(sha256Bytes(bytes), REV_STEP1.bytesSha256);
+  assert.equal(Buffer.from(REV_STEP1.artifact.serializedBase64, "base64").equals(bytes), true);
+});
+
+test("engine reverseX1Stage (live mode): a failing burn sim BLOCKS the send ({ stage: simulation, success: false } — nothing signed)", async () => {
+  const route = planReverse();
+  const connection = mockReverseX1Connection();
+  // Break the sim: swap simulateTransaction for a failing one.
+  connection.simulateTransaction = async () => ({ value: { err: { InstructionError: [0, "Custom"] }, logs: ["Program log: Error: insufficient funds"] } });
+  const adapter = makeSolAdapter();
+  const res = await runReverseX1Stage({
+    route,
+    solAdapter: adapter,
+    amountHuman: REV_GROSS,
+    allowLive: true,
+    token: "wSOL.X",
+    feeWallet: FEE_WALLET,
+    connection,
+  });
+  assert.equal(res.stage, "simulation");
+  assert.equal(res.success, false);
+  assert.equal(res.signature, undefined);
+});
+
+test("engine reverseX1Stage (live mode): the burn signs via the adapter and broadcasts → { stage: sent, signature } (WARP_LIVE_SEND gate forwarded)", async () => {
+  const route = planReverse();
+  // The signer must BE the fee payer (web3.js serialize verifies signatures)
+  // — use a real keypair as the wallet, like the reference live-mode tests.
+  const userKp = Keypair.generate();
+  const connection = mockX1ReverseConnection({ solanaAddress: userKp.publicKey.toBase58() });
+  const adapter = makeSolAdapter({ publicKey: userKp.publicKey, keypair: userKp });
+  const res = await runReverseX1Stage({
+    route,
+    solAdapter: adapter,
+    amountHuman: REV_GROSS,
+    allowLive: true,
+    token: "wSOL.X",
+    feeWallet: FEE_WALLET,
+    connection,
+  });
+  assert.equal(res.stage, "sent");
+  assert.equal(res.success, true);
+  assert.ok(res.signature, "the guarded send returned the X1 burn signature");
+});
+
+test("engine reverse: a missing X1 fee payer blocks BEFORE anything is built (X1FeePayerError — actionable, not AccountNotFound)", async () => {
+  const route = planReverse();
+  const { X1FeePayerError } = await import("../src/warpBridge.js");
+  const connection = mockReverseX1Connection();
+  connection.getAccountInfo = async () => null; // user missing on X1
+  await assert.rejects(
+    () => runReverseX1Stage({
+      route,
+      solAdapter: makeSolAdapter(),
+      amountHuman: REV_GROSS,
+      allowLive: false,
+      token: "wSOL.X",
+      feeWallet: FEE_WALLET,
+      connection,
+    }),
+    (err) => err instanceof X1FeePayerError && /no spendable XNT/.test(err.message),
+  );
+});
+
+// ── THE SINGLE SIGNER RESOLVER (the whole point — one resolver, both
+//    directions, the #43 wrong-wallet-field bug structurally impossible) ──
+test("engine reverse: the LiFi-out signer resolves through the SAME SignerResolver as forward (one resolver, one code path, both directions)", async () => {
+  // A wrapper-shaped session ({ provider: { family, adapter } }) — the v2
+  // WalletContext shape whose RAW provider has no sign fns (the #43 bug).
+  const adapter = {
+    name: "Test Wallet",
+    publicKey: { toBase58: () => SOLANA_ADDRESS },
+    async connect() {},
+    async signAndSendTransaction() {
+      return { signature: "adapter-sig" };
+    },
+  };
+  const wrapper = {
+    family: "solana",
+    id: "wallet-standard:Test Wallet",
+    isReal: true,
+    walletName: "Test Wallet",
+    adapter,
+    async connect() {
+      return { family: "solana", address: SOLANA_ADDRESS, provider: this };
+    },
+    async disconnect() {},
+  };
+  const session = { family: "solana", address: SOLANA_ADDRESS, provider: wrapper };
+
+  // The forward leg's resolver (executeStage1/2 use SignerResolver.resolve):
+  const viaEngine = await resolveSigner("svm", session);
+  assert.equal(viaEngine, adapter, "SignerResolver.resolve('svm') unwraps the wrapper's adapter");
+
+  // The reverse leg's executor path accepts the SAME resolved adapter (the
+  // runner passes SignerResolver.resolve("svm", session) into the leg):
+  const viaReverseExecutor = await resolveSolSigner(session, null);
+  assert.equal(viaReverseExecutor, adapter);
+  assert.equal(viaEngine, viaReverseExecutor, "forward + reverse resolve the SAME adapter");
+
+  // And the proven stage-1 resolver agrees (the reference path's resolver):
+  const viaReference = await resolveSolanaAdapterFn(session);
+  assert.equal(viaReference, adapter);
+  assert.equal(viaEngine, viaReference);
+
+  // The raw session/provider shape NEVER reaches the executor — the leg's
+  // submit phase reads ctx.solAdapter (the resolved adapter) only; the
+  // runner resolves BEFORE the leg runs.
+  const route = planReverse();
+  const outLeg = legById(route, "lifi-solana-out");
+  assert.equal(typeof outLeg.phases.submit, "function");
+});
+
+test("engine reverseLiFiStage: runReverseLiFiStage drives the lifi-out leg end to end — fresh quote, destination pin, resolved-adapter send → the final-leg signature", async () => {
+  const route = planReverse();
+  const seenSigners = [];
+  const adapter = {
+    publicKey: { toBase58: () => SOLANA_ADDRESS },
+    async signAndSendTransaction(vtx) {
+      seenSigners.push(this);
+      return { signature: "final-leg-sig" };
+    },
+  };
+  // A minimal executable LiFi quote (the golden quote's payload shape) with
+  // toAddress = the PINNED EVM destination.
+  const { Keypair, MessageV0, VersionedTransaction } = await import("@solana/web3.js");
+  const compiled = MessageV0.compile({
+    payerKey: Keypair.generate().publicKey,
+    recentBlockhash: "11111111111111111111111111111111",
+    instructions: [],
+  });
+  const b64 = Buffer.from(new VersionedTransaction(compiled).serialize()).toString("base64");
+  const lifiData = {
+    action: {
+      toAddress: REVERSE_EVM_ADDRESS,
+      fromToken: { address: "So11111111111111111111111111111111111111112" },
+      toToken: { address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
+    },
+    transactionRequest: { data: b64 },
+  };
+  const fetcher = mock.fn(async (url) => {
+    const u = String(url);
+    assert.ok(u.includes("toAddress=" + REVERSE_EVM_ADDRESS), "the quote query pins the EVM destination");
+    return { ok: true, json: async () => lifiData };
+  });
+  mock.method(globalThis, "fetch", fetcher);
+  const simOk = async () => ({ ok: true, logs: [], unitsConsumed: 0 });
+  try {
+    const sig = await runReverseLiFiStage({
+      route,
+      solAdapter: adapter,
+      evmAddress: REVERSE_EVM_ADDRESS,
+      to: "eth",
+      toTokenSymbol: "USDC",
+      netOnSolana: 0.39501,
+      token: "wSOL.X",
+      simulate: simOk, // test seam — the fail-closed Step 1.3A gate is untouched
+    });
+    assert.equal(sig, "final-leg-sig");
+    assert.equal(seenSigners.length, 1);
+    assert.equal(seenSigners[0], adapter, "the executor signs with the RESOLVED adapter — never the raw session");
+  } finally {
+    mock.restoreAll();
+  }
+});
+
+test("engine reverse lifi-out leg: a quote whose recipient DRIFTED from the pinned EVM destination is REFUSED before any send", async () => {
+  const route = planReverse();
+  const leg = legById(route, "lifi-solana-out");
+  const { MessageV0, VersionedTransaction, Keypair } = await import("@solana/web3.js");
+  const compiled = MessageV0.compile({
+    payerKey: Keypair.generate().publicKey,
+    recentBlockhash: "11111111111111111111111111111111",
+    instructions: [],
+  });
+  const b64 = Buffer.from(new VersionedTransaction(compiled).serialize()).toString("base64");
+  // The quote's toAddress = a DIFFERENT wallet (the wrong-wallet-field bug
+  // class — the exact thing the engine must make impossible).
+  const drifted = {
+    action: { toAddress: "0x1111111111111111111111111111111111111111" },
+    transactionRequest: { data: b64 },
+  };
+  const outBuild = await leg.phases.build({
+    to: "eth", toTokenSymbol: "USDC", netOnSolana: 0.39501,
+    fromAddress: SOLANA_ADDRESS, toAddress: REVERSE_EVM_ADDRESS, token: "wSOL.X",
+  });
+  const simOk = async () => ({ ok: true, logs: [], unitsConsumed: 0 });
+  await assert.rejects(
+    () => leg.phases.simulate(
+      {
+        lifiData: drifted,
+        solAdapter: { publicKey: { toBase58: () => SOLANA_ADDRESS } },
+        toAddress: REVERSE_EVM_ADDRESS,
+        simulate: simOk,
+      },
+      { build: outBuild },
+    ),
+    (err) => /Refusing to send/.test(err.message) && /does not match the connected EVM wallet/.test(err.message),
+  );
+});
+
+test("engine reverseLiFiStage: a quote error surfaces verbatim (fail-closed — never guess the leg)", async () => {
+  const route = planReverse();
+  const adapter = {
+    publicKey: { toBase58: () => SOLANA_ADDRESS },
+    async signAndSendTransaction() {
+      return { signature: "should-never-sign" };
+    },
+  };
+  const fetcher = mock.fn(async () => ({ ok: true, json: async () => ({ error: "lifi_quote_failed", message: "No route found" }) }));
+  mock.method(globalThis, "fetch", fetcher);
+  try {
+    await assert.rejects(
+      () => runReverseLiFiStage({
+        route,
+        solAdapter: adapter,
+        evmAddress: REVERSE_EVM_ADDRESS,
+        to: "eth",
+        toTokenSymbol: "USDC",
+        netOnSolana: 0.39501,
+        token: "wSOL.X",
+      }),
+      /No route found/,
+    );
+  } finally {
+    mock.restoreAll();
+  }
 });
