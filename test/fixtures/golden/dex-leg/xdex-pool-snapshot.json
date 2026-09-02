@@ -1,0 +1,63 @@
+{
+  "capturedAt": "2026-09-02T10:45:34.860Z",
+  "rpc": "https://rpc.mainnet.x1.xyz",
+  "programId": "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN",
+  "pool": "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
+  "poolOwner": "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN",
+  "poolDiscriminator": "f7ede3f5d7c3de46",
+  "poolFields": {
+    "amm_config": "2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c",
+    "pool_creator": "HxcEgu5uQunei1Q5Hs9QpqH3KXojtfTeYL6wrgVA6Xf5",
+    "token_0_vault": "8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb",
+    "token_1_vault": "7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg",
+    "lp_mint": "3xafowUtErXrTEF2Tk3ENpUdxgkK7b5hMuSSFr5AQk6z",
+    "token_0_mint": "So11111111111111111111111111111111111111112",
+    "token_1_mint": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
+    "token_0_program": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "token_1_program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "observation_key": "4oUvUgziz4S6VXxMkjqorjgPrgT3wrxXN9kDuja8pkPZ"
+  },
+  "ammConfig": {
+    "bump": 252,
+    "disableCreatePool": false,
+    "index": 1,
+    "tradeFeeRate": "2800",
+    "protocolFeeRate": "250000",
+    "fundFeeRate": "50000",
+    "createPoolFee": "100000000",
+    "protocolOwner": "SKc6b6zAv2kkB9EtitjppbzPVR48bCMfRtE5B8KDuF1",
+    "fundOwner": "EogcepbZTPwPRQv6FCdViMjLwoFbrPy2i4NKv3zersvP",
+    "creatorFeeRate": "0"
+  },
+  "token0": {
+    "mint": "So11111111111111111111111111111111111111112",
+    "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "len": 82,
+    "decimals": 9
+  },
+  "token1": {
+    "mint": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
+    "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "len": 411,
+    "decimals": 6
+  },
+  "vault0": {
+    "pubkey": "8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb",
+    "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "len": 165,
+    "mint": "So11111111111111111111111111111111111111112",
+    "accountOwner": "9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU",
+    "amountRaw": "8114259914966",
+    "nativeLamports": "8114261954246"
+  },
+  "vault1": {
+    "pubkey": "7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg",
+    "owner": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "len": 165,
+    "mint": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
+    "accountOwner": "9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU",
+    "amountRaw": "3223424244",
+    "nativeLamports": "2039280"
+  },
+  "authority": "11111111111111111111111111111111"
+}

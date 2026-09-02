@@ -1,0 +1,72 @@
+{
+  "step": "jupiter-step2-swap-request",
+  "artifact": {
+    "url": "https://api.jup.ag/swap/v1/swap-instructions",
+    "body": {
+      "quoteResponse": {
+        "inputMint": "So11111111111111111111111111111111111111112",
+        "inAmount": "500000000",
+        "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "outAmount": "49015373",
+        "otherAmountThreshold": "48770297",
+        "swapMode": "ExactIn",
+        "slippageBps": 50,
+        "platformFee": null,
+        "priceImpactPct": "0",
+        "routePlan": [
+          {
+            "swapInfo": {
+              "ammKey": "3RMKDUTQd3hxj69t6b9WN6GE9uJ6EpBrhxVN53FdhdLP",
+              "label": "Quantum",
+              "inputMint": "So11111111111111111111111111111111111111112",
+              "outputMint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+              "inAmount": "500000000",
+              "outAmount": "49031260",
+              "updateContextSlot": "443677055"
+            },
+            "percent": 100,
+            "bps": null
+          },
+          {
+            "swapInfo": {
+              "ammKey": "H7o7KCr5n3whqcPsPkeCPWrzivKrarqzidD3kt8fijvB",
+              "label": "Deriverse",
+              "inputMint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+              "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "inAmount": "49031260",
+              "outAmount": "49015373",
+              "updateContextSlot": "443677047"
+            },
+            "percent": 100,
+            "bps": null
+          }
+        ],
+        "contextSlot": 443677055,
+        "timeTaken": 0.00147198,
+        "swapUsdValue": "49.0001329143298",
+        "mostReliableAmmsQuoteReport": {
+          "info": {
+            "BZtgQEyS6eXUXicYPHecYQ7PybqodXQMvkjUbP4R8mUU": "48961100",
+            "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE": "48991250",
+            "FfEJYz4hLLFe4KyNyKYCjvfhMfbtpLH3CXpcPe8nhmfy": "48964923"
+          }
+        },
+        "longtailMarketQuoteReport": null,
+        "useIncurredSlippageForQuoting": null,
+        "useRewards": null,
+        "otherRoutePlans": null,
+        "loadedLongtailToken": false,
+        "instructionVersion": null
+      },
+      "userPublicKey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+      "wrapAndUnwrapSol": true,
+      "dynamicComputeUnitLimit": true,
+      "prioritizationFeeLamports": "auto"
+    }
+  },
+  "sha256": "7c97a15b977821b683996251cfd06ce028ffd72312dcd31770e39217ff4bfcfa",
+  "bodySha256": "f34d3dd6754237fb8deae46ad6aefe0650efc16a8ae4509e8141445d647e97a8",
+  "meta": {
+    "note": "The canonical swap-instructions request (POST api.jup.ag/swap/v1/swap-instructions): the quote response forwarded VERBATIM as quoteResponse (never reshaped — the aggregator requires the exact quote it issued) + the pinned Solana/X1 session pubkey + the fixed option set (wrapAndUnwrapSol, dynamicComputeUnitLimit, prioritizationFeeLamports 'auto'). bodySha256 pins the canonical request body."
+  }
+}

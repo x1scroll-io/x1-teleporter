@@ -1,11 +1,14 @@
-# ROUTING-ENGINE.md — the x1-teleporter routing engine (Phase 3)
+# ROUTING-ENGINE.md — the x1-teleporter routing engine (Phase 4)
 
-Status: **Phase 3 — the THORChain deposit-address lane joins the engine; all
-three routes (forward ETH → X1, reverse X1 → EVM, THORChain source → SOL.SOL)
-run on the engine, proven byte-identical against the measuring instruments.**
-DEX lanes are NOT on the engine — they keep their existing code paths until a
-later phase migrates them. The engine never merges until the instruments pass
-unchanged (PR policy: base `v2`, branch `feat/engine-phaseN`).
+Status: **Phase 4 — the DEX swap legs join the engine (Jupiter on Solana,
+XDEX on X1 — direct on-chain — and the LiFi EVM same-chain swap verdict
+leg), instruments-first; all four route classes (forward ETH → X1, reverse
+X1 → EVM, THORChain source → SOL.SOL, DEX swap) are planned on the engine,
+proven byte-identical against the measuring instruments.** The DEX swap
+legs are construction-migrated (their deterministic artifacts are pinned by
+the Phase-4 oracle); live DEX lanes keep their existing gated paths until a
+later phase wires runners. The engine never merges until the instruments
+pass unchanged (PR policy: base `v2`, branch `feat/engine-phaseN`).
 
 ---
 
@@ -176,3 +179,56 @@ New route classes arrive as new `plan*` functions + leg factories behind the
 same shape; legs that need separable signing implement `requestSignature`;
 the planner learns to branch on quote/route-class. Each migration repeats the
 same proof protocol against the instruments that exist for that lane.
+
+## 9. Phase-4 scope — the DEX swap legs
+
+- Migrates (construction): the engine's DEX swap legs, pinned by the Phase-4
+  oracle `test/goldenDex.test.js` + `test/fixtures/golden/dex-leg/` (inputs:
+  frozen LIVE captures — the Jupiter quote, the XDEX pool snapshot, the
+  LiFi same-chain quote). Engine coverage: `test/engineDex.test.js`.
+- **Jupiter (Solana DEX aggregator)** — `jupiter-swap` (family svm, chain
+  sol), planned by `planJupiterSwap()` (`swap-sol-sol-jupiter`). The
+  canonical construction: the quote request (GET `api.jup.ag/swap/v1/quote`
+  — RAW base-unit amount + slippage bps; the old `quote-api.jup.ag/v6` host
+  is dead) + the swap-instructions request (POST `…/swap-instructions` — the
+  quote forwarded VERBATIM as quoteResponse + the pinned session pubkey +
+  the fixed option set). Build is pure; the network half (fetch → LUT
+  assembly → sign-and-send via the single SignerResolver's svm adapter) is
+  the stage layer's job once a live lane lands.
+- **XDEX (X1's DEX — DIRECT on-chain)** — `xdex-swap` (family svm, chain x1),
+  planned by `planXdexSwap()` (`swap-x1-x1-xdex`). Discovery: XDEX has NO
+  HTTP swap API — the swap is one instruction to the XDEX program
+  `sEsYH97…4fN` (immutable since 2026-01-07), method SwapBaseInput (Anchor
+  log-confirmed), discriminator **13bddf5c73d6bd24** (OBSERVED on 273
+  sampled live pool swaps + identical on Raydium's own live Solana CP-Swap —
+  the earlier nebula note's 8fbe5ada… does not match the live program),
+  13 accounts, data = disc + amount_in u64 LE + min_out u64 LE. The quote is
+  the Raydium CP curve on the live pool snapshot (trade fee 2800/1e6 =
+  0.28% from the live AmmConfig; protocol 25% + fund 5% of the trade fee
+  are internal). ARG-SEMANTICS PREREQUISITE (flagged): run one tiny
+  controlled swap on the operator's go-ahead before real funds — the
+  sampled live txs are relayer/AA-driven and do not 1:1 expose the
+  arg↔vault-delta mapping.
+- **LiFi EVM same-chain swap (Leg C verdict)** — `lifi-evm-swap` (family
+  evm), planned by `planLifiEvmSwap()` (`swap-eth-eth-lifi`). VERDICT
+  (verified live 2026-09-02): LiFi ALREADY quotes EVM same-chain swaps —
+  fromChain == toChain returns a swap route (observed tools: sushiswap AND
+  nordstern; includedSteps `[protocol:feeCollection, swap:<dex>]`); the
+  app's quote params never filtered swap tools and the server fee policy
+  already forces the 1% integrator fee on same-chain routes. EVM swap legs
+  are DONE by LiFi — the leg pins the canonical quote-request construction
+  through the existing `/api/lifi/quote` policy; execution reuses the
+  existing /api/lifi/* path + the lifiApproval audit gate (accepts exchange
+  tools).
+- **Leg-composition design ("swap then bridge")**: `composeRoute(first,
+  second)` splices a swap route's legs IN FRONT of a bridge route's legs and
+  re-groups the stages under a prefixed namespace — the legs stay the SAME
+  LegContract objects; only the ordered leg list + stage grouping compose.
+  The canonical use: the THORChain post-landing auto-advance (SOL lands →
+  swap SOL→USDC on Jupiter → 1% skim + Warp hop into X1) =
+  `composeRoute(planJupiterSwap(), planForward())`. The planner owns the
+  SHAPE; the runners own execution.
+- Does NOT migrate: DEX lane RUNNERS (the legs' network half — live sends
+  stay gated on their existing paths until a later phase wires them).
+- No new chains, no new tokens, no fee changes; `vite.config.js` /
+  `vercel.json` untouched; `npm run build` must succeed.

@@ -49,10 +49,27 @@
  *
  * The planner owns ROUTE SHAPE only — it does NOT execute anything and does
  * NOT touch wallets/connections — the stage runners (runners/*.js) drive the
- * planned legs with a dependency-injected context. DEX routes are NOT
- * planned here and stay on their existing code paths untouched.
+ * planned legs with a dependency-injected context.
+ *
+ * Phase-4 scope (this file): the DEX swap legs join the planner as plan*
+ * functions — planJupiterSwap (Solana DEX aggregator), planXdexSwap (X1's
+ * DEX — DIRECT on-chain), planLifiEvmSwap (EVM same-chain swaps — DONE by
+ * LiFi, verified live). Each plans a single-leg swap route (direction
+ * "swap", family svm/svm/evm), and the planner gains the COMPOSITION
+ * primitive the engine uses to express "swap then bridge": composeRoute
+ * splices a swap route's legs in front of a bridge route's legs (e.g. the
+ * THORChain post-landing auto-advance SOL→USDC then Warp-hop becomes
+ * composeRoute(planJupiterSwap(), planForward()) with the swap stage first)
+ * — the legs stay the SAME LegContract objects; only the ordered leg list +
+ * stage grouping are composed. The dex swap legs are construction-migrated
+ * (their deterministic artifacts are pinned by the Phase-4 oracle,
+ * test/fixtures/golden/dex-leg/); live lanes keep their existing gated
+ * paths until a later phase wires runners.
  */
 import { createLeg } from "./legContract.js";
+import { createJupiterSwapLeg } from "./legs/dex/jupiterSwapLeg.js";
+import { createXdexSwapLeg } from "./legs/dex/xdexSwapLeg.js";
+import { createLifiEvmSwapLeg } from "./legs/dex/lifiEvmSwapLeg.js";
 import { createApprovalLeg } from "./legs/forward/approvalLeg.js";
 import { createLifiEvmLeg } from "./legs/forward/lifiEvmLeg.js";
 import { createAtaCreateLeg } from "./legs/forward/ataCreateLeg.js";
@@ -191,17 +208,171 @@ export function planThorchain({ source = "BTC" } = {}) {
   };
 }
 
+// ── Phase 4 — the DEX swap routes (Jupiter / XDEX / LiFi same-chain) ──────
+
+/** The Jupiter swap route's leg ids (the planner contract). */
+export const JUPITER_LEG_IDS = Object.freeze(["jupiter-swap"]);
+
+/** Stage grouping of the Jupiter swap route (one stage — the swap). */
+export const JUPITER_STAGES = Object.freeze({
+  swap: Object.freeze({ label: "Jupiter swap (Solana DEX aggregator)", legIds: JUPITER_LEG_IDS }),
+});
+
+/** The XDEX swap route's leg ids (the planner contract). */
+export const XDEX_LEG_IDS = Object.freeze(["xdex-swap"]);
+
+/** Stage grouping of the XDEX swap route (one stage — the swap). */
+export const XDEX_STAGES = Object.freeze({
+  swap: Object.freeze({ label: "XDEX swap (X1 direct, on-chain)", legIds: XDEX_LEG_IDS }),
+});
+
+/** The LiFi same-chain EVM swap route's leg ids (the planner contract). */
+export const LIFI_EVM_SWAP_LEG_IDS = Object.freeze(["lifi-evm-swap"]);
+
+/** Stage grouping of the LiFi same-chain swap route (one stage — the swap). */
+export const LIFI_EVM_SWAP_STAGES = Object.freeze({
+  swap: Object.freeze({ label: "LiFi EVM swap (same chain)", legIds: LIFI_EVM_SWAP_LEG_IDS }),
+});
+
+/** The Phase-4 DEX leg factories (the swap routes are single-leg). */
+export function buildJupiterLegs() {
+  return [createJupiterSwapLeg()];
+}
+export function buildXdexLegs() {
+  return [createXdexSwapLeg()];
+}
+export function buildLifiEvmSwapLegs() {
+  return [createLifiEvmSwapLeg()];
+}
+
+/**
+ * Plan the Jupiter swap route (Solana same-chain swap through the Jupiter
+ * DEX aggregator — the engine's Solana swap lane). Single leg: jupiter-swap
+ * (build = the canonical quote request + swap-instructions request).
+ *
+ * @returns {object} the planned route { id, direction, sourceChain,
+ *   destChain, legs, stages }.
+ */
+export function planJupiterSwap() {
+  const legs = buildJupiterLegs();
+  return {
+    id: "swap-sol-sol-jupiter",
+    direction: "swap",
+    sourceChain: "sol",
+    destChain: "sol",
+    legs,
+    stages: JUPITER_STAGES,
+  };
+}
+
+/**
+ * Plan the XDEX swap route (X1 same-chain swap — DIRECT on-chain into the
+ * XDEX CP-Swap program; "land as any token" on X1). Single leg: xdex-swap.
+ *
+ * @returns {object} the planned route { id, direction, sourceChain,
+ *   destChain, legs, stages }.
+ */
+export function planXdexSwap() {
+  const legs = buildXdexLegs();
+  return {
+    id: "swap-x1-x1-xdex",
+    direction: "swap",
+    sourceChain: "x1",
+    destChain: "x1",
+    legs,
+    stages: XDEX_STAGES,
+  };
+}
+
+/**
+ * Plan the LiFi EVM same-chain swap route (the Leg-C verdict leg: EVM swaps
+ * are DONE by LiFi — verified live, swap routes return when both ends share
+ * the chain). Single leg: lifi-evm-swap.
+ *
+ * @param {{chain?: string}} opts the CHAINS key ("eth" default).
+ * @returns {object} the planned route { id, direction, sourceChain,
+ *   destChain, legs, stages }.
+ */
+export function planLifiEvmSwap({ chain = "eth" } = {}) {
+  const legs = buildLifiEvmSwapLegs();
+  return {
+    id: `swap-${String(chain).toLowerCase()}-${String(chain).toLowerCase()}-lifi`,
+    direction: "swap",
+    sourceChain: String(chain).toLowerCase(),
+    destChain: String(chain).toLowerCase(),
+    legs,
+    stages: LIFI_EVM_SWAP_STAGES,
+  };
+}
+
+/**
+ * The COMPOSITION primitive — how the engine expresses "swap then bridge":
+ * composeRoute splices a swap route's legs IN FRONT of a bridge route's
+ * legs and re-groups the stages (the swap stage first, then the bridge
+ * route's own stages, re-keyed under a prefixed namespace so both stage
+ * sets survive). The legs are the SAME LegContract objects (no copies, no
+ * new construction); only the ordered leg list + stage grouping change.
+ *
+ * Canonical use (the THORChain post-landing auto-advance, documented in
+ * docs/ROUTING-ENGINE.md §Phase 4): SOL lands → swap SOL→USDC on Jupiter →
+ * 1% skim + Warp hop into X1. That route is
+ *   composeRoute(planJupiterSwap(), planForward(), { id: "forward-sol-x1-via-jupiter" })
+ * with the run ctx supplying the swap amount (the landed SOL) to the swap
+ * leg and the Warp legs reading the post-swap USDC balance — the planner
+ * owns the SHAPE (which legs, in which order); the runners own execution.
+ *
+ * @param {object} firstRoute the route whose legs run FIRST (the swap)
+ * @param {object} secondRoute the route whose legs follow (the bridge)
+ * @param {{id?: string, direction?: string, sourceChain?: string,
+ *          destChain?: string, stagePrefix?: string}} [opts]
+ * @returns {object} the composed route
+ */
+export function composeRoute(firstRoute, secondRoute, opts = {}) {
+  if (!firstRoute?.legs?.length || !secondRoute?.legs?.length) {
+    throw new Error("composeRoute: both routes must have legs");
+  }
+  const prefix = opts.stagePrefix || "composed";
+  const stages = {};
+  const addStages = (routeStages, keyPrefix) => {
+    for (const [key, stage] of Object.entries(routeStages || {})) {
+      const legIds = Object.freeze([...(stage.legIds || [])]);
+      stages[`${keyPrefix}${key}`] = Object.freeze({
+        label: stage.label || key,
+        legIds,
+      });
+    }
+  };
+  addStages(firstRoute.stages, `${prefix}-a-`);
+  addStages(secondRoute.stages, `${prefix}-b-`);
+  return {
+    id: opts.id || `${firstRoute.id}+${secondRoute.id}`,
+    direction: opts.direction || firstRoute.direction,
+    sourceChain: opts.sourceChain || firstRoute.sourceChain,
+    destChain: opts.destChain || secondRoute.destChain,
+    composedOf: Object.freeze([firstRoute.id, secondRoute.id]),
+    legs: Object.freeze([...firstRoute.legs, ...secondRoute.legs]),
+    stages: Object.freeze(stages),
+  };
+}
+
 /**
  * The RoutePlanner entry: plans a route for a direction.
  * Plans "forward" (ETH → X1, four legs), "reverse" (X1 → EVM, three legs —
- * Phase 2) and "thorchain" (source → SOL.SOL deposit route, two legs —
- * Phase 3); DEX stays unplanned (null) — those lanes keep their existing
- * paths until a later phase adds their plan*.
+ * Phase 2), "thorchain" (source → SOL.SOL deposit route, two legs — Phase 3)
+ * and the Phase-4 DEX swap routes: plan({direction: "swap", via:
+ * "jupiter"|"xdex"|"lifi"}) (single-leg swap routes). Unknown directions /
+ * vias return null — those lanes keep their existing paths.
  */
 export function plan({ direction = "forward", ...opts } = {}) {
   if (direction === "forward") return planForward(opts);
   if (direction === "reverse") return planReverse(opts);
   if (direction === "thorchain") return planThorchain(opts);
+  if (direction === "swap") {
+    if (opts.via === "jupiter") return planJupiterSwap();
+    if (opts.via === "xdex") return planXdexSwap();
+    if (opts.via === "lifi") return planLifiEvmSwap(opts);
+    return null;
+  }
   return null;
 }
 
@@ -219,14 +390,19 @@ export function legsForStage(route, stageKey) {
 
 /**
  * The RoutePlanner surface: plan a route, read its legs/stages. Plans the
- * forward route (Phase 1), the reverse route (Phase 2) and the THORChain
- * deposit route (Phase 3); DEX stays unplanned (plan returns null) — those
- * lanes keep their existing paths.
+ * forward route (Phase 1), the reverse route (Phase 2), the THORChain
+ * deposit route (Phase 3) and the Phase-4 DEX swap routes
+ * (planJupiterSwap / planXdexSwap / planLifiEvmSwap — direction "swap");
+ * composeRoute is the swap-then-bridge composition primitive.
  */
 export const RoutePlanner = Object.freeze({
   planForward,
   planReverse,
   planThorchain,
+  planJupiterSwap,
+  planXdexSwap,
+  planLifiEvmSwap,
+  composeRoute,
   plan,
   legById,
   legsForStage,
@@ -236,4 +412,10 @@ export const RoutePlanner = Object.freeze({
   REVERSE_STAGES,
   THORCHAIN_LEG_IDS,
   THORCHAIN_STAGES,
+  JUPITER_LEG_IDS,
+  JUPITER_STAGES,
+  XDEX_LEG_IDS,
+  XDEX_STAGES,
+  LIFI_EVM_SWAP_LEG_IDS,
+  LIFI_EVM_SWAP_STAGES,
 });
