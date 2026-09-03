@@ -99,3 +99,36 @@ test("deriveQuoteFromLifi: malformed response throws (no silent NaN quote)", () 
   assert.throws(() => deriveQuoteFromLifi({ data: {}, from: "eth", token: "USDC", amount: 100 }), /Malformed/);
   assert.throws(() => deriveQuoteFromLifi({ data: { estimate: {} }, from: "eth", token: "USDC", amount: 100 }), /Malformed/);
 });
+
+// ── FORWARD LEG PER-ASSET WARP FEE — pct default for every non-USDC.x dest ──
+// deriveQuoteFromLifi keys the warp-flat/warp-pct selection off destToken:
+// flat $1 ONLY for USDC.x; every other destination (wSOL.X today; ETH.X /
+// cbBTC.X / any future X1 token) is 25 bps pct — warpFeeBps is passed for
+// anything that is not USDC.x, so an unknown destination can never default
+// to the flat $1 (Mr. Esters' verified structure, 2026-09-02).
+
+test("deriveQuoteFromLifi (wSOL.X): warp-pct 0.25% line replaces the flat $1 (unchanged)", () => {
+  const q = deriveQuoteFromLifi({ data: { estimate: { toAmount: "99000000000" } }, from: "eth", token: "USDC", amount: 100, destToken: "wSOL.X" });
+  assert.equal(q.out, 99, "WSOL landing decoded at 9 decimals");
+  const pct = q.feeLines.find((l) => l.id === "warp-pct");
+  assert.ok(pct, "warp-pct line present for wSOL.X");
+  assert.equal(pct.label, "Warp bridge fee (0.25%)");
+  assert.equal(q.feeLines.find((l) => l.id === "warp-flat"), undefined, "no flat $1 line");
+  assert.equal(q.recvToken, "wSOL.X");
+});
+
+test("deriveQuoteFromLifi (unknown/non-USDC dest, e.g. ETH.X): warp-pct 0.25% — the pct default, never flat $1", () => {
+  const q = deriveQuoteFromLifi({ data: { estimate: { toAmount: "99000000" } }, from: "eth", token: "USDC", amount: 100, destToken: "ETH.X" });
+  const pct = q.feeLines.find((l) => l.id === "warp-pct");
+  assert.ok(pct, "a non-USDC.x destination shows warp-pct");
+  assert.equal(pct.label, "Warp bridge fee (0.25%)");
+  assert.ok(Math.abs(pct.amountUsd - 99 * 0.0025) < 1e-9, "0.25% of the delivered amount — not the $1 flat");
+  assert.equal(q.feeLines.find((l) => l.id === "warp-flat"), undefined, "flat $1 is USDC.x-ONLY");
+  assert.equal(q.recvToken, "ETH.X", "destToken flows through to recvToken");
+});
+
+test("deriveQuoteFromLifi (USDC.x): flat $1 unchanged — the ONLY flat destination", () => {
+  const q = deriveQuoteFromLifi({ data: { estimate: { toAmount: "99000000" } }, from: "eth", token: "USDC", amount: 100 });
+  assert.ok(q.feeLines.find((l) => l.id === "warp-flat"), "USDC.x keeps warp-flat");
+  assert.equal(q.feeLines.find((l) => l.id === "warp-pct"), undefined);
+});

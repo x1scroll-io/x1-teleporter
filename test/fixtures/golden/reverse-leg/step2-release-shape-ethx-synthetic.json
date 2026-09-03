@@ -1,0 +1,229 @@
+{
+  "step": "release-shape",
+  "sampleInput": {
+    "from": "x1",
+    "to": "eth",
+    "token": "ETH.X",
+    "toToken": "USDC",
+    "amountUser": 0.4,
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "feeWallet": "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu",
+    "evmDestination": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "seqSlot": 305000000
+  },
+  "artifact": {
+    "chainPair": "source=1 dest=0",
+    "seq": "1152921809606846976",
+    "token": "ETH.X",
+    "sourceTokenMint": "4wxJFFnRSCgFgS8GvWH9iHgSjFsKbQpXkBG5Y826cbvw",
+    "localMint": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+    "nativeVariant": true,
+    "burnAmountBase": "39800000",
+    "warpFeeBase": "99500",
+    "releaseBase": "39700500",
+    "releaseHuman": 0.397005,
+    "accountCount": 11,
+    "accountList": [
+      {
+        "name": "config",
+        "pubkey": "48Po6qAHRJojbXH7KRqt6s5GfNfs9VEGccfqYEHmubEi",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "guardian_set",
+        "pubkey": "837ujVePfx3EB5CibC4FAAZJf5CTpiVXCE41BNBJoB3x",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "name": "token_registry",
+        "pubkey": "G8GYVNr2sc6u5YsjqBNkWu72LdyzuL1BFG7agTPfzz8Y",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "recipient",
+        "pubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "recipient_token_account",
+        "pubkey": "G7iUWZTiBZDqGuzbSBQNeZWCyZSQt31XAi5qT4WH7LJ4",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "token_mint",
+        "pubkey": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "mint_authority",
+        "pubkey": "6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "vault",
+        "pubkey": "BeqY9G6UdXVwviXiKeFRoZPzQYrY6znV2p8rfzRY91pU",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "vault_token_account",
+        "pubkey": "DMghukrAfsbE7AF7izRaxmiBNGGjNDdu1UgUeW7vShTi",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "name": "token_program",
+        "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "name": "system_program",
+        "pubkey": "11111111111111111111111111111111",
+        "isSigner": false,
+        "isWritable": false
+      }
+    ],
+    "submitterConstructed": [
+      {
+        "name": "signature_set",
+        "note": "guardian-signed PDA (source_timestamp + guardian set index live in the signed message) — created by the guardians"
+      },
+      {
+        "name": "incoming_msg",
+        "note": "message-derived PDA — NOT PDA['evt_in', seq] on the reverse leg (verified against the live release tx: slot 4 = 7qXzgMU8…, not the evt_in derivation)"
+      },
+      {
+        "name": "payer",
+        "note": "the OFFICIAL submitter service wallet (live release tx payer 84WXAPhJWLDjP16vqPL576UPubU2xb9EjNdP1YA1PvDE) — pays the release tx fee + signs"
+      },
+      {
+        "name": "recipient_token_account_create",
+        "note": "the submitter BUNDLES the idempotent ATA create in front when the recipient's WSOL ATA is missing (live release tx ix0 = createIdempotent for RC4yGH6Y…)"
+      }
+    ]
+  },
+  "sha256": "c661bb6321cf1d88d62546a090329bfe7f35d3ba3fc4d7cae574893ee807382d",
+  "spec": {
+    "rows": [
+      {
+        "name": "config",
+        "writable": true,
+        "signer": false,
+        "pdaSeeds": [
+          "config"
+        ]
+      },
+      {
+        "name": "guardian_set",
+        "writable": false,
+        "signer": false,
+        "pdaSeeds": [
+          "guardian_set"
+        ]
+      },
+      {
+        "name": "token_registry",
+        "writable": true,
+        "signer": false,
+        "pdaSeeds": [
+          "token_registry",
+          "<local_mint>"
+        ]
+      },
+      {
+        "name": "signature_set",
+        "writable": true,
+        "signer": false,
+        "pdaSeeds": [
+          "sig_set",
+          "<guardian_set_index>",
+          "<source_seq>",
+          "<sender>",
+          "<source_token_mint>",
+          "<local_mint>",
+          "<amount>",
+          "<source_timestamp>"
+        ]
+      },
+      {
+        "name": "incoming_msg",
+        "writable": true,
+        "signer": false,
+        "pdaSeeds": [
+          "evt_in",
+          "<source_seq>"
+        ]
+      },
+      {
+        "name": "payer",
+        "writable": true,
+        "signer": true
+      },
+      {
+        "name": "recipient",
+        "writable": true,
+        "signer": false
+      },
+      {
+        "name": "recipient_token_account",
+        "writable": true,
+        "signer": false
+      },
+      {
+        "name": "token_mint",
+        "writable": true,
+        "signer": false
+      },
+      {
+        "name": "mint_authority",
+        "writable": true,
+        "signer": false,
+        "optional": true,
+        "pdaSeeds": [
+          "mint_authority",
+          "<local_mint>"
+        ]
+      },
+      {
+        "name": "vault",
+        "writable": true,
+        "signer": false,
+        "optional": true,
+        "pdaSeeds": [
+          "vault",
+          "<local_mint>"
+        ]
+      },
+      {
+        "name": "vault_token_account",
+        "writable": true,
+        "signer": false,
+        "optional": true
+      },
+      {
+        "name": "token_program",
+        "writable": false,
+        "signer": false
+      },
+      {
+        "name": "system_program",
+        "writable": false,
+        "signer": false
+      }
+    ],
+    "rowCount": 14
+  },
+  "specSha256": "c261ba3ca9d8e10c9298026b36b38a35953b6967d53ee1cfdf4c99b8143cf1f6",
+  "meta": {
+    "note": "The app's side of the Solana release contract: the 14-row WARP_BRIDGE_IN_V2_ACCOUNTS_SPEC (specSha256) + the NATIVE-variant derivable account list (11 rows in spec order — vault + vault_token_account present, mint_authority = program-self placeholder) + the expected release math. The release tx itself is SUBMITTER-constructed (official submitter + guardians); the poll leg only DETECTS its destination tx. Live ground truth: Solana release v6etkXX21dQdfeZf6TabWMv16PEQoKBLhHPEQGnriSkcRRkUgfYkb5jAd2q8KCwuHxSwyYqGExb4PY4rHCGszbk (14-account bridge_in_v2, vault 9ZFmvmJk… debited exactly 395,010,000 base, submitter 84WXAPhJWLDjP16vqPL576UPubU2xb9EjNdP1YA1PvDE, slot 443613057)."
+  }
+}

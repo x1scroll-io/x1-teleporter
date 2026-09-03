@@ -15,6 +15,10 @@
  *     2026-09-02 — the rumored USDC flat→0.25% change did NOT happen):
  *       - USDC.x: flat $1 (1.0 USDC.x) carved out of the bridge gross
  *       - wSOL.X: 25 bps (0.25%) of the bridge gross, flat 0
+ *       - ETH.X / cbBTC.X: 25 bps (live config, 8 dec — same pct rail)
+ *       - ANY OTHER / future token: 25 bps pct — the lookup DEFAULT is pct,
+ *         never the flat $1 (Mr. Esters, verified live 2026-09-02: flat $1
+ *         applies ONLY to USDC.x/USDC)
  *   Stage 2 — Solana → EVM: a LiFi leg on the net that actually LANDED on
  *     Solana (X − 0.5% − Warp fee — deterministic, the burn amount is
  *     explicit in the tx). The LiFi query is SOL → the destination EVM chain
@@ -27,6 +31,8 @@
  *     the leg). The Solana-side FROM token is token-aware too:
  *       - USDC.x burn → USDC (6 dec) on Solana → LiFi fromToken = USDC
  *       - wSOL.X burn → WSOL (9 dec) on Solana → LiFi fromToken = WSOL
+ *       - ETH.X burn → ETH (8 dec) on Solana → LiFi fromToken = ETH
+ *       - cbBTC.X burn → cbBTC (8 dec) on Solana → LiFi fromToken = cbBTC
  *     LiFi quotes WSOL (So111…) → EVM stables DIRECTLY (verified live,
  *     Sep 2026 — relaydepository wSOL→USDC routes) — NO Jupiter swap needed.
  *     NO PLACEHOLDERS: fromAddress/toAddress are the real connected wallet
@@ -47,16 +53,45 @@ const WSOL_DECIMALS = 9;
 
 /** Warp's per-token fee on the X1 side (bridge_out burn) — the mirror of
  *  warpBridge.js X1_WARP_FEES (single source of truth for the quote math;
- *  the on-chain constants live there, the USD display math here). */
+ *  the on-chain constants live there, the USD display math here). FLAT $1
+ *  applies ONLY to USDC.x (VERIFIED on-chain 2026-09-02 + Mr. Esters' live
+ *  Warp-UI check: USDC→USDC.x = flat $1; ETH/BTC/SOL/OTHER = 0.25%).
+ *  wSOL.X: 25 bps (verified on-chain). ETH.X + cbBTC.X: 25 bps, 8 decimals
+ *  (live config api.bridge.mainnet.x1.xyz/config, fetched 2026-09-03). */
 const X1_WARP_FEES = {
   "USDC.x": { kind: "flat", amountUsd: 1, decimals: 6 },
   "wSOL.X": { kind: "pct", bps: 25, decimals: 9 },
+  "ETH.X": { kind: "pct", bps: 25, decimals: 8 },
+  "cbBTC.X": { kind: "pct", bps: 25, decimals: 8 },
 };
 
+/** The DEFAULT Warp fee shape for an UNKNOWN X1 token: 25 bps pct — flat $1
+ *  applies ONLY to USDC.x (Mr. Esters' verified per-asset structure). This is
+ *  the lookup's fallback so ETH.X/cbBTC.X/any FUTURE Warp token is quoted at
+ *  0.25%, never the flat $1. Exported so tests can assert the default itself
+ *  is pct (no code path may default an unknown token to flat). */
+export const X1_WARP_FEE_PCT_DEFAULT = { kind: "pct", bps: 25, decimals: 9 };
+
+/** Resolve the Warp fee shape for an X1 source token — the ONE lookup the
+ *  quote math uses. Unknown tokens fall back to X1_WARP_FEE_PCT_DEFAULT
+ *  (0.25% pct). */
+export function x1WarpFeeShape(token) {
+  return X1_WARP_FEES[token] || X1_WARP_FEE_PCT_DEFAULT;
+}
+
 /** Resolve the Solana-side FROM token for the stage-2 LiFi leg from the X1
- *  source token: USDC.x releases USDC (6 dec); wSOL.X releases WSOL (9 dec). */
+ *  source token (the twin the Warp burn releases on Solana): USDC.x releases
+ *  USDC (6 dec); wSOL.X releases WSOL (9 dec); ETH.X releases ETH (8 dec);
+ *  cbBTC.X releases cbBTC (8 dec) — twins per the live Warp config. Unknown
+ *  tokens fall back to USDC (back-compat: the only legacy callers predate the
+ *  ETH/cbBTC rails; no unknown-token reverse leg is executable today). */
 export function reverseSolanaToken(token) {
-  return token === "wSOL.X" ? "WSOL" : "USDC";
+  const twin = {
+    "wSOL.X": "WSOL",
+    "ETH.X": "ETH",
+    "cbBTC.X": "cbBTC",
+  }[token];
+  return twin || "USDC";
 }
 
 /**
@@ -74,22 +109,29 @@ export function reverseSolanaToken(token) {
  *   burnAmount  = source − skim (what bridge_out burns on X1; alias
  *                 warpGross — the amount the Warp program debits)
  *   warpFee     = the Warp program's OWN fee, carved out of the burn gross
- *                 INSIDE bridge_out on X1 mainnet (third-party pass-through):
- *                 USDC.x → flat 1.0; wSOL.X → 25 bps of the gross (both
- *                 VERIFIED on-chain 2026-09-02)
+ *                 INSIDE bridge_out on X1 mainnet (third-party pass-through,
+ *                 PER-ASSET — Mr. Esters' verified structure 2026-09-02):
+ *                 USDC.x → flat $1 (VERIFIED on-chain); wSOL.X/ETH.X/
+ *                 cbBTC.X/UNKNOWN → 25 bps of the gross (wSOL.X verified
+ *                 on-chain; ETH.X/cbBTC.X per the live config — flat $1 is
+ *                 USDC.x-ONLY)
  *   netOnSolana = burnAmount − warpFee (what the guardians release on Solana:
- *                 USDC 6-dec for a USDC.x burn, WSOL 9-dec for a wSOL.X burn)
+ *                 USDC 6-dec for a USDC.x burn, WSOL 9-dec for a wSOL.X burn,
+ *                 ETH 8-dec for an ETH.X burn, cbBTC 8-dec for a cbBTC.X burn)
  * The LiFi leg (stage 2) bridges netOnSolana — the exact token that lands.
  *
  * @param {{amount: number, token?: string}} args source amount in human units
- *   (USDC.x or wSOL.X — token drives the Warp fee shape)
+ *   (USDC.x / wSOL.X / ETH.X / cbBTC.X — token drives the Warp fee shape)
  * @returns {{skim: number, burnAmount: number, warpFee: number,
  *            netOnSolana: number, feeQuote: FeeQuote}}
  */
 export function computeReverseLegs({ amount, token = "USDC.x" }) {
   const skim = amount * FEE_RATES.X1_HOP_SKIM;
   const burnAmount = amount - skim; // the bridge_out gross
-  const fee = X1_WARP_FEES[token] || X1_WARP_FEES["USDC.x"];
+  // PER-ASSET Warp fee (Mr. Esters' verified structure, 2026-09-02): flat $1
+  // ONLY for USDC.x; every other asset (wSOL.X/ETH.X/cbBTC.X + UNKNOWN) is
+  // 0.25% pct of the bridge gross — the lookup's default is pct, never flat.
+  const fee = x1WarpFeeShape(token);
   const warpFee = fee.kind === "flat"
     ? fee.amountUsd
     : burnAmount * (fee.bps / 10_000);
@@ -102,9 +144,14 @@ export function computeReverseLegs({ amount, token = "USDC.x" }) {
 }
 
 /** Coingecko simple-price ids for the reverse SOURCE tokens (the Solana-side
- *  landing token of the X1 burn — USDC or WSOL). Fallback ONLY: the LiFi
- *  quote's fromToken.priceUSD is the primary price source. */
-const COINGECKO_IDS = { USDC: "usd-coin", WSOL: "wrapped-solana" };
+ *  landing token of the X1 burn — USDC, WSOL, ETH or cbBTC). Fallback ONLY:
+ *  the LiFi quote's fromToken.priceUSD is the primary price source. */
+const COINGECKO_IDS = {
+  USDC: "usd-coin",
+  WSOL: "wrapped-solana",
+  ETH: "ethereum",
+  cbBTC: "coinbase-wrapped-btc",
+};
 
 /**
  * Resolve the LIVE USD price for the reverse SOURCE token — never hardcoded

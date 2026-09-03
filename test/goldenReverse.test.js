@@ -53,6 +53,7 @@ import {
   reverseReleaseMath,
   quoteReferenceOf,
   SAMPLE_INPUT,
+  ETHX_SAMPLE_INPUT,
   REVERSE_EVM_ADDRESS,
   REVERSE_EVM_ADDRESS_LC,
   mockX1ReverseConnection,
@@ -69,7 +70,7 @@ import {
   SKIM_BPS,
   X1_REVERSE_TOKENS,
 } from "../src/warpBridge.js";
-import { computeReverseLegs, buildReverseLifiQuoteParams } from "../src/lib/reverseQuote.js";
+import { computeReverseLegs, buildReverseLifiQuoteParams, deriveReverseQuote } from "../src/lib/reverseQuote.js";
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { SystemProgram } from "@solana/web3.js";
 import { createHash } from "node:crypto";
@@ -357,4 +358,176 @@ test("golden reverse: full capture is reproducible + deterministic (rebuild twic
   );
   const feeAtaInfo = await conn.getAccountInfo(feeAta);
   assert.ok(feeAtaInfo, "mock reports the fee wallet's wSOL.X ATA (the live shape)");
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  SYNTHETIC-LABELED ETH.X ROUTE — the per-asset PCT-DEFAULT oracle (the fee
+//  lookup fix on v2 @ 1b541e5): a non-USDC percentage route must price the
+//  Warp fee at 25 bps pct — NEVER the USDC.x flat $1. No live ETH.X bridge_out
+//  burn exists to anchor (verified 2026-09-03 via getSignaturesForAddress on
+//  the X1 mainnet RPC for the ETH.X mint 4wxJFFn… — only 4 txs, all ATA
+//  creates, ZERO BridgeOut; live Warp config ETH.X dailyVolume 0), so the
+//  input is SYNTHETIC-LABELED (mirrors the wSOL.X oracle's shape). The fee
+//  SHAPE is anchored to the live Warp config (25 bps, 8 dec) and the stage-2
+//  LiFi leg is a REAL live quote capture (relaydepository ETH-on-Solana →
+//  USDC-on-eth) — see the summary's syntheticLabel block + README.
+// ════════════════════════════════════════════════════════════════════════════
+
+const ETHX_QUOTE = read("quote-ethx-usdc-eth-synthetic-0.4.json");
+const FIX_ETHX_STEP1 = read("step1-x1-burn-ethx-synthetic.json");
+const FIX_ETHX_STEP2 = read("step2-release-shape-ethx-synthetic.json");
+const FIX_ETHX_STEP3 = read("step3-lifi-out-ethx-synthetic.json");
+const ETHX_SUMMARY = read("reverse-leg-summary-ethx-synthetic.json");
+
+test("golden reverse ETH.X (synthetic): the fixture input is the synthetic-labeled sample (mirrors the wSOL.X oracle shape)", () => {
+  assert.equal(ETHX_SUMMARY.sampleInput.amountUser, 0.4);
+  assert.equal(ETHX_SUMMARY.sampleInput.token, "ETH.X");
+  assert.equal(ETHX_SUMMARY.sampleInput.to, "eth");
+  assert.equal(ETHX_SUMMARY.sampleInput.toToken, "USDC");
+  assert.equal(ETHX_SUMMARY.sampleInput.solanaAddress, SAMPLE_INPUT.solanaAddress);
+  assert.equal(ETHX_SUMMARY.sampleInput.evmDestination, REVERSE_EVM_ADDRESS);
+  assert.match(ETHX_SUMMARY.syntheticLabel.note, /SYNTHETIC-LABELED/);
+  assert.match(ETHX_SUMMARY.syntheticLabel.note, /no live ETH\.X bridge_out burn exists/);
+  // The frozen quote: a REAL live capture of the stage-2 leg (ETH on Solana → USDC on Ethereum).
+  assert.equal(ETHX_QUOTE.tool, "relaydepository");
+  assert.equal(ETHX_QUOTE.action.fromToken.address, "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs"); // Solana ETH twin
+  assert.equal(ETHX_QUOTE.action.fromToken.decimals, 8);
+  assert.equal(ETHX_QUOTE.action.fromToken.symbol, "ETH");
+  assert.equal(ETHX_QUOTE.action.toToken.address, "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"); // USDC on eth
+  assert.equal(ETHX_QUOTE.action.toToken.chainId, 1);
+  assert.equal(ETHX_QUOTE.action.fromAmount, "39700500"); // the deterministic release net @ 8 dec
+  assert.equal(ETHX_QUOTE.action.toAddress.toLowerCase(), REVERSE_EVM_ADDRESS_LC);
+});
+
+test("golden reverse ETH.X (synthetic) step1: the X1 burn tx rebuild is byte-identical — ETH.X mint + fee ATA, bundled fee-ATA create", async () => {
+  const seq = encodeReverseSeq(ETHX_SAMPLE_INPUT.seqSlot, 0);
+  const rebuilt = await buildStep1ReverseBurn({
+    solanaAddress: ETHX_SAMPLE_INPUT.solanaAddress,
+    feeWallet: ETHX_SAMPLE_INPUT.feeWallet,
+    amountGross: ETHX_SAMPLE_INPUT.amountUser,
+    token: "ETH.X",
+    seq,
+    blockhash: ETHX_SAMPLE_INPUT.blockhash,
+    connection: mockX1ReverseConnection({
+      solanaAddress: ETHX_SAMPLE_INPUT.solanaAddress,
+      mint: X1_REVERSE_TOKENS["ETH.X"].mint,
+      decimals: 8,
+      feeAtaExists: false, // synthetic shape: the fee wallet's ETH.X ATA does not exist on X1
+    }),
+  });
+  assert.equal(canonicalJson(rebuilt.artifact), canonicalJson(FIX_ETHX_STEP1.artifact));
+  assert.equal(rebuilt.sha256, FIX_ETHX_STEP1.sha256);
+  assert.equal(rebuilt.bytesSha256, FIX_ETHX_STEP1.bytesSha256);
+
+  const a = rebuilt.artifact;
+  assert.equal(a.token, "ETH.X");
+  assert.equal(a.decimals, 8);
+  assert.equal(a.grossBase, "40000000"); // 0.4 ETH.X @ 8 dec
+  assert.equal(a.skimBase, "200000"); // 0.5% skim
+  assert.equal(a.bridgeBase, "39800000"); // bridge_out gross
+  assert.equal(a.feeAtaCreated, true, "no live ETH.X fee ATA → the idempotent create is bundled");
+  assert.equal(a.instructionCount, 3); // create → skim transfer → bridge_out
+  assert.equal(a.accountList[5].pubkey, "4wxJFFnRSCgFgS8GvWH9iHgSjFsKbQpXkBG5Y826cbvw"); // ETH.X mint
+  assert.equal(a.accountList[9].pubkey, "4JXWhxSyMB5fy7GDkqXqNCgA6tRWfK5qSY6gXChkHTvJ"); // ETH.X fee collector ATA (live config)
+});
+
+test("golden reverse ETH.X (synthetic) step2: release shape rebuild is byte-identical + the PER-ASSET PCT fee pin (25bps, never flat $1)", () => {
+  const seq = encodeReverseSeq(ETHX_SAMPLE_INPUT.seqSlot, 0);
+  const rebuilt = buildReverseReleaseShape({
+    solanaAddress: ETHX_SAMPLE_INPUT.solanaAddress,
+    seq,
+    bridgeBase: 39800000n,
+    token: "ETH.X",
+    sourceTokenMint: X1_REVERSE_TOKENS["ETH.X"].mint,
+    localMint: new PublicKey("7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs"),
+    decimals: 8,
+  });
+  assert.equal(canonicalJson(rebuilt.artifact), canonicalJson(FIX_ETHX_STEP2.artifact));
+  assert.equal(rebuilt.sha256, FIX_ETHX_STEP2.sha256);
+
+  const a = rebuilt.artifact;
+  assert.equal(a.token, "ETH.X");
+  assert.equal(a.burnAmountBase, "39800000");
+  assert.equal(a.warpFeeBase, "99500", "25 bps of the bridge gross — the pct fee, NOT the flat $1 (1_000_000 base)");
+  assert.equal(a.releaseBase, "39700500");
+  assert.equal(a.releaseHuman, 0.397005);
+
+  // THE PIN: the per-asset fee lookup resolves ETH.X to pct 25bps — flat $1 is USDC.x-ONLY.
+  const rel = reverseReleaseMath({ bridgeBase: 39800000n, token: "ETH.X" });
+  assert.equal(rel.kind, "pct");
+  assert.equal(rel.bps, 25);
+  assert.equal(rel.warpFeeBase, 99500n);
+  // Cross-check vs the app's deterministic stage-1 math (the same numbers the quote box uses).
+  const legs = computeReverseLegs({ amount: 0.4, token: "ETH.X" });
+  assert.ok(Math.abs(legs.skim - 0.002) < 1e-12);
+  assert.ok(Math.abs(legs.burnAmount - 0.398) < 1e-12);
+  assert.ok(Math.abs(legs.warpFee - 0.000995) < 1e-12, "0.25% of the gross — the pct default for a non-USDC asset");
+  assert.ok(Math.abs(legs.netOnSolana - 0.397005) < 1e-9);
+});
+
+test("golden reverse ETH.X (synthetic) step3: the LiFi-out query rebuild is byte-identical — fromToken = Solana ETH (8 dec), toAddress PINNED", () => {
+  const rebuilt = buildStep3LifiOut({
+    token: "ETH.X",
+    amountUser: ETHX_SAMPLE_INPUT.amountUser,
+    toAddress: REVERSE_EVM_ADDRESS,
+  });
+  assert.equal(canonicalJson(rebuilt.artifact), canonicalJson(FIX_ETHX_STEP3.artifact));
+  assert.equal(rebuilt.sha256, FIX_ETHX_STEP3.sha256);
+
+  const a = rebuilt.artifact;
+  assert.equal(a.token, "ETH.X");
+  assert.equal(a.fromSymbol, "ETH"); // an ETH.X burn releases ETH on Solana (per-asset twin)
+  assert.equal(a.fromToken, "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs");
+  assert.equal(a.fromDecimals, 8);
+  assert.equal(a.fromAmountRaw, "39700500"); // the deterministic release net @ 8 dec
+  assert.equal(a.toAddress, REVERSE_EVM_ADDRESS);
+  assert.equal(a.hasFeeParam, false);
+  assert.equal(a.x1Class, "1");
+});
+
+test("golden reverse ETH.X (synthetic): the quote-box Warp line is warp-pct 0.25% — the summary pins the per-asset display", () => {
+  // The fee lines in the summary come from the REAL fee code (deriveReverseQuote).
+  const warpLine = ETHX_SUMMARY.quoteBox.feeLines.find((l) => l.id === "warp-pct");
+  assert.ok(warpLine, "the ETH.X quote box shows warp-pct");
+  assert.equal(warpLine.label, "Warp bridge fee (0.25%)");
+  assert.equal(ETHX_SUMMARY.quoteBox.feeLines.find((l) => l.id === "warp-flat"), undefined, "NO flat $1 line on a non-USDC route");
+  assert.equal(ETHX_SUMMARY.feePins.token, "ETH.X");
+  assert.equal(ETHX_SUMMARY.feePins.warpFeeKind, "pct");
+  assert.equal(ETHX_SUMMARY.feePins.warpFeeBps, 25);
+
+  // Rebuild the quote-box strings from the live code — they must match the summary exactly.
+  const dq = deriveReverseQuote({
+    data: ETHX_QUOTE,
+    to: "eth",
+    amount: 0.4,
+    token: "ETH.X",
+    toToken: "USDC",
+  });
+  const ids = dq.feeLines.map((l) => l.id).sort();
+  assert.deepEqual(ids, ["warp-pct", "warp-skim"]);
+  assert.equal(dq.feeLines.find((l) => l.id === "warp-pct").label, "Warp bridge fee (0.25%)");
+  assert.equal(dq.thirdPartyFeeUsd, 0.001, "0.25% of the 0.4 source — the raw third-party pass-through");
+  assert.ok(Math.abs(dq.net - 951.729865) < 1e-6, "you-receive = the real LiFi toAmount (951.73 USDC on Ethereum)");
+  assert.equal(dq.recvToken, "USDC");
+  assert.equal(dq.recvChain, "Ethereum");
+});
+
+test("golden reverse ETH.X (synthetic): full capture is reproducible + deterministic (rebuild twice, same bytes)", async () => {
+  const c1 = await captureReverseLeg({ quote: ETHX_QUOTE, sampleInput: ETHX_SAMPLE_INPUT });
+  const c2 = await captureReverseLeg({ quote: ETHX_QUOTE, sampleInput: ETHX_SAMPLE_INPUT });
+  for (const k of ["step1", "step2", "step3"]) {
+    assert.equal(c1.steps[k].sha256, c2.steps[k].sha256, `${k} sha256 stable`);
+    assert.equal(canonicalJson(c1.steps[k].artifact), canonicalJson(c2.steps[k].artifact), `${k} artifact stable`);
+    assert.equal(c1.steps[k].sha256, ETHX_SUMMARY.steps[`${k === "step1" ? "step1X1Burn" : k === "step2" ? "step2ReleaseShape" : "step3LifiOut"}`].sha256, `${k} matches the committed fixture`);
+  }
+  // Derived chain (fee-model v2, per-asset pct): 0.4 ETH.X gross → skim 200,000 →
+  // bridge 39,800,000 → Warp 25bps 99,500 → release 39,700,500 (0.397005 ETH).
+  assert.equal(c1.derived.rawAmountGrossBase, "40000000");
+  assert.equal(c1.derived.skimBase, "200000");
+  assert.equal(c1.derived.bridgeBase, "39800000");
+  assert.equal(c1.derived.warpFeeBase, "99500");
+  assert.equal(c1.derived.releaseBase, "39700500");
+  // Cross-step chain of custody.
+  assert.equal(c1.steps.step2.artifact.burnAmountBase, c1.steps.step1.artifact.bridgeBase);
+  assert.equal(c1.steps.step3.artifact.fromAmountRaw, c1.steps.step2.artifact.releaseBase);
 });

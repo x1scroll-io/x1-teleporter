@@ -592,3 +592,44 @@ test("computeFee works without an amount — structure math takes the base at ca
   assert.equal(fee.netUsd(500), 496.5);
   assert.equal(fee.teleporterFeeUsd(500), 2.5);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PER-ASSET WARP COMPONENT SELECTION — the warpFeeBps contract (fix on v2 @
+// 1b541e5): computeFee is asset-agnostic by design; the warp-flat/warp-pct
+// choice keys off route.warpFeeBps. The TOKEN-level decision lives in the
+// callers (reverseQuote.computeReverseLegs / teleportQuote.deriveQuoteFromLifi
+// pass warpFeeBps for EVERY non-USDC.x token — flat $1 is USDC.x-ONLY, Mr.
+// Esters' verified structure 2026-09-02 — pinned by their own test files).
+// This file pins the Fees.ts side of the contract.
+// ─────────────────────────────────────────────────────────────────────────────
+test("computeFee: warpFeeBps present (25) → warp-pct 0.25% component, NO warp-flat", () => {
+  const fee = computeFee({ routeType: "x1_onward", warpFeeBps: 25 });
+  assert.equal(fee.class, "x1-hop");
+  assert.ok(fee.hasComponent("warp-pct"), "bps present ⇒ warp-pct selected");
+  const pct = fee.component("warp-pct");
+  assert.equal(pct.kind, "rate");
+  assert.equal(pct.rate, 0.0025);
+  assert.equal(pct.label, "Warp bridge fee (0.25%)");
+  assert.equal(pct.party, "third-party");
+  assert.ok(!fee.hasComponent("warp-flat"), "never both shapes");
+  assert.equal(fee.thirdPartyFeeUsd(1000), 2.5, "0.25% of the amount as the pass-through line");
+});
+
+test("computeFee: warpFeeBps absent → warp-flat $1 (the USDC.x-only shape — legacy callers are USDC.x-only)", () => {
+  const fee = computeFee({ routeType: "x1_onward" });
+  assert.ok(fee.hasComponent("warp-flat"));
+  assert.ok(!fee.hasComponent("warp-pct"));
+  assert.equal(fee.thirdPartyFeeUsd(1000), 1);
+});
+
+test("quoteFees: an x1_onward quote with warpFeeBps renders ONE 'Warp bridge fee (0.25%)' line at the right amount", () => {
+  const qf = quoteFees({ from: "x1", to: "eth", routeType: "x1_onward", warpFeeBps: 25 }, 100);
+  const warp = qf.feeLines.find((l) => l.id === "warp-pct");
+  assert.ok(warp, "warp-pct line rendered");
+  assert.equal(warp.label, "Warp bridge fee (0.25%)");
+  assert.equal(warp.amountUsd, 0.25);
+  assert.equal(warp.party, "third-party");
+  assert.equal(qf.feeLines.find((l) => l.id === "warp-flat"), undefined);
+  assert.equal(qf.thirdPartyFeeUsd, 0.25);
+  assert.equal(qf.teleporterFeeUsd, 0.5, "Teleporter take stays exactly 0.5% once");
+});

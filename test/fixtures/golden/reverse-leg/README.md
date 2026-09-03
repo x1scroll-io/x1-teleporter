@@ -87,3 +87,56 @@ node --import ./tools/jsx-loader.mjs tools/capture-reverse-golden-fixtures.mjs
 (The frozen quote fixture is INPUT — only re-capture it deliberately, with a
 note of the new quote's tool/amounts, since the oracle is about construction
 given the same quote.)
+
+## SYNTHETIC-LABELED ETH.X route — the per-asset PCT-DEFAULT oracle (2026-09-03)
+
+The fee-lookup fix on v2 @ 1b541e5 made the per-asset Warp fee default **25 bps
+pct** — flat $1 applies ONLY to USDC.x/USDC (Mr. Esters, verified live via the
+official Warp UI). This fixture set pins that default on a NON-USDC percentage
+route (an ETH.X reverse burn at 0.25%):
+
+| File | What it captures |
+|---|---|
+| `quote-ethx-usdc-eth-synthetic-0.4.json` | INPUT — a REAL live LiFi quote for the stage-2 leg (relaydepository, ETH-on-Solana `7vfCXTU…` → USDC-on-eth, fromAmount 39700500 = this sample's exact deterministic release net; captured 2026-09-03 via li.quest with the repo's integrator). |
+| `step1-x1-burn-ethx-synthetic.json` | The X1 reverse burn tx for ETH.X (8 dec): bundled fee-ATA create (the fee wallet has no ETH.X ATA on X1 — never-burned token) + 0.5% skim transfer + Warp `BridgeOut(seq, 39,800,000)`. |
+| `step2-release-shape-ethx-synthetic.json` | bridge_in_v2 native-variant release shape for ETH (Solana twin `7vfCXTU…`) + release math at the PER-ASSET pct fee: bridge 39,800,000 − Warp 25bps (99,500) = 39,700,500 released (0.397005 ETH). |
+| `step3-lifi-out-ethx-synthetic.json` | The deterministic LiFi query: fromToken = Solana ETH (8 dec), fromAmount 39,700,500, toAddress PINNED to the EVM wallet. |
+| `reverse-leg-summary-ethx-synthetic.json` | Sample input, derived math, quote reference, the quote-box display strings (computed by the REAL fee code — the warp-pct 0.25% line, never warp-flat), and the full synthetic-label block. |
+
+**SYNTHETIC-LABELED (honesty rule)** — no live ETH.X bridge_out burn exists to
+anchor: verified 2026-09-03 via `getSignaturesForAddress` on the X1 mainnet RPC
+for the ETH.X mint `4wxJFFnRSCgFgS8GvWH9iHgSjFsKbQpXkBG5Y826cbvw` (only 4 txs,
+all recipient-ATA creates, ZERO BridgeOut) + the live Warp config
+(`api.bridge.mainnet.x1.xyz/config` — ETH.X `dailyVolume` 0 on both chains). The
+sample INPUT mirrors the wSOL.X ground-truth oracle (0.4 gross, same wallet set,
+same pinned EVM destination `0x1870aFAfA…`). What IS anchored to real oracles:
+the fee SHAPE (ETH.X `{decimals: 8, flatFeeAmount: 0, percentageFeeBps: 25}` —
+the live config token registry) and the stage-2 LiFi leg (a real live quote).
+
+Fixed sample input:
+
+```json
+{
+  "from": "x1", "to": "eth", "token": "ETH.X", "toToken": "USDC",
+  "amountUser": 0.4,
+  "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+  "feeWallet": "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu",
+  "evmDestination": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+  "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+  "seqSlot": 305000000
+}
+```
+
+Derived: burn **0.4 ETH.X** gross → 0.5% skim **200,000** base (8-dec) →
+bridge_out **39,800,000** → Warp's own 25bps carved inside bridge_out
+(**99,500** — the per-asset pct fee, NOT the USDC.x flat $1) → the guardians
+release **39,700,500** base (**0.397005 ETH**) on Solana → LiFi carries exactly
+that (fromAmount 39700500) to Ethereum as USDC.
+
+## Per-step sha256 (2026-09-03 ETH.X synthetic capture)
+
+| Step | sha256 (canonical artifact) | sha256 (serialized bytes, SVM tx) |
+|---|---|---|
+| step1 X1 burn | `94879586843e3ed629279221d7f879a5e0dd92bf8c8860a93fef150fc0692ee8` | `99b6cc469800eee92682aab3cb6575a4ea285c354e659d6c40342d27e59f76a9` |
+| step2 release shape | `c661bb6321cf1d88d62546a090329bfe7f35d3ba3fc4d7cae574893ee807382d` | `specSha256` (14-row spec): see the fixture file |
+| step3 LiFi out | `86a87d39fcf4021dde1098bdeb2b897464063867349f75c1107c601e02ba32c7` | — |

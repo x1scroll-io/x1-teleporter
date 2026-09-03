@@ -1,0 +1,102 @@
+{
+  "tool": "golden-transaction fixtures — reverse leg X1→Ethereum, SYNTHETIC ETH.X route (per-asset pct-default oracle, fee fix on v2 @ 1b541e5)",
+  "capturedAt": "2026-09-03T09:11:38.978Z",
+  "syntheticLabel": {
+    "note": "SYNTHETIC-LABELED INPUT — no live ETH.X bridge_out burn exists to anchor (honesty rule). Verified 2026-09-03: getSignaturesForAddress on the X1 mainnet RPC for the ETH.X mint 4wxJFFnRSCgFgS8GvWH9iHgSjFsKbQpXkBG5Y826cbvw returned only 4 txs (all recipient-ATA creates, ZERO BridgeOut); the live Warp config shows ETH.X dailyVolume 0 on both chains. The route SHAPE mirrors the wSOL.X ground-truth oracle (same 0.4 gross, same wallet set, same pinned EVM destination 0x1870aFAfA…). The fee SHAPE (25 bps pct, 8 dec — NOT the USDC.x flat $1) is anchored to the live Warp config token registry; the stage-2 LiFi leg is a REAL live quote (relaydepository, ETH-on-Solana → USDC-on-eth).",
+    "x1ChainCheck": "https://rpc.mainnet.x1.xyz getSignaturesForAddress(4wxJFFnRSCgFgS8GvWH9iHgSjFsKbQpXkBG5Y826cbvw) — 4 sigs, no BridgeOut",
+    "configCheck": "https://api.bridge.mainnet.x1.xyz/config — ETH.X { decimals: 8, flatFeeAmount: 0, percentageFeeBps: 25, dailyVolume: 0 }"
+  },
+  "sampleInput": {
+    "from": "x1",
+    "to": "eth",
+    "token": "ETH.X",
+    "toToken": "USDC",
+    "amountUser": 0.4,
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "feeWallet": "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu",
+    "evmDestination": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "seqSlot": 305000000
+  },
+  "derived": {
+    "rawAmountGrossBase": "40000000",
+    "skimBase": "200000",
+    "bridgeBase": "39800000",
+    "warpFeeBase": "99500",
+    "releaseBase": "39700500",
+    "releaseHuman": 0.397005,
+    "seq": "1152921809606846976",
+    "seqSlot": 305000000
+  },
+  "quoteReference": {
+    "tool": "relaydepository",
+    "fromAmountRaw": "39700500",
+    "toAmountRaw": "951729865",
+    "fromTokenSymbol": "ETH",
+    "fromToken": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+    "fromTokenDecimals": 8,
+    "fromTokenChainId": 1151111081099710,
+    "toTokenSymbol": "USDC",
+    "toToken": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "toTokenChainId": 1,
+    "fromAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "toAddress": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+    "hasExecutablePayload": true,
+    "txPayloadSha256": "8508e71b26ff61da2cb9a3c98d20f9b64c10d67c2bddb991891f5df2157bd2cf"
+  },
+  "quoteBox": {
+    "youSend": "0.4 ETH.X on X1",
+    "feeLines": [
+      {
+        "id": "warp-skim",
+        "label": "Teleporter fee (0.5%, max $250)",
+        "display": "$0.00"
+      },
+      {
+        "id": "warp-pct",
+        "label": "Warp bridge fee (0.25%)",
+        "display": "$0.00"
+      }
+    ],
+    "youReceive": "≈ 951.73 USDC on Ethereum",
+    "steps": [
+      "Warp Bridge · X1",
+      "Warp Bridge · Solana",
+      "LiFi · Ethereum"
+    ],
+    "solanaAmount": 0.397005,
+    "teleporterFeeUsd": 0.002,
+    "thirdPartyFeeUsd": 0.001,
+    "netUsd": 951.729865
+  },
+  "steps": {
+    "step1X1Burn": {
+      "file": "step1-x1-burn-ethx-synthetic.json",
+      "sha256": "94879586843e3ed629279221d7f879a5e0dd92bf8c8860a93fef150fc0692ee8",
+      "bytesSha256": "99b6cc469800eee92682aab3cb6575a4ea285c354e659d6c40342d27e59f76a9",
+      "seq": "1152921809606846976",
+      "skimBase": "200000",
+      "bridgeBase": "39800000",
+      "feeAtaCreated": true
+    },
+    "step2ReleaseShape": {
+      "file": "step2-release-shape-ethx-synthetic.json",
+      "sha256": "c661bb6321cf1d88d62546a090329bfe7f35d3ba3fc4d7cae574893ee807382d",
+      "specSha256": "c261ba3ca9d8e10c9298026b36b38a35953b6967d53ee1cfdf4c99b8143cf1f6",
+      "releaseBase": "39700500"
+    },
+    "step3LifiOut": {
+      "file": "step3-lifi-out-ethx-synthetic.json",
+      "sha256": "86a87d39fcf4021dde1098bdeb2b897464063867349f75c1107c601e02ba32c7",
+      "toAddress": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239"
+    }
+  },
+  "feePins": {
+    "token": "ETH.X",
+    "warpFeeKind": "pct",
+    "warpFeeBps": 25,
+    "warpFeeBase": "99500",
+    "releaseBase": "39700500"
+  },
+  "verify": "test/goldenReverse.test.js rebuilds every step from the same inputs and asserts byte-identical + sha256 match + the per-asset pct fee pin."
+}
