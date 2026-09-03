@@ -4,18 +4,24 @@
  * docs/BRIEF.md is binding: one card, tabs inside it, sequential states
  * inside each tab. No separate pages, no floating modals for the main flow.
  *
- * Phase 2 tabs (per the brief's Design direction): Teleport (hosts the
- * wallet connect flow — ConnectModal — this step), THORChain and Buy
- * (placeholders — later steps build their flows inside the same card).
- *
- * The card is NOT wired into main.jsx yet (Teleporter.jsx remains the live
- * UI until the Phase 3 swap). To preview: mount <BridgeCard /> (wrapped in
- * <WalletProvider>) temporarily in main.jsx — see the step 2.2 PR notes.
+ * VARIANTS (the Teleport Console integration — docs/CONSOLE-DESIGN.md):
+ *   - variant="classic" (DEFAULT): the original tabbed card — TeleportTab
+ *     (connect modal → connected body → TeleportForm), THORChain, Buy.
+ *     Byte-behavior-identical; the frozen browser harnesses (forward/
+ *     reverse/thorchain-leg.spec.js) measure this variant. main.jsx mounts
+ *     it on non-preview hosts (localhost, production domain).
+ *   - variant="console": the Teleport Console (TeleportConsole.jsx) — the
+ *     hardware-console swap surface driven by the REAL engine quote/send
+ *     paths, hosted in the same tab shell (Teleport = the console; the
+ *     THORChain/Buy tabs are preserved). main.jsx mounts it on the x1scroll
+ *     Vercel preview hosts (branch previews + the git-v2 alias) or whenever
+ *     the CONSOLE_UI flag forces it (src/lib/uiVariant.js).
  */
 
 import { useState } from "react";
 import TeleportTab from "./TeleportTab.jsx";
 import THORChainTab from "./THORChainTab.jsx";
+import TeleportConsole from "./TeleportConsole.jsx";
 import { THORCHAIN } from "../lib/flags.ts";
 
 const TABS = Object.freeze([
@@ -47,7 +53,19 @@ const S = {
   placeholder: { padding: 16, color: "#7d8aa0", fontSize: 14 },
 };
 
-export default function BridgeCard({ initialTab = "teleport", flags = { THORCHAIN }, formProps = {} }) {
+export default function BridgeCard({ initialTab = "teleport", variant = "classic", flags = { THORCHAIN }, formProps = {}, consoleProps = {} }) {
+  if (variant === "console") {
+    // The Teleport Console is the bridge card's console variant — the full
+    // swap surface (Teleport tab) with the THORChain/Buy tabs preserved.
+    return (
+      <TeleportConsole
+        flags={flags}
+        initialTab={initialTab}
+        formProps={formProps}
+        consoleProps={consoleProps}
+      />
+    );
+  }
   const [tab, setTab] = useState(initialTab);
   const thorchainEnabled = flags.THORCHAIN === true;
   return (

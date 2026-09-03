@@ -35,6 +35,7 @@ export function resolveFlags(env: Env): {
   REVERSE_ENABLED: boolean;
   LEGACY_UI: boolean;
   WARP_LIVE_SEND: boolean;
+  CONSOLE_UI: boolean;
 } {
   const on = (names: string[]): boolean => {
     for (const name of names) {
@@ -52,10 +53,45 @@ export function resolveFlags(env: Env): {
     REVERSE_ENABLED: on(["NEXT_PUBLIC_FLAG_REVERSE_ENABLED", "VITE_FLAG_REVERSE_ENABLED"]),
     WARP_LIVE_SEND: on(["NEXT_PUBLIC_FLAG_WARP_LIVE_SEND", "VITE_WARP_LIVE_SEND"]),
     LEGACY_UI: on(["NEXT_PUBLIC_FLAG_LEGACY_UI", "VITE_FLAG_LEGACY_UI"]),
+    CONSOLE_UI: on(["NEXT_PUBLIC_FLAG_CONSOLE_UI", "VITE_FLAG_CONSOLE_UI"]),
   };
 }
 
+/**
+ * resolveConsoleUi — tri-state CONSOLE_UI read for the mount decision.
+ *
+ * The Teleport Console is the v2 card's new visual front door, but the
+ * CLASSIC card stays the default on non-preview hosts (localhost builds, the
+ * production domain) so the frozen browser harnesses (forward/reverse/
+ * thorchain-leg.spec.js) keep measuring the classic flow unchanged. The
+ * console mounts on the x1scroll Vercel preview hosts (branch previews + the
+ * stable git-v2 alias) with NO env var needed — see src/lib/uiVariant.js.
+ *
+ * Returns:
+ *   true      — env forces the console ON (VITE_FLAG_CONSOLE_UI=true),
+ *   false     — env forces the console OFF (classic card),
+ *   undefined — env unset → the hostname rule decides (uiVariant).
+ */
+export function resolveConsoleUi(env: Env): boolean | undefined {
+  for (const name of ["NEXT_PUBLIC_FLAG_CONSOLE_UI", "VITE_FLAG_CONSOLE_UI"]) {
+    const raw = env[name];
+    if (raw !== undefined && raw !== "") {
+      return raw.toLowerCase() === "true" || raw === "1";
+    }
+  }
+  return undefined;
+}
+
 const flags = resolveFlags(readEnv());
+
+/**
+ * Whether the Teleport Console (the v2 hardware-console front door) is
+ * force-enabled. Default: false — see resolveConsoleUi: when the env is
+ * UNSET the mount decision falls to the hostname rule in uiVariant.js (the
+ * x1scroll Vercel preview hosts mount the console; everything else keeps
+ * the classic card).
+ */
+export const CONSOLE_UI: boolean = flags.CONSOLE_UI;
 
 /** Whether the THORCHAIN route is enabled in the UI. Default: false. */
 export const THORCHAIN: boolean = flags.THORCHAIN;
