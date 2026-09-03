@@ -23,28 +23,28 @@ import { CHAINS, TOKENS } from "./teleportConstants.js";
 const SOL_ADDR = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
 const EVM_ADDR = "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6";
 
-// ── Stage-1 math: 1% once per journey + Warp's $1 (third-party) ─────────────
+// ── Stage-1 math: 0.5% once per journey (max $250) + Warp's own fee ────────
 
-test("computeReverseLegs: 1% skim on source, burn = net, Solana net = burn − Warp's $1", () => {
+test("computeReverseLegs: 0.5% skim on source, burn = net, Solana net = burn − Warp's $1", () => {
   const legs = computeReverseLegs({ amount: 100 });
-  assert.equal(legs.skim, 1);                        // 1% of 100
-  assert.equal(legs.burnAmount, 99);                 // bridge_out burns the net
-  assert.equal(legs.netOnSolana, 98);                // 99 − Warp's flat $1 (deducted on-chain)
-  assert.equal(FEE_RATES.X1_HOP_SKIM, 0.01, "rate sourced from fees.ts");
-  assert.equal(FEE_RATES.WARP_FLAT_USD, 1, "$1 sourced from fees.ts");
+  assert.equal(legs.skim, 0.5);                      // 0.5% of 100
+  assert.equal(legs.burnAmount, 99.5);               // bridge_out burns the net
+  assert.equal(legs.netOnSolana, 98.5);              // 99.5 − Warp's flat $1 (deducted on-chain)
+  assert.equal(FEE_RATES.X1_HOP_SKIM, 0.005, "rate sourced from fees.ts (0.5% — fee-model v2)");
+  assert.equal(FEE_RATES.WARP_FLAT_USD, 1, "$1 sourced from fees.ts (USDC.x flat — verified on-chain)");
 });
 
-test("computeReverseLegs: fee lines are exactly 1% Teleporter + $1 Warp (no LiFi integrator on x1-class)", () => {
+test("computeReverseLegs: fee lines are exactly 0.5% Teleporter + $1 Warp (no LiFi integrator on x1-class)", () => {
   const legs = computeReverseLegs({ amount: 100 });
   const ids = legs.feeQuote.feeLines.map((l) => l.id).sort();
   assert.deepEqual(ids, ["warp-flat", "warp-skim"]);
   const skim = legs.feeQuote.feeLines.find((l) => l.id === "warp-skim");
-  assert.equal(skim.amountUsd, 1);
+  assert.equal(skim.amountUsd, 0.5);
   assert.equal(skim.party, "teleporter");
   const flat = legs.feeQuote.feeLines.find((l) => l.id === "warp-flat");
   assert.equal(flat.amountUsd, 1);
   assert.equal(flat.party, "third-party");
-  assert.equal(legs.feeQuote.teleporterFeeUsd, 1, "Teleporter take is exactly 1% once");
+  assert.equal(legs.feeQuote.teleporterFeeUsd, 0.5, "Teleporter take is exactly 0.5% once");
 });
 
 // ── LiFi SOL→EVM leg params (the reverse of the forward EVM→Sol leg) ───────
@@ -138,21 +138,21 @@ test("deriveReverseQuote: quoted LiFi leg → you-receive is the EVM toAmount, s
   assert.equal(q.recvToken, "USDC");
   assert.equal(q.recvChain, "Ethereum");
   assert.equal(q.lifiQuoted, true);
-  assert.equal(q.solanaAmount, 98, "stage 2 bridges the net that LANDED on Solana, not the input");
-  assert.equal(q.teleporterFeeUsd, 1);
+  assert.equal(q.solanaAmount, 98.5, "stage 2 bridges the net that LANDED on Solana, not the input");
+  assert.equal(q.teleporterFeeUsd, 0.5);
   assert.equal(q.thirdPartyFeeUsd, 1);
   assert.deepEqual(q.steps.map((s) => s.tool), ["Warp Bridge", "Warp Bridge", "LiFi"]);
-  // The fee lines render from quoteFees — 1% Teleporter + $1 Warp.
+  // The fee lines render from quoteFees — 0.5% Teleporter + $1 Warp.
   assert.deepEqual(q.feeLines.map((l) => l.id).sort(), ["warp-flat", "warp-skim"]);
 });
 
 test("deriveReverseQuote: LiFi leg NOT quoted → honest handoff numbers (USDC on Solana), never an invented EVM figure", () => {
   const q = deriveReverseQuote({ data: null, to: "eth", amount: 100 });
   assert.equal(q.lifiQuoted, false);
-  assert.equal(q.out, 98, "you-receive is the USDC that actually lands on Solana");
+  assert.equal(q.out, 98.5, "you-receive is the USDC that actually lands on Solana");
   assert.equal(q.recvChain, "Solana", "honest: the hop to Ethereum is the NEXT stage");
-  assert.equal(q.solanaAmount, 98);
-  assert.equal(q.teleporterFeeUsd, 1);
+  assert.equal(q.solanaAmount, 98.5);
+  assert.equal(q.teleporterFeeUsd, 0.5);
   assert.equal(q.thirdPartyFeeUsd, 1);
 });
 
@@ -182,7 +182,7 @@ test("deriveReverseQuote: handoff (no LiFi quote) still reports the Solana landi
   assert.equal(q.lifiQuoted, false);
   assert.equal(q.recvToken, "USDC", "the honest handoff names the USDC that actually lands on Solana");
   assert.equal(q.recvChain, "Solana");
-  assert.equal(q.out, 98);
+  assert.equal(q.out, 98.5);
 });
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -194,25 +194,25 @@ test("deriveReverseQuote: handoff (no LiFi quote) still reports the Solana landi
 //  verified live Sep 2026) — NO Jupiter swap needed.
 // ════════════════════════════════════════════════════════════════════════════
 
-test("computeReverseLegs (wSOL.X): 1% skim on source, burn = net, Warp fee = 25 bps of the bridge gross (not the flat $1)", () => {
+test("computeReverseLegs (wSOL.X): 0.5% skim on source, burn = net, Warp fee = 25 bps of the bridge gross (not the flat $1)", () => {
   const legs = computeReverseLegs({ amount: 100, token: "wSOL.X" });
-  assert.equal(legs.skim, 1, "1% of 100 wSOL.X");
-  assert.equal(legs.burnAmount, 99, "bridge_out burns the net (post-skim)");
-  assert.equal(legs.warpFee, 99 * 0.0025, "25 bps of the 99 bridge gross — NOT the flat $1");
-  assert.equal(legs.netOnSolana, 99 - 99 * 0.0025, "net released on Solana = gross − 25bps");
-  // Fee lines: warp-skim (Teleporter 1%) + warp-pct (third-party 0.25%) — no flat $1 line.
+  assert.equal(legs.skim, 0.5, "0.5% of 100 wSOL.X");
+  assert.equal(legs.burnAmount, 99.5, "bridge_out burns the net (post-skim)");
+  assert.equal(legs.warpFee, 99.5 * 0.0025, "25 bps of the 99.5 bridge gross — NOT the flat $1");
+  assert.equal(legs.netOnSolana, 99.5 - 99.5 * 0.0025, "net released on Solana = gross − 25bps");
+  // Fee lines: warp-skim (Teleporter 0.5%) + warp-pct (third-party 0.25%) — no flat $1 line.
   const ids = legs.feeQuote.feeLines.map((l) => l.id).sort();
   assert.deepEqual(ids, ["warp-pct", "warp-skim"]);
   const pct = legs.feeQuote.feeLines.find((l) => l.id === "warp-pct");
   assert.equal(pct.party, "third-party", "Warp's pct fee is a third-party pass-through, never a Teleporter fee");
   assert.equal(pct.amountUsd, 100 * 0.0025, "display line = 0.25% of the source (the deterministic math uses the post-skim gross)");
-  assert.equal(legs.feeQuote.teleporterFeeUsd, 1, "Teleporter take stays exactly 1% once");
+  assert.equal(legs.feeQuote.teleporterFeeUsd, 0.5, "Teleporter take stays exactly 0.5% once");
 });
 
 test("computeReverseLegs: USDC.x keeps the flat $1 (warp-flat) — token-aware fee shape", () => {
   const legs = computeReverseLegs({ amount: 100, token: "USDC.x" });
-  assert.equal(legs.warpFee, 1, "flat $1 for USDC.x");
-  assert.equal(legs.netOnSolana, 98, "100 − 1% − $1");
+  assert.equal(legs.warpFee, 1, "flat $1 for USDC.x (verified on-chain 2026-09-02)");
+  assert.equal(legs.netOnSolana, 98.5, "100 − 0.5% − $1");
   const ids = legs.feeQuote.feeLines.map((l) => l.id).sort();
   assert.deepEqual(ids, ["warp-flat", "warp-skim"]);
 });
@@ -256,36 +256,34 @@ test("deriveReverseQuote (wSOL.X): quoted leg shows the dest stable; unquoted le
   assert.equal(unquoted.lifiQuoted, false);
 });
 
-// ── USD-AWARE MINIMUM (the live-bug fix): the $25 floor is a USD VALUE ──────
-// The old gate compared the RAW TOKEN COUNT (0.3 wSOL.X ≈ $30 blocked because
-// 0.3 < 25). checkReverseMin compares gross input × the LIVE source-token
-// price (LiFi's fromToken.priceUSD primary, Coingecko fallback, fail-open).
+// ── REVERSE MINIMUM GATE — DISABLED (fee-model v2 removed the $25 floor) ────
+// checkReverseMin stays exported for DI/tests; its DEFAULT minUsd is now
+// X1_REVERSE_MIN = 0, so the gate can never block (small reverse bridges are
+// viable at 0.5% capped at $250). Passing an explicit minUsd still exercises
+// the USD-aware mechanism (price resolution stays covered).
 
-test("checkReverseMin: 0.3 wSOL.X at priceUSD 100 → $30 ≥ $25 — PASSES (the live bug, fixed)", async () => {
+test("checkReverseMin: floor REMOVED — a $10 journey passes by default (minUsd = 0)", async () => {
   const lifiData = { action: { fromToken: { priceUSD: 100 } } };
-  const r = await checkReverseMin({ amount: 0.3, token: "wSOL.X", lifiData });
-  assert.equal(r.blocked, false, "0.3 wSOL.X ≈ $30 must pass the $25 USD floor");
-  assert.equal(r.usdValue, 30, "USD value = gross × live price (0.3 × 100)");
+  const r = await checkReverseMin({ amount: 0.1, token: "wSOL.X", lifiData });
+  assert.equal(r.blocked, false, "0.1 wSOL.X ≈ $10 is NOT blocked — the $25 floor is gone");
+  assert.equal(r.usdValue, 10, "USD value = gross × live price (0.1 × 100)");
   assert.equal(r.priceUSD, 100, "price comes from the LiFi quote");
 });
 
-test("checkReverseMin: 0.1 wSOL.X at the same price → $10 < $25 — BLOCKED", async () => {
-  const lifiData = { action: { fromToken: { priceUSD: 100 } } };
-  const r = await checkReverseMin({ amount: 0.1, token: "wSOL.X", lifiData });
-  assert.equal(r.blocked, true, "0.1 wSOL.X ≈ $10 is genuinely below the floor");
-  assert.equal(r.usdValue, 10);
+test("checkReverseMin: floor REMOVED — a $5 USDC.x journey passes by default", async () => {
+  const lifiData = { action: { fromToken: { priceUSD: 1 } } };
+  const r = await checkReverseMin({ amount: 5, token: "USDC.x", lifiData });
+  assert.equal(r.blocked, false, "$5 < old $25 floor — but the floor is gone (minUsd defaults to 0)");
+  assert.equal(r.usdValue, 5);
 });
 
-test("checkReverseMin: 25 USDC.x at ~$1 → $25 ≥ $25 — PASSES (stable regression unchanged)", async () => {
+test("checkReverseMin: the USD-aware MECHANISM still works when an explicit floor is passed (DI/tests)", async () => {
   const lifiData = { action: { fromToken: { priceUSD: 1 } } };
-  const r = await checkReverseMin({ amount: 25, token: "USDC.x", lifiData });
-  assert.equal(r.blocked, false, "25 USDC.x ≈ $25 still clears the floor");
-});
-
-test("checkReverseMin: 24 USDC.x at ~$1 → $24 < $25 — BLOCKED (stable regression unchanged)", async () => {
-  const lifiData = { action: { fromToken: { priceUSD: 1 } } };
-  const r = await checkReverseMin({ amount: 24, token: "USDC.x", lifiData });
-  assert.equal(r.blocked, true, "24 USDC.x ≈ $24 is below the floor");
+  const blocked = await checkReverseMin({ amount: 24, token: "USDC.x", lifiData, minUsd: 25 });
+  assert.equal(blocked.blocked, true, "24 < 25 with an explicit minUsd → the comparison still works");
+  const passes = await checkReverseMin({ amount: 25, token: "USDC.x", lifiData, minUsd: 25 });
+  assert.equal(passes.blocked, false, "25 ≥ 25 with an explicit minUsd → passes");
+  assert.equal(passes.usdValue, 25);
 });
 
 test("checkReverseMin: no LiFi price → Coingecko fallback used (never hardcoded)", async () => {
@@ -294,18 +292,18 @@ test("checkReverseMin: no LiFi price → Coingecko fallback used (never hardcode
     amount: 0.3, token: "wSOL.X", lifiData,
     fetchPrice: async (id) => { assert.equal(id, "wrapped-solana"); return 100; },
   });
-  assert.equal(r.blocked, false, "0.3 × fallback $100 = $30 → passes");
+  assert.equal(r.blocked, false, "no floor to block; the fallback price still resolves");
   assert.equal(r.priceUSD, 100, "fallback price used");
 });
 
 test("checkReverseMin: LiFi price WINS — the fallback is never called when the quote carries a price", async () => {
   let fallbackCalls = 0;
   const r = await checkReverseMin({
-    amount: 24, token: "USDC.x",
+    amount: 24, token: "USDC.x", minUsd: 25,
     lifiData: { action: { fromToken: { priceUSD: 1 } } },
     fetchPrice: async () => { fallbackCalls += 1; return 999; },
   });
-  assert.equal(r.blocked, true, "uses the LiFi price ($24 < $25), not the bogus fallback");
+  assert.equal(r.blocked, true, "uses the LiFi price ($24 < $25 explicit floor), not the bogus fallback");
   assert.equal(fallbackCalls, 0, "fallback not consulted — LiFi is the primary source");
 });
 

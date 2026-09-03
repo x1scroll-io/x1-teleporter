@@ -220,7 +220,7 @@ test("reverse baseline: banner reads the armed WARP_LIVE_SEND flag + the X1→ET
   // Fee lines — labels + the REAL display values the fee code produces for
   // the wSOL.X sample (captured in the summary by the real code).
   const skim = page.locator('[data-testid="fee-line-warp-skim"]');
-  await expect(skim).toContainText("Teleporter fee (1%)");
+  await expect(skim).toContainText("Teleporter fee (0.5%, max $250)");
   await expect(skim).toContainText(qb.feeLines[0].display);
   const pct = page.locator('[data-testid="fee-line-warp-pct"]');
   await expect(pct).toContainText("Warp bridge fee (0.25%)");

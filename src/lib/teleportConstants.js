@@ -49,14 +49,22 @@ export const TOKENS = {
  */
 export const EVM_CHAINS = Object.freeze(["eth", "bsc", "arb", "bas", "opt", "pol", "avax", "sonic"]);
 
-// Minimum into X1 (v1 mirror): 25. The post-1%-skim amount must clear Warp's
-// $10 floor with buffer for LiFi slippage; the flat $1 bridge fee would be
-// ~11% of the journey at $10 and ~5% at $25, so $25 is the floor.
-export const X1_MIN = 25;
+// Minimum into X1 — REMOVED 2026-09-02 (fee-model v2). The old $25 floor's
+// reasoning (the flat $1 bridge fee would be ~11% of a $10 journey) is gone:
+// the Teleporter fee is now 0.5% capped at $250 and small bridges are viable
+// — NO Teleporter floor. Kept as 0 so the constant stays the single gate
+// knob (the old checks `amt < X1_MIN` now never block). Warp's OWN on-chain
+// floor still applies to what actually bridges (WARP_MIN = 10 USDC below;
+// wSOL.X min 0.1) — enforced at the tx layer (buildStage2 minBase), never a
+// UI gate.
+export const X1_MIN = 0;
 
-// Minimum OUT of X1 (v1 mirror: X1_REVERSE_MIN). Same reasoning reversed —
-// the 1% skim + Warp's $1 must leave a meaningful net for the Solana→EVM leg.
-export const X1_REVERSE_MIN = 25;
+// Minimum OUT of X1 — REMOVED 2026-09-02 (fee-model v2), same reasoning as
+// X1_MIN: 0.5% capped at $250 makes small reverse bridges viable — NO floor.
+// Kept as 0 so checkReverseMin's default can never block (the USD-aware
+// reverse gate from PR #38 is disabled: minUsd defaults to 0 = fail-open).
+// The burn preflight (balance) still guards an actually-too-small amount.
+export const X1_REVERSE_MIN = 0;
 
 // Warp rejects bridges below this (USDC).
 export const WARP_MIN = 10;

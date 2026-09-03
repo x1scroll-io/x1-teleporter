@@ -304,7 +304,7 @@ test("golden dex xdex: rebuilt swap equals the LIVE anchor tx shape (disc 8fbe5a
 });
 
 // ── LIFI same-chain step1 — the verdict-leg quote request ──
-test("golden dex lifi step1: same-chain swap-request rebuild is byte-identical (forced 1% fee)", () => {
+test("golden dex lifi step1: same-chain swap-request rebuild is byte-identical (forced 0.5% fee)", () => {
   const rebuilt = buildLifiSwapStep1();
 
   assert.equal(canonicalJson(rebuilt.artifact), canonicalJson(FIX_LIFI1.artifact));
@@ -320,12 +320,13 @@ test("golden dex lifi step1: same-chain swap-request rebuild is byte-identical (
   // Same chain on both ends → LiFi returns a swap route (the frozen evidence).
   assert.equal(a.params.fromChain, "eth");
   assert.equal(a.params.toChain, "eth");
-  // Server fee policy: same-chain is NOT x1-class → the 1% integrator fee is FORCED.
-  assert.equal(a.policy.forcedFee, "0.01");
+  // Server fee policy (fee-model v2): same-chain is NOT x1-class → the 0.5%
+  // integrator fee is FORCED.
+  assert.equal(a.policy.forcedFee, "0.005");
   assert.equal(a.policy.x1ClassPresent, false);
   assert.ok(a.upstreamUrl.startsWith("https://li.quest/v1/quote?"));
   assert.ok(a.upstreamUrl.includes("integrator=x1-teleporter-labs"));
-  assert.ok(a.upstreamUrl.includes("fee=0.01"), "same-chain routes carry the forced 1% fee");
+  assert.ok(a.upstreamUrl.includes("fee=0.005"), "same-chain routes carry the forced 0.5% fee");
   assert.ok(!a.upstreamUrl.includes("x1Class"), "the marker is never forwarded upstream");
   assert.equal(FIX_LIFI1.urlSha256, sha256Text(a.upstreamUrl));
 });

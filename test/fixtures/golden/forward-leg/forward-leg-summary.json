@@ -1,6 +1,6 @@
 {
   "tool": "golden-transaction fixtures — forward leg ETH→X1 (regression oracle)",
-  "capturedAt": "2026-09-02T05:39:29.114Z",
+  "capturedAt": "2026-09-02T23:15:21.507Z",
   "sampleInput": {
     "from": "eth",
     "token": "USDC",
@@ -19,8 +19,8 @@
     "amountHuman": 25.554929,
     "seq": "72057899037927936",
     "seqSlot": 305000000,
-    "skimBase": "255549",
-    "bridgeBase": "25299380"
+    "skimBase": "127774",
+    "bridgeBase": "25427155"
   },
   "quoteReference": {
     "id": "d191c2b4-3277-4c09-b775-e7f99de90a1f:0",
@@ -38,24 +38,24 @@
     "feeLines": [
       {
         "id": "warp-skim",
-        "label": "Teleporter fee (1%)",
-        "display": "$0.26"
+        "label": "Teleporter fee (0.5%, max $250)",
+        "display": "$0.13"
       },
       {
         "id": "warp-flat",
-        "label": "Warp bridge fee",
+        "label": "Warp bridge fee ($1 flat)",
         "display": "$1.00"
       }
     ],
-    "youReceive": "≈ 24.30 USDC.x on X1",
+    "youReceive": "≈ 24.43 USDC.x on X1",
     "steps": [
       "LiFi · Solana",
       "Warp Bridge · X1"
     ],
     "solanaAmount": 25.554929,
-    "teleporterFeeUsd": 0.25554929000000004,
+    "teleporterFeeUsd": 0.12777464500000002,
     "thirdPartyFeeUsd": 1,
-    "netUsd": 24.29937971
+    "netUsd": 24.427154355000003
   },
   "steps": {
     "step1Approval": {
@@ -69,15 +69,15 @@
     },
     "step2bWarpLock": {
       "file": "step2b-warp-lock.json",
-      "sha256": "84f4d2173d817ec586a943d08fd21e89a99965b78199a471fcf6d0a4907a5e17",
-      "bytesSha256": "296b3994972879a6a48c4c965308695e1db8d2f2ae111138a582350644d348a3",
+      "sha256": "b52afcf6743ed561248fd61aeb0e52111a8dee8ee37f6a9aea5578d54d63e049",
+      "bytesSha256": "3f0adf66f65fbe56d54fd789f30a46444dd13a48cea923531a986f141b0e448f",
       "seq": "72057899037927936",
-      "skimBase": "255549",
-      "bridgeBase": "25299380"
+      "skimBase": "127774",
+      "bridgeBase": "25427155"
     },
     "step3BridgeInV2": {
       "file": "step3-bridge-in-v2.json",
-      "sha256": "ff40e375daa872ff2369b3f20035f33819508fe7806d88b432c334c883771576",
+      "sha256": "78262f738c1ca8f4e54e4d7245013c26bad55ec4607ab1d80542fa66da0fffa0",
       "specSha256": "c261ba3ca9d8e10c9298026b36b38a35953b6967d53ee1cfdf4c99b8143cf1f6"
     }
   },

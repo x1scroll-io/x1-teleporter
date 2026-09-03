@@ -902,11 +902,12 @@ test("engine reverse byte-identity step1: the x1-burn leg artifact == golden ste
   assert.equal(revSha256Of(artifact), REV_STEP1.sha256);
   const { sha256Bytes } = await import("./golden/forwardLegBuilders.mjs");
   assert.equal(sha256Bytes(Buffer.from(artifact.serializedBase64, "base64")), REV_STEP1.bytesSha256);
-  // The pinned math + live-shape facts hold on the engine artifact too.
+  // The pinned math + live-shape facts hold on the engine artifact too
+  // (fee-model v2: 0.5% skim — old 1% values were 4,000,000 / 396,000,000).
   assert.equal(artifact.seq, reverseSeq().toString());
   assert.equal(artifact.grossBase, "400000000");
-  assert.equal(artifact.skimBase, "4000000");
-  assert.equal(artifact.bridgeBase, "396000000");
+  assert.equal(artifact.skimBase, "2000000");
+  assert.equal(artifact.bridgeBase, "398000000");
   assert.equal(artifact.feeAtaCreated, false);
   assert.equal(artifact.instructionCount, 2);
   assert.equal(artifact.feeAta, "8YxSUo3EjM14C3UnRw7kJqTcNwHnAtvW15vP9nCqCCmw"); // live ground truth
@@ -934,7 +935,7 @@ test("engine reverse byte-identity step3: the lifi-solana-out leg artifact == go
   assert.equal(artifact.toAddress, REV_STEP3.artifact.toAddress);
   assert.equal(artifact.toAddress, REV_SUMMARY.sampleInput.evmDestination);
   assert.equal(artifact.toAddress, REVERSE_EVM_ADDRESS);
-  assert.equal(artifact.fromAmountRaw, "395010000");
+  assert.equal(artifact.fromAmountRaw, "397005000"); // 0.397005 WSOL — the fee-model v2 net (old 1%: 395010000)
   assert.equal(artifact.fromToken, "So11111111111111111111111111111111111111112");
   assert.equal(artifact.hasFeeParam, false);
 });

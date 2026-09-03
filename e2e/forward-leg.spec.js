@@ -4,8 +4,8 @@
  * BASELINE, NOT A FEATURE TEST: it drives the CURRENT reference forward leg
  * (ETH → X1) of the STABLE v2 build and asserts exactly what a routing
  * engine must preserve when it takes over the leg:
- *   1. the quote renders with the CORRECT fee lines (Teleporter 1% + Warp $1
- *      flat — exact amounts for the fixture input, computed by the real fee
+ *   1. the quote renders with the CORRECT fee lines (Teleporter 0.5% max
+ *      $250 + Warp $1 flat — exact amounts for the fixture input, computed by the real fee
  *      code and stored in forward-leg-summary.json),
  *   2. the To-address destination line displays the connected session,
  *   3. the flow ADVANCES to the sign step (the wallet is asked to sign the
@@ -148,9 +148,9 @@ test("baseline: banner reads the real WARP_LIVE_SEND flag + forward quote render
   const qb = SUMMARY.quoteBox;
   // You send
   await expect(page.locator(".quote-box")).toContainText(qb.youSend);
-  // Fee lines — labels + EXACT amounts (Teleporter 1% + Warp $1 flat).
+  // Fee lines — labels + EXACT amounts (Teleporter 0.5% max $250 + Warp $1 flat).
   const skim = page.locator('[data-testid="fee-line-warp-skim"]');
-  await expect(skim).toContainText("Teleporter fee (1%)");
+  await expect(skim).toContainText("Teleporter fee (0.5%, max $250)");
   await expect(skim).toContainText(qb.feeLines[0].display); // $0.26
   const flat = page.locator('[data-testid="fee-line-warp-flat"]');
   await expect(flat).toContainText("Warp bridge fee");

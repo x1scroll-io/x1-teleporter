@@ -31,7 +31,7 @@
  *       quote (runbook: quotes expire). DECISION documented in quote.js.
  *   The quote supplies expectedAmountOut (the submit hook's payload) and the
  *   slippage bps; the THREE fees are rendered from computeFee()'s
- *   thorchain-leg class (THORChain affiliate protocol fee + our 1% skim +
+ *   thorchain-leg class (THORChain affiliate protocol fee + our 0.5% skim +
  *   Warp's $1 — all shown before the user sends).
  *
  * SIZE CAP (Step 3.3): 0.05 BTC-equivalent per swap from config
@@ -178,7 +178,7 @@ function copyText(text) {
 }
 
 /** One display line per thorchain-leg fee component — the user sees all
- *  three (THORChain affiliate protocol fee, our 1% skim, Warp's $1) before
+ *  three (THORChain affiliate protocol fee, our 0.5% skim, Warp's own fee) before
  *  sending. Rates render as %, flats as $. */
 function feeLinesFor(sourceChain) {
   const fee = computeFee({ from: String(sourceChain).toLowerCase(), to: "sol", thorchain: true });
@@ -438,7 +438,7 @@ export default function THORChainDeposit({
     });
   };
 
-  // The three fee lines (THORChain affiliate + our 1% skim + Warp's $1) —
+  // The three fee lines (THORChain affiliate + our 0.5% skim + Warp's own fee) —
   // rendered from computeFee's thorchain-leg class, shown before sending.
   const feeLines = useMemo(() => feeLinesFor(selected), [selected]);
 

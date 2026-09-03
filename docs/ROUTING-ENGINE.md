@@ -12,6 +12,60 @@ pass unchanged (PR policy: base `v2`, branch `feat/engine-phaseN`).
 
 ---
 
+## 0. FEE-MODEL v2 (2026-09-02 — the money-path update, branch feat/fee-model-v2)
+
+Mr. Esters' spec: **Teleporter fee = 0.5% of the route total, CAPPED at $250
+max per trade, charged once per journey** (`teleporterFee = min(routeTotal ×
+0.005, 250)`) — replaces the 2026-08-28 1%-once policy on EVERY route class
+(forward x1, reverse x1_reverse/x1_onward, thorchain, dex/same-chain). The
+$25 minimum (X1_MIN / X1_REVERSE_MIN) is REMOVED everywhere — small bridges
+are viable, no floor (Warp's own on-chain minimums — USDC 10 / wSOL.X 0.1 —
+still apply at the tx layer via `minBase`).
+
+Single source of truth: `src/lib/fees.ts` (rates, `TELEPORTER_FEE_CAP_USD`,
+labels) → `SKIM_BPS` (warpBridge.js, = 50bps), `quoteFees` (every quote
+box), `api/_lifi.js INTEGRATOR_FEE` ("0.005" — server-forced on same-chain
+routes). OPS: the LiFi portal config for `x1-teleporter-labs` must charge
+0.5% to match before any same-chain go-live.
+
+### WARP FEE — VERIFIED ON-CHAIN (do NOT price on rumor)
+
+The rumored "USDC flat $1 → 0.25%" change did NOT happen. Verified
+2026-09-02 from primary sources:
+
+- Live config `https://api.bridge.mainnet.x1.xyz/config`: USDC (Solana) /
+  USDC.X (X1): `flatFeeAmount 1000000` (flat $1), `percentageFeeBps 0`;
+  wSOL/WSOL + wSOL.X + cbBTC/ETH (both sides): `flatFeeAmount 0`,
+  `percentageFeeBps 25`; no global fee on either chain. Per-tx maxAmount:
+  USDC 5000 / wSOL 50 (keeps every executable journey below the $250 cap
+  boundary — the cap never binds on-chain today).
+- Fresh bridge_out logs (2026-09-02, both chains): USDC locks on Solana
+  "Token fee: 1000000" (collector +1.0 USDC — txs 3cscs4Dx5…, 3uyuZVtcX…);
+  USDC.x burns on X1 flat 1.0 (2Vb6HgsU… gross 367.34 → fee 1.00;
+  2chsddLVV… gross 34.69 → fee 1.00); wSOL.X burns exactly 25bps
+  (7QH5SAaH3… gross 129.675 → fee 324,187 base; 3q7H3kV4… gross 396 → fee
+  0.99); WSOL locks exactly 25bps (2mXgFxAun… gross 130 → fee 325,000 base).
+- Solana-side release (`bridge_in_v2`): NO separate fee — the fee is charged
+  ONCE on the source-side bridge_out (X1 BridgeInV2 txs show no token-fee
+  logs; fee lines appear only on lock/burn txs).
+
+So the Warp pass-through components are UNCHANGED: USDC.x/USDC flat $1
+(`warp-flat`, label "Warp bridge fee ($1 flat)"), wSOL.X/WSOL 25bps
+(`warp-pct`, label "Warp bridge fee (0.25%)").
+
+### Re-anchored oracles (expected — the oracle definition changed)
+
+The golden fixtures pinned the OLD fees and were intentionally wrong after
+the model change. Re-anchored via the capture tools ONLY (never hand-edited):
+forward (delivered 25.554929 → skim 0.5% = 127,774 base → bridge
+25,427,155), reverse (0.4 wSOL.X → skim 2,000,000 → bridge 398,000,000 →
+Warp 25bps 995,000 → release 397,005,000), thorchain (fee display 0.50%),
+dex (forced fee=0.005 URL). New sha256s are in the summary fixtures + the
+PR. Raw live-anchor tx bytes are historical facts; only the
+fee-computation artifacts changed.
+
+---
+
 ## 1. Why this exists
 
 Today the forward leg's flow lives inside bespoke runners
@@ -74,7 +128,7 @@ stage 1 of 2 (EVM)   evm-approval      exact-amount ERC-20 approval      (golden
                                         verbatim
 stage 2 of 2 (SVM)   x1-ata-create     X1 recipient ATA-create,           (golden step2a)
                                         Token-2022, idempotent
-                      warp-lock         1% skim + BridgeOut in ONE tx,     (golden step2b)
+                      warp-lock         0.5% skim + BridgeOut in ONE tx,   (golden step2b)
                                         + the bridge_in_v2 account          (+ golden step3)
                                         pre-image for the guardians' mint
 ```
@@ -145,7 +199,7 @@ engine, never the oracle.
 
 ## 6. Phase-2 scope — the REVERSE route (X1 → EVM)
 
-- Migrates: the X1 Warp burn (bundled fee-ATA create when missing + 1% skim +
+- Migrates: the X1 Warp burn (bundled fee-ATA create when missing + 0.5% skim +
   BridgeOut — `x1-reverse-burn`), the release-wait poll (`warp-release-wait`,
   submitter-side release DETECTION via the same-origin `/api/warp/*` proxy),
   and the LiFi Solana→EVM out leg to the PINNED EVM destination
@@ -218,7 +272,7 @@ same proof protocol against the instruments that exist for that lane.
   fromChain == toChain returns a swap route (observed tools: sushiswap AND
   nordstern; includedSteps `[protocol:feeCollection, swap:<dex>]`); the
   app's quote params never filtered swap tools and the server fee policy
-  already forces the 1% integrator fee on same-chain routes. EVM swap legs
+  forces the 0.5% integrator fee on same-chain routes (fee-model v2). EVM swap legs
   are DONE by LiFi — the leg pins the canonical quote-request construction
   through the existing `/api/lifi/quote` policy; execution reuses the
   existing /api/lifi/* path + the lifiApproval audit gate (accepts exchange
@@ -228,7 +282,7 @@ same proof protocol against the instruments that exist for that lane.
   re-groups the stages under a prefixed namespace — the legs stay the SAME
   LegContract objects; only the ordered leg list + stage grouping compose.
   The canonical use: the THORChain post-landing auto-advance (SOL lands →
-  swap SOL→USDC on Jupiter → 1% skim + Warp hop into X1) =
+  swap SOL→USDC on Jupiter → 0.5% skim + Warp hop into X1) =
   `composeRoute(planJupiterSwap(), planForward())`. The planner owns the
   SHAPE; the runners own execution.
 - Does NOT migrate: DEX lane RUNNERS (the legs' network half — live sends

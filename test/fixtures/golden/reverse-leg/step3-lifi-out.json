@@ -20,8 +20,8 @@
     "decimals": 9,
     "toDecimals": 6,
     "fromDecimals": 9,
-    "netOnSolana": 0.39501000000000003,
-    "fromAmountRaw": "395010000",
+    "netOnSolana": 0.397005,
+    "fromAmountRaw": "397005000",
     "fromChain": "SOL",
     "toChain": "eth",
     "fromToken": "So11111111111111111111111111111111111111112",
@@ -37,7 +37,7 @@
     "qsParams": {
       "allowSwitchChain": "false",
       "fromAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
-      "fromAmount": "395010000",
+      "fromAmount": "397005000",
       "fromChain": "SOL",
       "fromToken": "So11111111111111111111111111111111111111112",
       "integrator": "x1-teleporter-labs",
@@ -49,7 +49,7 @@
       "x1Class": "1"
     }
   },
-  "sha256": "9158503c0e92c92337c65f147cee888314e2cbc89c438a9a4470d4938e69a287",
+  "sha256": "c8099258df19819cc5b05d749d3b0c00cec4583596ba7651d09c749d6282c3ed",
   "meta": {
     "note": "The deterministic Solana→EVM LiFi query (buildReverseLifiQuoteParams): WSOL (9-dec, released by the Warp burn) → the user-selected stable on the destination EVM chain, with toAddress PINNED to the EVM destination 0x1870aFAfA… — the #44 display value. x1-class: no fee param (absent means absent). The executable tx bytes are LI.Fi's — frozen as the quote input fixture; the oracle pins the QUERY + the recipient."
   }

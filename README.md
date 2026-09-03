@@ -29,7 +29,7 @@ git push -u origin main
 ### 3. Set environment variables (Vercel → Settings → Environment Variables)
 ```
 INTEGRATOR=x1-teleporter-labs
-INTEGRATOR_FEE=0.01
+INTEGRATOR_FEE=0.005  # fee-model v2: 0.5% (was 1%)
 LIFI_API_KEY=<from portal.li.fi — optional but raises rate limits>
 FEE_WALLET_EVM=<your EVM fee wallet>
 FEE_WALLET_SVM=<your Solana/X1 fee wallet>
@@ -42,7 +42,7 @@ In `src/Teleporter.jsx`, set:
 const DEMO_MODE = false;
 ```
 Commit + push. Vercel auto-redeploys. Quotes now hit real LI.FI through your
-serverless proxy, with your 1% fee forced on every route.
+serverless proxy, with your 0.5% fee forced on every route (fee-model v2).
 
 ### 5. Point the domain
 - Vercel → Project → Settings → Domains → add `x1teleporter.com`.
@@ -70,7 +70,7 @@ holds keys or signs.
 - Any-chain → any-chain stablecoin routing (ETH, BSC, Arbitrum, Base, Optimism,
   Polygon, Avalanche, Sonic, Solana)
 - X1 on-ramp / off-ramp via LI.FI + Warp Bridge
-- 1% integrator fee on every EVM-leg route (in AND out of X1)
+- 0.5% integrator fee on every EVM-leg route (capped at $250 — fee-model v2)
 - Wallet connect, real tx execution, live status, history, recovery, settings
 
 **Gated (flip flags when ready):**
@@ -92,7 +92,7 @@ holds keys or signs.
   path stays behind the `WARP_LIVE_SEND` gate (false — no live sends).
 
 **Still gated on the Warp capture test:**
-- The pure Solana↔X1 hop execution and its 1% mint-skim. Keep that route in
+- The pure Solana↔X1 hop execution and its 0.5% skim. Keep that route in
   demo until the $1 capture test confirms the real Warp program ID,
   discriminator, and account layout (see warp-bridge-verification-checklist.md).
 

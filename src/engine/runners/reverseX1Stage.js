@@ -11,10 +11,10 @@
  *   0. PREFLIGHT (prelude) — assertX1FeePayer: the bare `AccountNotFound`
  *      from the live hop was the fee payer missing on X1; surface it as an
  *      actionable X1FeePayerError before anything is built. When a Teleporter
- *      fee is due: assertX1TokenBalance — the burn's total debit (1% skim
+ *      fee is due: assertX1TokenBalance — the burn's total debit (0.5% skim
  *      transfer + Warp gross) must be covered (the live Custom(1) failure).
  *   1. x1-reverse-burn leg — build (fee-ATA prep + buildReverseBurn + the
- *      prepended 1% skim transfer — ONE tx), simulateStage2 (fail-closed),
+ *      prepended 0.5% skim transfer — ONE tx), simulateStage2 (fail-closed),
  *      then sendStage2ViaPhantom when allowLive. The WARP_LIVE_SEND gate is
  *      forwarded as allowLive by the form — never decided here.
  *
@@ -80,7 +80,7 @@ export async function runReverseX1Stage({
       mint: tok.mint,
       decimals: tok.decimals,
       sym: token,
-      requiredHuman: skim + burnAmount, // 1% skim transfer + Warp gross
+      requiredHuman: skim + burnAmount, // 0.5% skim transfer + Warp gross
     });
   }
 

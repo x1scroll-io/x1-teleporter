@@ -98,7 +98,7 @@ export function deriveQuoteFromLifi({ data, from, token, amount, destToken = "US
   // POLICY quote: x1-class fees are computed on what LiFi DELIVERED (the
   // stage-2 skim base is leg-1-delivered), not the original input. The Warp
   // fee component is token-aware too (wSOL.X charges 25 bps, not the flat $1
-  // — live Warp config, verified on-chain).
+  // — live Warp config, verified on-chain 2026-09-02).
   const route = {
     from, to: "x1", routeType: "x1", amount,
     ...(destToken === "wSOL.X" ? { warpFeeBps: 25 } : {}),

@@ -18,7 +18,7 @@
  *     appears ONLY after the quote lands
  *     (re-fetch immediately before the address is shown — runbook; failure
  *     blocks the address with a retry). The three fees (THORChain affiliate
- *     protocol fee + our 1% skim + Warp's $1) render from computeFee's
+ *     protocol fee + our 0.5% skim (max $250) + Warp's own fee) render from computeFee's
  *     thorchain-leg class before the user sends. The size cap (0.05
  *     BTC-equivalent, config) is enforced at quote time.
  *   - The submit hook emits {inboundTxid, sourceChain, destination,

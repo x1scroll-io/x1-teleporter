@@ -1,6 +1,6 @@
 {
   "tool": "golden-transaction fixtures — the DEX swap legs (regression oracle, Phase 4)",
-  "capturedAt": "2026-09-02T12:03:22.134Z",
+  "capturedAt": "2026-09-02T23:15:30.060Z",
   "liveStatus": {
     "note": "Input fixtures are LIVE read-only captures (2026-09-02): the Jupiter quote, the LiFi same-chain quote and the XDEX pool snapshot. The oracle pins the CONSTRUCTION given the same inputs. XDEX arg semantics (disc 8fbe5adac41e33de, amount_in u64 LE + min_out u64 LE) are LIVE-CONFIRMED 1:1 by the anchor swap tx 65xjdHVd… (slot 76,014,947, err ok — Mr. Esters' controlled $5 swap on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR); the xdex sample IS that swap.",
     "replaceWith": "On first live use: refresh the XDEX pool snapshot (tools/capture-xdex-snapshot.mjs equivalent — read-only RPC) and re-run tools/capture-dex-golden-fixtures.mjs."
@@ -89,9 +89,9 @@
     },
     "lifiStep1SameChainSwapRequest": {
       "file": "lifi-step1-samechain-swap-request.json",
-      "sha256": "bcd3cc88144c8662533f347de9ac9352a49ce0eb58f7d1bbe2807256c08e9ead",
-      "upstreamUrl": "https://li.quest/v1/quote?fromChain=eth&toChain=eth&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&fromAmount=10000000&fromAddress=0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6&toAddress=0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6&slippage=0.005&integrator=x1-teleporter-labs&order=CHEAPEST&allowSwitchChain=false&fee=0.01",
-      "urlSha256": "d21594c4f6b925354724e28ce4e440dcc4a01b51e8614e9feb2f753f6a398427"
+      "sha256": "15581ae353e716c821b069338412ef7ddb70c9d294bd88ed399d357f1ecef301",
+      "upstreamUrl": "https://li.quest/v1/quote?fromChain=eth&toChain=eth&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&fromAmount=10000000&fromAddress=0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6&toAddress=0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6&slippage=0.005&integrator=x1-teleporter-labs&order=CHEAPEST&allowSwitchChain=false&fee=0.005",
+      "urlSha256": "fb79050cecb38708c03c1fdaaa86407579c4c73628667e80edda6877dab4d3d6"
     }
   },
   "verify": "test/goldenDex.test.js rebuilds every step from the same inputs and asserts byte-identical + sha256 match + the dex-leg invariants (raw amounts, verbatim quote forwarding, the LIVE-VERIFIED XDEX discriminator 8fbe5adac41e33de anchored to tx 65xjdHVd…, the forced same-chain fee)."

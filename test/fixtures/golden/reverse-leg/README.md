@@ -20,7 +20,7 @@ the one that delivered USDC to Ethereum; Ethereum balance went 82.92 →
 | File | Step | What it captures |
 |---|---|---|
 | `quote-wsol-usdc-eth-0.39501.json` | INPUT | The FROZEN live LiFi quote (relaydepository route, 0.39501 WSOL → USDC on Ethereum, captured 2026-09-02 via the stable v2 proxy `/api/lifi/quote` with toAddress = the pinned EVM destination). Stands in for the LiFi network so everything is reproducible offline. The executable Solana tx rides inside it (`transactionRequest.data`, base64). |
-| `step1-x1-burn.json` | 1 | The X1 reverse burn tx: the 1% skim Token-2022 transfer (user → the fee wallet's wSOL.X ATA `8YxSUo3…` — the SAME ATA the live burn transferred to) + Warp `BridgeOut(seq, 396,000,000)` in ONE transaction (wSOL.X 9-dec, token-aware 25bps fee account). Serialized unsigned (base64) + sha256. |
+| `step1-x1-burn.json` | 1 | The X1 reverse burn tx: the 0.5% skim Token-2022 transfer (user → the fee wallet's wSOL.X ATA `8YxSUo3…` — the SAME ATA the live burn transferred to) + Warp `BridgeOut(seq, 398,000,000)` in ONE transaction (fee-model v2; old 1% values: skim 4,000,000 / bridge 396,000,000) (wSOL.X 9-dec, token-aware 25bps fee account). Serialized unsigned (base64) + sha256. |
 | `step2-release-shape.json` | 2 | The app's side of the Solana release contract: the `WARP_BRIDGE_IN_V2_ACCOUNTS_SPEC` (14 rows) serialized canonically (`specSha256`) + the NATIVE-variant derivable account list (11 offline-derivable keys in spec order — the vault pair is INCLUDED, `mint_authority` is the program-self placeholder) + the expected release math. The release tx itself is SUBMITTER-constructed (official submitter + guardians): `signature_set` / `incoming_msg` / `payer` (+ the bundled recipient-ATA create) are documented as templates, never guessed. |
 | `step3-lifi-out.json` | 3 | The deterministic LiFi query (`buildReverseLifiQuoteParams`) with the **PINNED EVM destination** (`toAddress = 0x1870aFAfA…` — the #44 display value): fromToken WSOL (9-dec), toToken USDC on eth, fromAmount 395,010,000, x1-class (no fee param). |
 | `reverse-leg-summary.json` | — | Sample input, derived amounts (skim 4,000,000 / bridge 396,000,000 / Warp 25bps 990,000 / release 395,010,000), per-step sha256s, the quote reference (recipient == the pinned EVM wallet), and the quote-box display strings computed by the REAL fee code (the browser harness asserts against these). |
@@ -46,7 +46,7 @@ run — note the canonical EIP-55 casing: the task's logged all-caps
 rejects it); `0x1870aFAfA502223f6F70b6DDB93dc4099C86C239` is the same account
 in its canonical form. All comparisons are case-insensitive.
 
-Derived from the fixed sample: burn **0.4 wSOL.X** gross → 1% skim
+Derived from the fixed sample: burn **0.4 wSOL.X** gross → 0.5% skim
 **4,000,000** base (9-dec) → bridge_out **396,000,000** → Warp's own 25bps
 carved inside bridge_out (**990,000** — the live fee-collector debit) → the
 guardians release **395,010,000** base (**0.39501 WSOL**) on Solana → LiFi

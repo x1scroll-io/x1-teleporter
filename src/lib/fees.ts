@@ -1,48 +1,70 @@
 /**
  * fees.ts — THE single source of truth for every Teleporter fee.
  *
- * FEE POLICY (Mr. Esters, 2026-08-28 — SUPERSEDES the runbook's Step 1.3C
- * spec rates wherever they disagree):
- *   "Teleporter's fee is exactly 1% of the route total, charged once per
- *    journey, regardless of hop count."
+ * FEE POLICY (Mr. Esters, 2026-09-02 — FEE-MODEL v2, SUPERSEDES the
+ * 2026-08-28 1%-once policy wherever they disagree):
+ *   "Teleporter's fee is 0.5% of the route total, CAPPED at $250 max per
+ *    trade, charged once per journey, regardless of hop count."
+ *   teleporterFee = min(routeTotal * 0.005, 250)
  *
  * Concretely, per class:
  *   - x1-hop (sol_x1, x1, x1_reverse, x1_onward — every journey that touches
- *     the Warp bridge): the ONLY Teleporter fee is the 1% pre-bridge skim
- *     (warp-skim). The LiFi integrator fee is REMOVED from this class —
- *     integrator param is forced to 0 (see api/lifi/quote.js + the
- *     lifiIntegratorFeeFor() helper) so the stage-2 on-chain skim is the only
- *     Teleporter fee. Warp's flat $1 (warp-flat) is a THIRD-PARTY
- *     pass-through collected by the Warp program — it is carried as a
- *     separate component labeled "Warp bridge fee", never as a Teleporter fee.
- *   - same-chain (every non-X1 LiFi route): the 1% LiFi integrator fee IS the
- *     once-per-journey Teleporter fee. The runbook's 0.5% same-chain headline
- *     is SUPERSEDED — the charged rate and the policy rate now agree at
- *     exactly 1%, once.
- *   - escape-hatch: 5% — a NAMED EXCEPTION to the 1%-once rule (Mr. Esters,
- *     fee policy). The 1%-once rule is about bridging; the escape hatch is a
+ *     the Warp bridge): the ONLY Teleporter fee is the 0.5% pre-bridge skim
+ *     (warp-skim, capped at $250). The LiFi integrator fee is REMOVED from
+ *     this class — integrator param is forced to 0 (see api/lifi/quote.js +
+ *     the lifiIntegratorFeeFor() helper) so the stage-2 on-chain skim is the
+ *     only Teleporter fee. The Warp program's own fee (warp-flat for
+ *     USDC.x, warp-pct for wSOL.X) is a THIRD-PARTY pass-through collected
+ *     by the Warp program — carried as a separate component labeled "Warp
+ *     bridge fee", never as a Teleporter fee.
+ *   - same-chain (every non-X1 LiFi route): the 0.5% LiFi integrator fee IS
+ *     the once-per-journey Teleporter fee (capped at $250 in the quote).
+ *   - escape-hatch: 5% — a NAMED EXCEPTION to the 0.5%-once rule (Mr. Esters,
+ *     fee policy). The fee rule is about bridging; the escape hatch is a
  *     rescue service for chains nothing else serves — a different product at
  *     a premium price, deliberately, labeled as such in the quote. Carve-out
- *     (verbatim): "Teleporter fee is 1% once per journey; the PulseChain
- *     escape hatch is a separate rescue product at 5%, labeled as such in the
- *     quote." No escape-hatch path exists in code yet.
+ *     (verbatim): "Teleporter fee is 0.5% once per journey, capped at $250;
+ *     the PulseChain escape hatch is a separate rescue product at 5%, labeled
+ *     as such in the quote." No escape-hatch path exists in code yet.
  *   - thorchain-leg (Workstream A — the BTC/DOGE/LTC/XRP → SOL.SOL lane):
  *     the user sees THREE fee lines before sending — THORChain affiliate
- *     (protocol fee), our 1% skim (Teleporter), Warp's $1 (third-party). The
- *     1%-once policy is about TELEPORTER's fee: the THORChain affiliate is a
- *     PROTOCOL fee (collected by THORChain to our THORName) and the Warp $1
- *     is a THIRD-PARTY pass-through (collected by the Warp program) — NEITHER
- *     counts toward Teleporter's 1%. Teleporter's take on this lane is still
- *     exactly 1%: the warp-skim on the Solana leg. All three are displayed
- *     before the user sends.
+ *     (protocol fee), our 0.5% skim (Teleporter, capped at $250), Warp's own
+ *     fee (third-party). The once-per-journey rule is about TELEPORTER's
+ *     fee: the THORChain affiliate is a PROTOCOL fee (collected by THORChain
+ *     to our THORName) and the Warp fee is a THIRD-PARTY pass-through
+ *     (collected by the Warp program) — NEITHER counts toward Teleporter's
+ *     0.5%. Teleporter's take on this lane is still min(0.5%, $250): the
+ *     warp-skim on the Solana leg. All three are displayed before the user
+ *     sends.
  *   - non-x1-bridge (future lane): no rate yet — it THROWS a descriptive
  *     FeeNotImplementedError instead of guessing a number.
  *
+ * WARP FEE — VERIFIED ON-CHAIN 2026-09-02 (see the PR's fee-model section;
+ * do NOT price on rumor): the live Warp config (api.bridge.mainnet.x1.xyz
+ * /config) + fresh bridge_out logs on BOTH chains still show USDC.x/USDC
+ * charging a FLAT $1 (flatFeeAmount 1000000, 0 bps — e.g. X1 burn
+ * 2Vb6HgsU… gross 367.34 → token fee 1.00, and Solana lock 3cscs4Dx5…
+ * "Token fee: 1000000" → collector +1.0 USDC) and wSOL.X/WSOL charging
+ * exactly 25 bps (0.25% — e.g. X1 burn 7QH5SAaH3… gross 129.675 → fee
+ * 324,187 base = 25bps). The rumored "USDC flat $1 → 0.25%" change did NOT
+ * happen. The Solana-side release (bridge_in_v2) charges NO separate fee
+ * (the fee is charged once, on the source-side bridge_out). So the Warp
+ * pass-through components below are UNCHANGED from the verified structure.
+ *
  * INVARIANT (tested): for EVERY route class EXCEPT escape-hatch (the named
  * 5% rescue product), the sum of Teleporter-owned components
- * (teleporterFeeUsd) is exactly 1% of the journey total — never more.
- * Third-party pass-throughs (warp-flat, thorchain-affiliate) and protocol
- * fees are labeled and summed separately.
+ * (teleporterFeeUsd) is exactly min(0.5% of the journey total, $250) — never
+ * more. Third-party pass-throughs (warp-flat, warp-pct, thorchain-affiliate)
+ * and protocol fees are labeled and summed separately.
+ *
+ * THE $250 CAP vs EXECUTABLE JOURNEYS: the cap binds only above a $50,000
+ * route total. Warp's own per-tx maxAmount (live config: USDC 5,000 /
+ * wSOL 50 / cbBTC 0.0625 / ETH 2) and the THORChain lane's max swap
+ * (THORCHAIN_MAX_SWAP_BTC_EQUIVALENT 0.05 BTC) keep every executable
+ * journey far below that — the on-chain skims (buildStage2 / runReverse,
+ * SKIM_BPS = 50) therefore charge the pure 0.5% rate, which the cap never
+ * reduces today. The cap is enforced in this USD accounting layer (the
+ * quote box) and is the policy ceiling.
  *
  * PURE MODULE: no DOM, no fetch, no wallet, no chain imports. Runnable under
  * `node --test` (type stripping) exactly like routes.ts / flags.ts.
@@ -56,38 +78,51 @@ import { determineRoute, type RouteType } from "./routes.ts";
 import { THORCHAIN_AFFILIATE_BPS } from "./thorchain/config.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RATES — the fee policy rates (all classes exactly 1% once — with ONE named
-// exception: escape-hatch at 5%, the separate rescue product).
+// RATES — the fee policy rates (all classes 0.5% once, capped at $250 — with
+// ONE named exception: escape-hatch at 5%, the separate rescue product).
 // ─────────────────────────────────────────────────────────────────────────────
 export const FEE_RATES = {
-  /** 1% — the X1-hop pre-bridge skim. Applied TODAY, source side, as a
+  /** 0.5% — the X1-hop pre-bridge skim. Applied TODAY, source side, as a
    *  pre-bridge SPL transfer (warpBridge buildStage2 / runReverse prepend).
-   *  For x1-class routes this is THE Teleporter fee — the only one. */
-  X1_HOP_SKIM: 0.01,
-  /** $1 flat — the Warp bridge's OWN fee. Collected by the Warp program's fee
-   *  account (not ours); we pass it through in quotes as a third-party
-   *  component labeled "Warp bridge fee". NOT a Teleporter fee. */
+   *  For x1-class routes this is THE Teleporter fee — the only one. Capped
+   *  at $250 (TELEPORTER_FEE_CAP_USD) — fee-model v2 (2026-09-02). */
+  X1_HOP_SKIM: 0.005,
+  /** $1 flat — the Warp bridge's OWN fee for USDC.x/USDC (VERIFIED on-chain
+   *  2026-09-02: live config flatFeeAmount 1000000 + bridge_out logs
+   *  "Token fee: 1000000" on both chains — the rumored flat→0.25% change
+   *  did NOT happen). Collected by the Warp program's fee account (not
+   *  ours); we pass it through in quotes as a third-party component labeled
+   *  "Warp bridge fee". NOT a Teleporter fee. wSOL.X/WSOL charge 25 bps
+   *  instead (warp-pct, 25 bps — also verified). */
   WARP_FLAT_USD: 1,
-  /** 1% — the LiFi integrator fee. For same-chain (non-X1) routes this IS the
-   *  once-per-journey Teleporter fee (collected by LiFi to our integrator
-   *  account; the server forces it on every non-X1 quote — api/lifi/quote.js —
-   *  so the browser can't strip it). For x1-class routes it is ABSENT (policy
-   *  — the fee key is omitted from the query entirely, never fee=0). */
-  LIFI_INTEGRATOR: 0.01,
-  /** 1% — same-chain class rate (policy, 2026-08-28). SUPERSEDES the runbook's
-   *  0.5% spec: the policy sets Teleporter's fee at exactly 1% once per
-   *  journey, so the class's charged rate (the LiFi integrator) and the policy
-   *  rate now agree at 1%. */
-  SAME_CHAIN: 0.01,
-  /** 5% — escape-hatch class rate — NAMED EXCEPTION to the 1%-once rule
-   *  (Mr. Esters, fee policy): the 1%-once rule is about bridging; the escape
+  /** 0.5% — the LiFi integrator fee. For same-chain (non-X1) routes this IS
+   *  the once-per-journey Teleporter fee (collected by LiFi to our integrator
+   *  account; the server forces it on every non-X1 quote — api/lifi/quote.js
+   *  + api/_lifi.js INTEGRATOR_FEE — so the browser can't strip it). For
+   *  x1-class routes it is ABSENT (policy — the fee key is omitted from the
+   *  query entirely, never fee=0). OPS: the LiFi portal config for
+   *  x1-teleporter-labs must charge 0.5% to match (verify before any
+   *  same-chain go-live). */
+  LIFI_INTEGRATOR: 0.005,
+  /** 0.5% — same-chain class rate (policy, fee-model v2 2026-09-02 — was 1%
+   *  under the 2026-08-28 policy; the fee is now 0.5% capped at $250, once). */
+  SAME_CHAIN: 0.005,
+  /** 5% — escape-hatch class rate — NAMED EXCEPTION to the 0.5%-once rule
+   *  (Mr. Esters, fee policy): the fee rule is about bridging; the escape
    *  hatch is a rescue service for chains nothing else serves — a separate
    *  rescue product at a premium price, deliberately, labeled as such in the
-   *  quote. Carve-out (verbatim): "Teleporter fee is 1% once per journey; the
-   *  PulseChain escape hatch is a separate rescue product at 5%, labeled as
-   *  such in the quote." NOT YET APPLIED — no escape-hatch path exists. */
+   *  quote. Carve-out (verbatim): "Teleporter fee is 0.5% once per journey,
+   *  capped at $250; the PulseChain escape hatch is a separate rescue product
+   *  at 5%, labeled as such in the quote." NOT YET APPLIED — no escape-hatch
+   *  path exists. */
   ESCAPE_HATCH: 0.05,
 } as const;
+
+/** FEE-MODEL v2 CAP (Mr. Esters, 2026-09-02): the Teleporter fee is 0.5% of
+ *  the route total, CAPPED at $250 max per trade. Every Teleporter-owned
+ *  component (party === "teleporter") computes
+ *  amountUsd = min(amount * rate, TELEPORTER_FEE_CAP_USD). */
+export const TELEPORTER_FEE_CAP_USD = 250;
 
 // ── FEE WALLETS — where OUR skims land (same addresses as the runbook) ──
 export const FEE_WALLETS = {
@@ -104,24 +139,25 @@ export const LIFI_INTEGRATOR_ACCOUNT = "x1-teleporter-labs";
 // TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 export type FeeClass =
-  | "same-chain"      // 1% LiFi integrator = the once-per-journey Teleporter fee (policy)
-  | "x1-hop"          // 1% pre-bridge skim = the once-per-journey Teleporter fee (policy)
-  | "escape-hatch"    // 5% — NAMED EXCEPTION to the 1%-once rule (separate rescue product); NOT yet applied
-  | "thorchain-leg"   // Workstream A — 1% Teleporter skim + THORChain affiliate (protocol) + Warp's $1 (third-party), all shown before send
+  | "same-chain"      // 0.5% LiFi integrator = the once-per-journey Teleporter fee (capped $250)
+  | "x1-hop"          // 0.5% pre-bridge skim = the once-per-journey Teleporter fee (capped $250)
+  | "escape-hatch"    // 5% — NAMED EXCEPTION to the 0.5%-once rule (separate rescue product); NOT yet applied
+  | "thorchain-leg"   // Workstream A — 0.5% Teleporter skim + THORChain affiliate (protocol) + Warp's own fee (third-party), all shown before send
   | "non-x1-bridge";  // future lane — no rate yet, throws
 
 export type FeeComponentId =
   | "lifi-integrator"    // LiFi's integrator fee on a LiFi leg — the Teleporter fee on same-chain routes; 0 on x1-class routes
-  | "warp-skim"          // our 1% pre-bridge skim — the Teleporter fee on x1-class routes
-  | "warp-flat"          // the Warp program's own flat $1 (third-party pass-through, labeled "Warp bridge fee")
+  | "warp-skim"          // our 0.5% pre-bridge skim (capped $250) — the Teleporter fee on x1-class routes
+  | "warp-flat"          // the Warp program's own flat $1 for USDC.x/USDC (third-party pass-through — VERIFIED on-chain 2026-09-02, labeled "Warp bridge fee")
   | "warp-pct"           // the Warp program's percentage fee (third-party pass-through — used when the token charges bps instead of a flat fee, e.g. wSOL.X 25bps)
   | "thorchain-affiliate" // the THORChain PROTOCOL affiliate fee paid to our THORName (third-party — NEVER a Teleporter fee)
   | "escape-hatch-skim"; // the escape-hatch skim (future, 5% — named exception, rescue product)
 
 /** Who owns the money: "teleporter" = collected to OUR wallets/integrator
- *  account (counts toward the 1% once-per-journey take); "third-party" =
- *  pass-through collected by someone else (Warp's $1 today, THORChain /
- *  provider costs later) — shown separately, never labeled a Teleporter fee. */
+ *  account (counts toward the 0.5%-capped once-per-journey take);
+ *  "third-party" = pass-through collected by someone else (Warp's $1/25bps
+ *  today, THORChain / provider costs later) — shown separately, never
+ *  labeled a Teleporter fee. */
 export type FeeParty = "teleporter" | "third-party";
 
 export type FeeCollector =
@@ -142,7 +178,7 @@ export type FeeApplicationPoint =
 /** What amount a component is computed against.
  *  "source" = the user's input amount. Later-leg components are computed on
  *  what actually arrived on that leg (e.g. the stage-2 skim on x1 routes takes
- *  1% of what LiFi delivered, not of the original input). */
+ *  0.5% of what LiFi delivered, not of the original input). */
 export type FeeBase = "source" | "leg-1-delivered" | "leg-2-delivered";
 
 export interface FeeRoute {
@@ -178,12 +214,16 @@ export interface FeeComponent {
   id: FeeComponentId;
   label: string;
   kind: "rate" | "flat";
-  /** Decimal rate when kind === "rate" (0.01 = 1%). */
+  /** Decimal rate when kind === "rate" (0.005 = 0.5%). */
   rate?: number;
   /** Flat USD when kind === "flat". */
   flatUsd?: number;
-  /** Who owns the money — teleporter (counts toward the 1% take) or
-   *  third-party pass-through (shown separately, never labeled Teleporter). */
+  /** Fee-model v2 cap (USD) on a rate component: amountUsd = min(amount *
+   *  rate, capUsd). Every Teleporter-owned rate component carries
+   *  TELEPORTER_FEE_CAP_USD (250). */
+  capUsd?: number;
+  /** Who owns the money — teleporter (counts toward the 0.5%-capped take) or
+   *  third-party (pass-through, shown separately, never labeled Teleporter). */
   party: FeeParty;
   /** Which wallet/account collects it. */
   collector: FeeCollector;
@@ -193,7 +233,8 @@ export interface FeeComponent {
   applied: FeeApplicationPoint;
   /** What amount base it is computed against. */
   base: FeeBase;
-  /** USD amount on a given base (rate: base * rate; flat: flatUsd). */
+  /** USD amount on a given base (rate: min(base * rate, capUsd); flat:
+   *  flatUsd). */
   amountUsd: (amount: number) => number;
 }
 
@@ -201,9 +242,10 @@ export interface FeeStructure {
   /** Exactly ONE class per route — a route is never charged by two classes. */
   class: FeeClass;
   label: string;
-  /** The class's headline rate (policy): every class is exactly 1%, once —
-   *  with ONE named exception: escape-hatch 5% (the separate rescue product).
-   *  x1-hop 1% (skim), same-chain 1% (integrator), escape-hatch 5% (exception). */
+  /** The class's headline rate (policy): every class is 0.5%, once, capped
+   *  at $250 — with ONE named exception: escape-hatch 5% (the rescue
+   *  product). x1-hop 0.5% (skim), same-chain 0.5% (integrator),
+   *  escape-hatch 5% (exception). */
   headlineRate: number | null;
   components: FeeComponent[];
   /** Human summary of when/where the fee is applied. */
@@ -214,8 +256,9 @@ export interface FeeStructure {
   /** POLICY NUMBER: the total Teleporter take for a journey total of `amount`
    *  — the sum of ONLY the Teleporter-owned components (party === "teleporter"),
    *  each computed against the passed amount. For every class this must be
-   *  exactly 1% of `amount` (never more) — tested — EXCEPT escape-hatch,
-   *  which is the named 5% rescue product (Mr. Esters, fee policy). */
+   *  exactly min(0.5% of `amount`, $250) (never more) — tested — EXCEPT
+   *  escape-hatch, which is the named 5% rescue product (Mr. Esters, fee
+   *  policy). */
   teleporterFeeUsd: (amount: number) => number;
   /** The third-party pass-through components (warp-flat today; THORChain /
    *  provider costs later) — clearly labeled, never counted as Teleporter. */
@@ -306,10 +349,12 @@ function rateComponent(
   leg: FeeLeg,
   applied: FeeApplicationPoint,
   base: FeeBase,
+  capUsd?: number,
 ): FeeComponent {
   return {
-    id, label, kind: "rate", rate, party, collector, leg, applied, base,
-    amountUsd: (amount: number) => amount * rate,
+    id, label, kind: "rate", rate, party, collector, leg, applied, base, capUsd,
+    amountUsd: (amount: number) =>
+      capUsd != null ? Math.min(amount * rate, capUsd) : amount * rate,
   };
 }
 
@@ -374,13 +419,14 @@ function x1HopFee(route: FeeRoute): FeeStructure {
   // api/lifi/quote.js + lifiIntegratorFeeFor()) so the stage-2 skim below is
   // the ONLY Teleporter fee on the journey.
 
-  // Our 1% pre-bridge skim — source side, SPL transfer to OUR fee wallet.
-  // Reverse routes (X1→…) collect on the X1 wallet; forward routes on SVM.
+  // Our 0.5% pre-bridge skim (capped at $250) — source side, SPL transfer
+  // to OUR fee wallet. Reverse routes (X1→…) collect on the X1 wallet;
+  // forward routes on SVM.
   const skimWallet: FeeCollector =
     rt === "x1_reverse" || rt === "x1_onward" ? "fee-wallet-x1" : "fee-wallet-svm";
   components.push(rateComponent(
     "warp-skim",
-    "Teleporter fee (1%)",
+    "Teleporter fee (0.5%, max $250)",
     FEE_RATES.X1_HOP_SKIM,
     "teleporter",
     skimWallet,
@@ -388,13 +434,16 @@ function x1HopFee(route: FeeRoute): FeeStructure {
     "pre-bridge-transfer",
     // x1 (EVM→X1): stage 2 skims what LiFi DELIVERED, not the original input.
     rt === "x1" ? "leg-1-delivered" : "source",
+    TELEPORTER_FEE_CAP_USD,
   ));
 
   // The Warp bridge's own fee — collected by the Warp program (not us),
   // deducted inside BridgeOut on-chain. THIRD-PARTY pass-through, labeled
   // "Warp bridge fee" (never "Teleporter fee"). Two shapes, token-driven
-  // (live Warp config): USDC.x charges a flat $1 (warp-flat); wSOL.X charges
-  // a 25 bps percentage (warp-pct) — the bps override switches the component.
+  // (live Warp config, VERIFIED on-chain 2026-09-02 — the rumored USDC
+  // flat→0.25% change did NOT happen): USDC.x charges a flat $1 (warp-flat);
+  // wSOL.X charges a 25 bps percentage (warp-pct) — the bps override
+  // switches the component.
   if (route.warpFeeBps && route.warpFeeBps > 0) {
     components.push(rateComponent(
       "warp-pct",
@@ -409,7 +458,7 @@ function x1HopFee(route: FeeRoute): FeeStructure {
   } else {
     components.push(flatComponent(
       "warp-flat",
-      "Warp bridge fee",
+      "Warp bridge fee ($1 flat)",
       FEE_RATES.WARP_FLAT_USD,
       "third-party",
       "warp-program",
@@ -420,44 +469,48 @@ function x1HopFee(route: FeeRoute): FeeStructure {
 
   return makeStructure(
     "x1-hop",
-    "X1 hop — 1% Teleporter skim (once) + Warp's $1 (third-party)",
+    "X1 hop — 0.5% Teleporter skim (once, max $250) + Warp's own fee (third-party)",
     FEE_RATES.X1_HOP_SKIM,
     components,
-    "Teleporter's fee is the 1% pre-bridge skim, taken on the source side as an "
-      + "SPL transfer to our fee wallet — charged once per journey (LiFi integrator "
-      + "fee is omitted on x1-class routes by policy). The Warp program then takes its own "
-      + "flat $1 inside BridgeOut — a third-party pass-through, not a Teleporter fee.",
+    "Teleporter's fee is the 0.5% pre-bridge skim (capped at $250), taken on "
+      + "the source side as an SPL transfer to our fee wallet — charged once per "
+      + "journey (LiFi integrator fee is omitted on x1-class routes by policy). "
+      + "The Warp program then takes its own fee inside BridgeOut — USDC.x: flat "
+      + "$1, wSOL.X: 25 bps (verified on-chain 2026-09-02) — a third-party "
+      + "pass-through, not a Teleporter fee.",
   );
 }
 
 function sameChainFee(_route: FeeRoute): FeeStructure {
   return makeStructure(
     "same-chain",
-    "Same-chain / non-X1 LiFi lane — 1% Teleporter fee, once per journey",
+    "Same-chain / non-X1 LiFi lane — 0.5% Teleporter fee (max $250), once per journey",
     FEE_RATES.SAME_CHAIN,
     [
       rateComponent(
         "lifi-integrator",
-        "Teleporter fee (1%)",
+        "Teleporter fee (0.5%, max $250)",
         FEE_RATES.LIFI_INTEGRATOR,
         "teleporter",
         "lifi-integrator",
         "lifi-leg",
         "lifi-fee",
         "source",
+        TELEPORTER_FEE_CAP_USD,
       ),
     ],
-    "The 1% LiFi integrator fee IS the once-per-journey Teleporter fee on non-X1 "
-      + "routes (policy, 2026-08-28 — supersedes the runbook's 0.5% same-chain "
-      + "spec). Collected by LiFi to our integrator account; the server forces it "
-      + "on every non-X1 quote (api/lifi/quote.js) so the browser can't strip it.",
+    "The 0.5% LiFi integrator fee IS the once-per-journey Teleporter fee on "
+      + "non-X1 routes (fee-model v2, 2026-09-02 — was 1% under the 2026-08-28 "
+      + "policy; now 0.5% capped at $250). Collected by LiFi to our integrator "
+      + "account; the server forces it on every non-X1 quote (api/lifi/quote.js) "
+      + "so the browser can't strip it.",
   );
 }
 
 function escapeHatchFee(_route: FeeRoute): FeeStructure {
   return makeStructure(
     "escape-hatch",
-    "Escape hatch (rescue) — 5% (named exception to the 1%-once rule; NOT yet applied)",
+    "Escape hatch (rescue) — 5% (named exception to the 0.5%-once rule; NOT yet applied)",
     FEE_RATES.ESCAPE_HATCH,
     [
       rateComponent(
@@ -472,13 +525,13 @@ function escapeHatchFee(_route: FeeRoute): FeeStructure {
       ),
     ],
     "Emergency escape path (future) — NOT yet applied. NAMED EXCEPTION to the "
-      + "1%-once rule (Mr. Esters, fee policy): the 1%-once rule is about bridging; "
+      + "0.5%-once rule (Mr. Esters, fee policy): the fee rule is about bridging; "
       + "the escape hatch is a rescue service for chains nothing else serves — a "
       + "separate rescue product at a premium price, deliberately, labeled as such "
-      + "in the quote. Carve-out (verbatim): \"Teleporter fee is 1% once per journey; "
-      + "the PulseChain escape hatch is a separate rescue product at 5%, labeled as "
-      + "such in the quote.\" Collector wallet is a placeholder (FEE_WALLETS.X1) "
-      + "pending that phase's design.",
+      + "in the quote. Carve-out (verbatim): \"Teleporter fee is 0.5% once per "
+      + "journey, capped at $250; the PulseChain escape hatch is a separate rescue "
+      + "product at 5%, labeled as such in the quote.\" Collector wallet is a "
+      + "placeholder (FEE_WALLETS.X1) pending that phase's design.",
   );
 }
 
@@ -498,31 +551,34 @@ function thorchainAffiliateBps(route: FeeRoute): number {
  * fee display, docs/BRIEF.md Workstream A):
  *   1. thorchain-affiliate — the THORChain PROTOCOL affiliate fee, rate from
  *      config (affiliateBps, start 100), collected by THORChain to our
- *      THORName. POLICY: the 1%-once rule is about TELEPORTER's fee; the
- *      THORChain affiliate is a PROTOCOL fee — it does NOT count toward
- *      Teleporter's 1%. Rendered as a third-party/protocol line.
- *   2. warp-skim — our 1% pre-bridge skim on the Solana leg: THE Teleporter
- *      fee on this lane. Exactly 1%, once.
- *   3. warp-flat — the Warp program's own flat $1: a THIRD-PARTY pass-through
- *      (collected by the Warp program, not us), labeled "Warp bridge fee".
- *      POLICY: it does NOT count toward Teleporter's 1% either.
+ *      THORName. POLICY: the once-per-journey rule is about TELEPORTER's
+ *      fee; the THORChain affiliate is a PROTOCOL fee — it does NOT count
+ *      toward Teleporter's 0.5%. Rendered as a third-party/protocol line.
+ *   2. warp-skim — our 0.5% pre-bridge skim on the Solana leg (capped at
+ *      $250): THE Teleporter fee on this lane. 0.5%, once.
+ *   3. warp-flat — the Warp program's own flat $1 for USDC.x: a THIRD-PARTY
+ *      pass-through (collected by the Warp program, not us), labeled "Warp
+ *      bridge fee ($1 flat)" — VERIFIED on-chain 2026-09-02 (USDC.x still
+ *      charges flat $1, not 0.25%). POLICY: it does NOT count toward
+ *      Teleporter's 0.5% either.
  *
- * The 1%-once invariant holds: teleporterFeeUsd(amount) is exactly 1% — the
- * affiliate + Warp $1 are third-party/protocol lines summed separately.
- * NO lifi-integrator component here (the lane has no LiFi leg), and never a
- * second Teleporter charge — no double charge by construction (tested).
+ * The capped-once invariant holds: teleporterFeeUsd(amount) is exactly
+ * min(0.5% of amount, $250) — the affiliate + Warp fee are third-party/
+ * protocol lines summed separately. NO lifi-integrator component here (the
+ * lane has no LiFi leg), and never a second Teleporter charge — no double
+ * charge by construction (tested).
  */
 function thorchainLegFee(route: FeeRoute): FeeStructure {
   const affiliateBps = thorchainAffiliateBps(route);
   return makeStructure(
     "thorchain-leg",
-    "THORChain lane — 1% Teleporter skim + THORChain affiliate (protocol) + Warp's $1 (third-party)",
+    "THORChain lane — 0.5% Teleporter skim (max $250) + THORChain affiliate (protocol) + Warp's own fee (third-party)",
     FEE_RATES.X1_HOP_SKIM,
     [
       // 1) THORChain PROTOCOL affiliate fee → our THORName, deducted by
       //    THORChain inside the swap. NOT a Teleporter fee (policy): the
-      //    1%-once rule is about Teleporter's fee; the affiliate is the
-      //    THORChain protocol's affiliate mechanism. Shown before send.
+      //    once-per-journey rule is about Teleporter's fee; the affiliate is
+      //    the THORChain protocol's affiliate mechanism. Shown before send.
       rateComponent(
         "thorchain-affiliate",
         "THORChain affiliate (protocol fee)",
@@ -533,24 +589,25 @@ function thorchainLegFee(route: FeeRoute): FeeStructure {
         "on-chain",
         "source",
       ),
-      // 2) OUR 1% pre-bridge skim on the Solana leg — THE Teleporter fee on
-      //    this lane (exactly 1%, once per journey; policy).
+      // 2) OUR 0.5% pre-bridge skim on the Solana leg (capped at $250) — THE
+      //    Teleporter fee on this lane (0.5%, once per journey; policy).
       rateComponent(
         "warp-skim",
-        "Teleporter fee (1%)",
+        "Teleporter fee (0.5%, max $250)",
         FEE_RATES.X1_HOP_SKIM,
         "teleporter",
         "fee-wallet-svm",
         "pre-bridge",
         "pre-bridge-transfer",
         "source",
+        TELEPORTER_FEE_CAP_USD,
       ),
-      // 3) Warp's own flat $1 — THIRD-PARTY pass-through (collected by the
-      //    Warp program, not us), labeled "Warp bridge fee". Not a Teleporter
-      //    fee (policy).
+      // 3) Warp's own flat $1 for USDC.x — THIRD-PARTY pass-through
+      //    (collected by the Warp program, not us), labeled "Warp bridge fee
+      //    ($1 flat)" — verified on-chain 2026-09-02. Not a Teleporter fee.
       flatComponent(
         "warp-flat",
-        "Warp bridge fee",
+        "Warp bridge fee ($1 flat)",
         FEE_RATES.WARP_FLAT_USD,
         "third-party",
         "warp-program",
@@ -559,11 +616,12 @@ function thorchainLegFee(route: FeeRoute): FeeStructure {
       ),
     ],
     "Three fees, all shown before the user sends: the THORChain affiliate "
-      + "(protocol fee to our THORName, rate from config affiliateBps), our 1% "
-      + "pre-bridge skim on the Solana leg (THE once-per-journey Teleporter "
-      + "fee — the 1%-once policy covers Teleporter's fee only), and the Warp "
-      + "program's flat $1 (third-party pass-through). Neither the affiliate "
-      + "nor Warp's $1 counts toward Teleporter's 1%.",
+      + "(protocol fee to our THORName, rate from config affiliateBps), our 0.5% "
+      + "pre-bridge skim on the Solana leg (capped at $250 — THE once-per-journey "
+      + "Teleporter fee; the policy covers Teleporter's fee only), and the Warp "
+      + "program's own fee (USDC.x flat $1 — verified on-chain 2026-09-02; "
+      + "third-party pass-through). Neither the affiliate nor Warp's fee counts "
+      + "toward Teleporter's 0.5%.",
   );
 }
 
@@ -596,7 +654,7 @@ export function computeFee(route: FeeRoute): FeeStructure {
 export interface FeeQuote {
   /** One line per fee component — the quote box renders exactly these. */
   feeLines: FeeLine[];
-  /** Sum of the Teleporter-owned lines (the 1% once-per-journey take). */
+  /** Sum of the Teleporter-owned lines (the 0.5%-capped once-per-journey take). */
   teleporterFeeUsd: number;
   /** Sum of the third-party pass-through lines (Warp's $1, later providers). */
   thirdPartyFeeUsd: number;

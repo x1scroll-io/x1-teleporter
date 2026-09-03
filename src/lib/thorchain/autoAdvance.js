@@ -3,14 +3,14 @@
  *
  * docs/BRIEF.md (Workstream A — Panel 2): "On `done`: detect SOL landing in
  * the connected wallet (balance delta ≥ expected − tolerance). Auto-advance
- * into the existing SOL→USDC same-chain swap, then the 1% skim, then Warp.
+ * into the existing SOL→USDC same-chain swap, then the 0.5% skim, then Warp.
  * Reuse HoldingsPanel / TokenPicker; do not build new pickers."
  *
  * The existing SOL→USDC swap is the LI.Fi Solana execution path
  * (executeLiFiSolanaTx — extracted to src/lib/lifiSolanaTx.js so this flow
  * calls the SAME code as Teleporter.jsx; Teleporter.jsx now delegates to it).
- * The 1% skim + Warp hop are warpBridge.js `buildStage2`/`simulateStage2` and
- * `runStage2` (buildStage2 prepends the 1% pre-bridge SPL transfer to our fee
+ * The 0.5% skim + Warp hop are warpBridge.js `buildStage2`/`simulateStage2` and
+ * `runStage2` (buildStage2 prepends the 0.5% pre-bridge SPL transfer to our fee
  * wallet, then calls the Warp BridgeOut instruction — runStage2 simulates and,
  * only when allowLive is true AND the WARP_LIVE_SEND gate is on, broadcasts).
  *
@@ -131,8 +131,8 @@ export function createThorchainAdvanceActions(deps = {}) {
     },
 
     /**
-     * Step 2 — the 1% pre-bridge skim. Builds the stage-2 transaction
-     * (buildStage2 prepends the 1% SPL transfer to our fee wallet, then the
+     * Step 2 — the 0.5% pre-bridge skim. Builds the stage-2 transaction
+     * (buildStage2 prepends the 0.5% SPL transfer to our fee wallet, then the
      * Warp BridgeOut) and SIMULATES it. No broadcast — this proves the skim
      * instruction is executable before the Warp hop runs. Returns
      * { built, sim } so the warp step (and the UI) can reuse the built tx.

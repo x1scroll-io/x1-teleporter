@@ -28,12 +28,12 @@ const SOL_LIFI_KEY = "SOL";
 /** Decide the fee the server will FORCE for this quote request. Pure + exported
  *  so the fee policy is unit-testable without a live LiFi call. Returns null
  *  (OMIT the fee key entirely — absent means absent, never fee=0) for x1-class
- *  requests, INTEGRATOR_FEE ("0.01") otherwise.
+ *  requests, INTEGRATOR_FEE ("0.005") otherwise.
  *
  *  x1-class rule: the request must (a) carry x1Class=1 AND (b) have Solana on
  *  one end of the LiFi leg — every x1-class LiFi leg is EVM↔Solana (X1 is only
  *  reachable via the Solana Warp bridge). A marker without a Solana leg is
- *  rejected (falls back to the 1% integrator fee), so a same-chain EVM→EVM
+ *  rejected (falls back to the 0.5% integrator fee), so a same-chain EVM→EVM
  *  request can never claim x1-class to dodge the fee.
  */
 export function resolveForcedFee(params) {

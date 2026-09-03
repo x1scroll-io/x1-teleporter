@@ -4,7 +4,10 @@
 // (app.bridge.x1.xyz) + verified against two live mainnet bridge transactions.
 //
 // ── WHAT THIS DOES ──
-//   1. Skims your 1% fee (a plain SPL transfer to YOUR fee wallet).
+//   1. Skims your 0.5% Teleporter fee (a plain SPL transfer to YOUR fee
+//      wallet; the fee-model v2 cap — min(0.5%, $250) — never binds on
+//      executable journeys: Warp's per-tx maxAmount caps them far below a
+//      $50k route total).
 //   2. Calls the Warp `BridgeOut` instruction with the remaining 99%.
 //   3. USDC.x lands on X1 at the SAME address as the Solana sender.
 //
@@ -94,9 +97,10 @@ export const WARP_ACCOUNTS = {
 
 const USDC_DECIMALS = 6;
 export const ONE_USDC = 1_000_000n;
-// 1.00% = 100 basis points. Sourced from src/lib/fees.ts (Step 1.3C) so the
-// on-chain skim and every other fee read the SAME constant — if the rate ever
-// changes there, this follows automatically and cannot drift.
+// 0.50% = 50 basis points (fee-model v2, 2026-09-02 — was 100bps at the old
+// 1% rate). Sourced from src/lib/fees.ts (Step 1.3C) so the on-chain skim and
+// every other fee read the SAME constant — if the rate ever changes there,
+// this follows automatically and cannot drift.
 export const SKIM_BPS = BigInt(Math.round(FEE_RATES.X1_HOP_SKIM * 10_000));
 
 // ── WARP v2 SPEC — FULL ACCOUNT LISTS (extracted from the Warp UI bundle's
@@ -469,7 +473,7 @@ export async function buildStage2({
 
   if (bridgeBase < minBase) {
     throw new Error(
-      `After 1% skim, ${fromBaseUnits(bridgeBase, decimals)} ${destToken === "wSOL.X" ? "WSOL" : "USDC"} is below the Warp minimum.`
+      `After the 0.5% Teleporter skim, ${fromBaseUnits(bridgeBase, decimals)} ${destToken === "wSOL.X" ? "WSOL" : "USDC"} is below the Warp minimum.`
     );
   }
 
@@ -488,7 +492,7 @@ export async function buildStage2({
   // 1) Compute budget
   tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 60_000 }));
 
-  // 2) Our 1% skim — the fee wallet's SOURCE-token ATA must exist. USDC's
+  // 2) Our 0.5% Teleporter skim — the fee wallet's SOURCE-token ATA must exist. USDC's
   //    exists (long-lived fee wallet); WSOL's does NOT yet (verified on
   //    mainnet) — bundle the idempotent create FIRST when missing so the
   //    forward leg never dead-ends on a missing fee ATA (the same-chain
@@ -834,7 +838,7 @@ export async function assertX1FeePayer(connection, userPubkey) {
 }
 
 // ── X1 USDC.x BALANCE PREFLIGHT (the reverse mirror of assertX1FeePayer) ──
-// The reverse burn's total debit on the user's X1 USDC.x ATA is the 1% skim
+// The reverse burn's total debit on the user's X1 USDC.x ATA is the 0.5% skim
 // transfer PLUS the Warp bridge_out gross amount. Warp carves its own $1
 // token fee OUT of that gross (verified against mainnet burn tx 35DfdwHKB…:
 // gross 11.00 → token fee 1.00 → net 10.00 — the sender was debited exactly
@@ -887,7 +891,7 @@ export async function assertX1TokenBalance(connection, userPubkey, { mint = X1_U
     const have = fromBaseUnits(available, decimals);
     throw new X1UsdcBalanceError(
       `Not enough ${sym} on X1 to bridge ${need.toFixed(2)} ${sym} — the burn needs the full amount ` +
-      `(1% fee transfer + Warp gross; Warp takes its fee out of the gross). Your X1 wallet ` +
+      `(0.5% fee transfer + Warp gross; Warp takes its fee out of the gross). Your X1 wallet ` +
       `(${userPubkey.toBase58()}) holds ${have.toFixed(2)} ${sym}. ` +
       `Top up ${(need - have).toFixed(2)} ${sym} or send a smaller amount. Your funds are safe.`,
       { pubkey: userPubkey.toBase58(), available, required: requiredBase },
@@ -923,7 +927,7 @@ export async function assertX1UsdcBalance(connection, userPubkey, requiredBase) 
     const have = fromBaseUnits(available);
     throw new X1UsdcBalanceError(
       `Not enough USDC.x on X1 to bridge ${need.toFixed(2)} USDC.x — the burn needs the full amount ` +
-      `(1% fee transfer + Warp gross; Warp takes its $1 out of the gross). Your X1 wallet ` +
+      `(0.5% fee transfer + Warp gross; Warp takes its $1 out of the gross). Your X1 wallet ` +
       `(${userPubkey.toBase58()}) holds ${have.toFixed(2)} USDC.x. ` +
       `Top up ${(need - have).toFixed(2)} USDC.x or send a smaller amount. Your funds are safe.`,
       { pubkey: userPubkey.toBase58(), available, required: BigInt(requiredBase) },
@@ -933,7 +937,7 @@ export async function assertX1UsdcBalance(connection, userPubkey, requiredBase) 
 }
 
 // ── X1 FEE-WALLET ATA PREP — idempotent, payer = the user (reverse prep) ──
-// The reverse burn prepends OUR 1% skim as a Token-2022 USDC.x transfer from
+// The reverse burn prepends OUR 0.5% skim as a Token-2022 USDC.x transfer from
 // the user's ATA to the FEE WALLET's X1 USDC.x ATA. An SPL transfer requires
 // the destination ATA to EXIST — and step 1.2's root-cause note said the fee
 // ATA was missing on X1 ("the route is dead at step one"). This builds the
@@ -1023,7 +1027,7 @@ export function encodeReverseSeq(slot, ixIndex = 0) {
  * extracted so the routing engine's x1-burn leg and the reference path share
  * ONE code path (wrap, don't rewrite): X1 fee-wallet ATA prep (bundled
  * idempotent create when missing) + the Warp bridge_out burn + the prepended
- * 1% skim transfer (create → transfer → burn in ONE tx when the fee ATA is
+ * 0.5% skim transfer (create → transfer → burn in ONE tx when the fee ATA is
  * missing; transfer → burn when it exists).
  *
  * PREFLIGHTS ARE NOT PART OF THIS HELPER — runReverse (and the engine's
@@ -1034,7 +1038,7 @@ export function encodeReverseSeq(slot, ixIndex = 0) {
  *          amountHuman: number, feeAmount?: number, feeWallet?: PublicKey|string,
  *          token?: "USDC.x"|"wSOL.X", seq?: bigint|number}} args
  *   amountHuman = the BURN amount (gross − skim — bridge_out burns the net;
- *   the caller computes the 1% skim from the gross and passes it as
+ *   the caller computes the 0.5% skim from the gross and passes it as
  *   feeAmount). token drives the mint/decimals/fee account (wSOL.X: 9-dec,
  *   25bps, per-token fee ATA — the token-aware path).
  * @returns {Promise<{built: object, prep: object|null, mint: PublicKey,
@@ -1049,7 +1053,7 @@ export async function buildReverseBurnWithSkim({ connection, userPubkey, amountH
   const tok = X1_REVERSE_TOKENS[token] || X1_REVERSE_TOKENS["USDC.x"];
   const { mint, decimals, feeAccount } = tok;
 
-  // 1) X1 fee-wallet ATA prep: our 1% skim is a Token-2022 transfer to
+  // 1) X1 fee-wallet ATA prep: our 0.5% skim is a Token-2022 transfer to
   //    the FEE wallet's X1 ATA — which must EXIST for the transfer to work
   //    (the step-1.2 root cause: "fee ATA missing on X1"). When it is missing
   //    we do NOT broadcast a separate creation tx anymore: the idempotent
@@ -1072,7 +1076,7 @@ export async function buildReverseBurnWithSkim({ connection, userPubkey, amountH
 
   const built = await buildReverseBurn({ connection, userPubkey, amountHuman, mint, decimals, feeAccount, seq });
 
-  // If a Teleporter fee is due, prepend the skim transfer (1% of the token to
+  // If a Teleporter fee is due, prepend the skim transfer (0.5% of the token to
   // the fee wallet). When the fee wallet's ATA doesn't exist yet, the
   // idempotent create comes FIRST so the transfer destination exists within
   // the same tx.
@@ -1170,7 +1174,7 @@ export async function runReverse({ connection, userPubkey, amountHuman, feeAmoun
 
   // 0b) X1 token-balance preflight: the live v2 reverse failure
   //    (`custom program error: 0x1` = Token-2022 Custom(1) InsufficientFunds)
-  //    was a balance shortfall — the burn's total debit (1% skim transfer +
+  //    was a balance shortfall — the burn's total debit (0.5% skim transfer +
   //    Warp gross, Warp's fee carved out of the gross) exceeded the user's
   //    balance, and the sim died cryptically inside Warp's burn CPI. Preflight
   //    it so the user gets an actionable message instead of a raw error code.
@@ -1178,12 +1182,12 @@ export async function runReverse({ connection, userPubkey, amountHuman, feeAmoun
   if (feeAmount > 0 && feeWallet) {
     await assertX1TokenBalance(connection, userPubkey, {
       mint, decimals, sym,
-      requiredHuman: feeAmount + amountHuman, // 1% skim transfer + Warp gross
+      requiredHuman: feeAmount + amountHuman, // 0.5% skim transfer + Warp gross
     });
   }
 
   // 1) The construction — fee-wallet ATA prep + bridge_out burn + the
-  //    prepended 1% skim transfer — via the SHARED helper (the engine's
+  //    prepended 0.5% skim transfer — via the SHARED helper (the engine's
   //    x1-burn leg uses the SAME code path: one construction, both callers).
   const { built, prep } = await buildReverseBurnWithSkim({
     connection, userPubkey, amountHuman, feeAmount, feeWallet, token,

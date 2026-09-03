@@ -1,6 +1,6 @@
 {
   "tool": "golden-transaction fixtures — THORChain leg BTC→SOL.SOL (regression oracle, Phase 3)",
-  "capturedAt": "2026-09-02T15:40:44.219Z",
+  "capturedAt": "2026-09-02T23:15:29.479Z",
   "liveStatus": {
     "note": "The THORChain lane is the NEXT roadmap item — it has NOT gone live (aggregator key parked server-side; UI flag-gated). The input bodies are SYNTHETIC THORNode-shaped fixtures; the oracle pins the CURRENT code's CONSTRUCTION. The engine must reproduce the artifacts exactly for the same inputs.",
     "replaceWith": "On the first operator deposit: capture the live inbound_addresses body + a read-only proxy quote (same procedure as the forward/reverse frozen quotes), then re-run tools/capture-thorchain-golden-fixtures.mjs."
@@ -35,13 +35,13 @@
       },
       {
         "id": "warp-skim",
-        "label": "Teleporter fee (1%)",
+        "label": "Teleporter fee (0.5%, max $250)",
         "party": "teleporter",
-        "display": "1.00%"
+        "display": "0.50%"
       },
       {
         "id": "warp-flat",
-        "label": "Warp bridge fee",
+        "label": "Warp bridge fee ($1 flat)",
         "party": "third-party",
         "display": "$1 flat"
       }

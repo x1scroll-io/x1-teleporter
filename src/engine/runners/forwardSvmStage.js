@@ -17,7 +17,7 @@
  *      sendX1AtaCreation (signTransaction + app-side broadcast through the
  *      SAME X1 connection — a wallet on Solana mainnet cannot broadcast an
  *      X1 tx itself).
- *   2. warp-lock leg — buildStage2 (ComputeBudget + 1% skim + BridgeOut),
+ *   2. warp-lock leg — buildStage2 (ComputeBudget + 0.5% skim + BridgeOut),
  *      simulateStage2 (fail-closed), then sendStage2ViaPhantom when
  *      allowLive. The WARP_LIVE_SEND gate is forwarded as allowLive by the
  *      form — never decided here.

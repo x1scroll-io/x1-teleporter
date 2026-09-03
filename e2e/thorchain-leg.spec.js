@@ -36,7 +36,7 @@
  *   - Asserted real: the actual UI flow (connect modal → connected → the
  *                  THORChain tab → amount → quote gate → deposit card), the
  *                  quote summary (0.4975 SOL out, 50 bps slippage), the
- *                  three fee lines (affiliate 1.00% / Teleporter 1.00% /
+ *                  three fee lines (affiliate 1.00% / Teleporter 0.50% /
  *                  Warp $1 flat — the summary's display strings), and the
  *                  deposit payload byte-for-byte vs the golden fixtures.
  *                  NOTHING is signed, submitted or broadcast.
@@ -60,7 +60,7 @@ const SOL_ADDRESS = "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV";
 // The golden deposit payload the deposit card must show byte-for-byte.
 const GOLDEN_MEMO = SUMMARY.derived.memo; // =:SOL.SOL:wJs2CD1p…
 const GOLDEN_ADDRESS = SUMMARY.derived.depositAddress; // the synthetic BTC vault
-const GOLDEN_FEE_LINES = SUMMARY.derived.feeLines; // affiliate 1.00% / Teleporter 1.00% / Warp $1 flat
+const GOLDEN_FEE_LINES = SUMMARY.derived.feeLines; // affiliate 1.00% / Teleporter 0.50% / Warp $1 flat
 
 const SHOTS = join(here, "screenshots", process.env.SCREENSHOT_SUBDIR || "local-thorchain");
 

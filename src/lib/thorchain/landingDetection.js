@@ -4,7 +4,7 @@
  *
  * docs/BRIEF.md (Workstream A — Panel 2): "On `done`: detect SOL landing in
  * the connected wallet (balance delta ≥ expected − tolerance). Auto-advance
- * into the existing SOL→USDC same-chain swap, then the 1% skim, then Warp."
+ * into the existing SOL→USDC same-chain swap, then the 0.5% skim, then Warp."
  *
  * The THORChain outbound delivers SOL.SOL to the destination (the connected
  * Solana wallet). We measure the NATIVE SOL balance delta from the moment the
