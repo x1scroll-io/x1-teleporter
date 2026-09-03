@@ -75,8 +75,12 @@ import {
   encodeReverseSeq,
   X1_REVERSE_TOKENS,
   X1_WSOLX_MINT,
+  X1_ETHX_MINT,
   WSOL_MINT,
+  ETH_MINT,
+  USDC_MINT,
   X1_WSOLX_FEE_ACCOUNT,
+  x1WarpFeeFor,
   WARP_PROGRAM_ID,
   WARP_ACCOUNTS,
   WARP_BRIDGE_IN_V2_ACCOUNTS_SPEC,
@@ -114,6 +118,31 @@ export const SAMPLE_INPUT = Object.freeze({
   seqSlot: FIXED_SEQ_SLOT,
 });
 
+/** SYNTHETIC-LABELED ETH.X route sample (the pct-default oracle for a
+ *  non-USDC percentage route — the fee-model fix on v2 @ 1b541e5): the SAME
+ *  shape as the wSOL.X sample (0.4 gross, same wallet set, same pinned EVM
+ *  destination), but burning ETH.X (8 dec, Warp 25 bps pct). SYNTHETIC-LABELED
+ *  per the honesty rule: NO live ETH.X bridge_out burn exists to anchor it —
+ *  verified 2026-09-03 via getSignaturesForAddress on the X1 mainnet RPC for
+ *  the ETH.X mint (4wxJFFn… — only 4 txs, all ATA creates, ZERO BridgeOut) +
+ *  the live Warp config (ETH.X dailyVolume 0). The fee SHAPE (25 bps pct) is
+ *  anchored to the live config token registry; the stage-2 LiFi leg IS a real
+ *  live capture (relaydepository ETH-on-Solana → USDC-on-eth, quote
+ *  quote-ethx-usdc-eth-synthetic-0.4.json, fromAmount 39700500 = the exact
+ *  deterministic release net of this sample). */
+export const ETHX_SAMPLE_INPUT = Object.freeze({
+  from: "x1",
+  to: "eth",
+  token: "ETH.X", // the X1 burn source (8-dec, Warp 25bps pct — non-USDC pct rail)
+  toToken: "USDC", // the destination stable on Ethereum
+  amountUser: 0.4, // mirrors the wSOL.X sample gross
+  solanaAddress: SOLANA_ADDRESS,
+  feeWallet: FEE_WALLET_SVM,
+  evmDestination: REVERSE_EVM_ADDRESS,
+  blockhash: FIXED_BLOCKHASH,
+  seqSlot: FIXED_SEQ_SLOT,
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // DETERMINISTIC MOCK X1 CONNECTION (what the reverse builders read)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -128,26 +157,30 @@ export function mockX1ReverseConnection({
   solanaAddress = SOLANA_ADDRESS,
   blockhash = FIXED_BLOCKHASH,
   slot = FIXED_SEQ_SLOT,
+  mint = X1_WSOLX_MINT, // the X1 token mint whose ATAs the mock reports
+  decimals = 9, // that token's decimals (balance base scale)
+  feeAtaExists = true, // the fee wallet's X1 ATA for `mint` — true = the live wSOL.X shape (no bundled create)
 } = {}) {
   const user = new PublicKey(solanaAddress);
   const userAta = getAssociatedTokenAddressSync(
-    X1_WSOLX_MINT, user, true, TOKEN_2022_PROGRAM_ID,
+    mint, user, true, TOKEN_2022_PROGRAM_ID,
   );
   const feeAta = getAssociatedTokenAddressSync(
-    X1_WSOLX_MINT, new PublicKey(FEE_WALLET_SVM), true, TOKEN_2022_PROGRAM_ID,
+    mint, new PublicKey(FEE_WALLET_SVM), true, TOKEN_2022_PROGRAM_ID,
   );
   return {
     async getAccountInfo(pk) {
       const p = pk instanceof PublicKey ? pk : new PublicKey(pk);
       if (p.equals(user)) return { lamports: 5_000_000, data: null };
       if (p.equals(userAta)) return { lamports: 2_039_280, data: null };
-      if (p.equals(feeAta)) return { lamports: 2_039_280, data: null };
+      if (p.equals(feeAta) && feeAtaExists) return { lamports: 2_039_280, data: null };
       return null;
     },
     async getTokenAccountBalance(pk) {
       const p = pk instanceof PublicKey ? pk : new PublicKey(pk);
       if (!p.equals(userAta)) throw new Error("mock: unexpected token account");
-      return { value: { amount: "1000000000", decimals: 9, uiAmount: 1 } };
+      const amount = String(10n ** BigInt(decimals)); // exactly 1.0 token
+      return { value: { amount, decimals, uiAmount: 1 } };
     },
     async getSlot() {
       return slot;
@@ -280,21 +313,21 @@ export function u64le(value) {
 
 /**
  * The deterministic release net math: what the guardians release on Solana
- * after the X1 burn. bridge_out burns `bridgeBase` (the gross − our 1% skim);
- * the Warp program carves its own per-token fee out of the burn gross INSIDE
+ * after the X1 burn. bridge_out burns `bridgeBase` (the gross − our 0.5% skim);
+ * the Warp program carves its own PER-TOKEN fee out of the burn gross INSIDE
  * bridge_out on X1 (wSOL.X: 25 bps — verified on-chain: the live burn's fee
- * collector ATA received exactly 990,000 base = 25bps of 396,000,000) and
- * the guardians release the remainder on Solana.
+ * collector ATA received exactly 990,000 base = 25bps of 396,000,000;
+ * ETH.X/cbBTC.X: 25 bps per the live config; USDC.x: flat $1 — x1WarpFeeFor
+ * is the per-asset lookup, so an UNKNOWN token resolves to the pct default,
+ * never the flat) and the guardians release the remainder on Solana.
  */
 export function reverseReleaseMath({ bridgeBase, token = "wSOL.X" } = {}) {
-  const fee = token === "wSOL.X"
-    ? { kind: "pct", bps: 25 }
-    : { kind: "flat", amountBase: 1_000_000n, decimals: 6 };
+  const fee = x1WarpFeeFor(token);
   const warpFeeBase = fee.kind === "pct"
     ? (BigInt(bridgeBase) * BigInt(fee.bps)) / 10_000n
     : fee.amountBase;
   const releaseBase = BigInt(bridgeBase) - warpFeeBase;
-  return { warpFeeBase, releaseBase };
+  return { warpFeeBase, releaseBase, kind: fee.kind, bps: fee.kind === "pct" ? fee.bps : null };
 }
 
 /**
@@ -315,8 +348,10 @@ export function buildReverseReleaseShape({
   solanaAddress = SOLANA_ADDRESS,
   seq,
   bridgeBase, // the burn amount bridge_out locked (gross − skim)
+  token = "wSOL.X", // the X1 burn source — drives the per-asset Warp fee + decimals
   sourceTokenMint = X1_WSOLX_MINT,
   localMint = WSOL_MINT,
+  decimals = 9, // the LOCAL (Solana-side release) token's decimals
   sourceChainId = 1, // X1
   destChainId = 0, // Solana
 } = {}) {
@@ -326,7 +361,7 @@ export function buildReverseReleaseShape({
   const localPk = localMint instanceof PublicKey ? localMint : new PublicKey(localMint);
   const srcPk = sourceTokenMint instanceof PublicKey ? sourceTokenMint : new PublicKey(sourceTokenMint);
 
-  const { warpFeeBase, releaseBase } = reverseReleaseMath({ bridgeBase });
+  const { warpFeeBase, releaseBase } = reverseReleaseMath({ bridgeBase, token });
   const vaultPair = deriveVaultAccounts(localPk, TOKEN_PROGRAM_ID);
   const recipientTokenAccount = getAssociatedTokenAddressSync(
     localPk, user, false, TOKEN_PROGRAM_ID, // WSOL is spl-token v1 — the release unlocks from the vault
@@ -383,14 +418,14 @@ export function buildReverseReleaseShape({
   const artifact = {
     chainPair: `source=${sourceChainId} dest=${destChainId}`,
     seq: BigInt(seq).toString(),
-    token: "wSOL.X",
+    token,
     sourceTokenMint: srcPk.toBase58(), // burned on X1 (Token-2022)
     localMint: localPk.toBase58(), // released on Solana (native, spl-token v1)
     nativeVariant: true,
     burnAmountBase: BigInt(bridgeBase).toString(),
     warpFeeBase: warpFeeBase.toString(),
     releaseBase: releaseBase.toString(),
-    releaseHuman: Number(releaseBase) / 10 ** 9,
+    releaseHuman: Number(releaseBase) / 10 ** decimals,
     accountCount: accountList.length,
     accountList,
     // Submitter/guardian-constructed rows — DOCUMENTED, never guessed. The
@@ -451,13 +486,14 @@ export function buildStep3LifiOut({
   to = "eth",
   toTokenSymbol = "USDC",
   token = "wSOL.X",
+  amountUser = SAMPLE_INPUT.amountUser,
   netOnSolana, // the deterministic stage-1 net (defaults to the sample's)
   fromAddress = SOLANA_ADDRESS,
   toAddress = REVERSE_EVM_ADDRESS,
   slippage = 0.5,
 } = {}) {
   if (netOnSolana === undefined) {
-    netOnSolana = computeReverseLegs({ amount: SAMPLE_INPUT.amountUser, token }).netOnSolana;
+    netOnSolana = computeReverseLegs({ amount: amountUser, token }).netOnSolana;
   }
   const built = buildReverseLifiQuoteParams({
     to,
@@ -542,36 +578,88 @@ export function quoteReferenceOf(quote) {
 // ─────────────────────────────────────────────────────────────────────────────
 // THE FULL CAPTURE — one entry point for the capture script + the golden test
 // ─────────────────────────────────────────────────────────────────────────────
+/** The Solana-side twin (local release mint + decimals) of each X1 burn
+ *  source — per the live Warp config token registry. ETH.X releases ETH
+ *  (Wormhole 7vfCX…, 8 dec); wSOL.X releases WSOL (So111…, 9 dec); USDC.x
+ *  releases USDC (6 dec). */
+export const SOLANA_TWINS = {
+  "USDC.x": { localMint: USDC_MINT, decimals: 6 },
+  "wSOL.X": { localMint: WSOL_MINT, decimals: 9 },
+  "ETH.X": { localMint: ETH_MINT, decimals: 8 },
+};
+
+/** Whether the FEE WALLET's X1 ATA for the sample token already exists on
+ *  mainnet (drives feeAtaCreated in the step1 burn artifact):
+ *   - wSOL.X: TRUE — the live shape (fee wallet's wSOL.X ATA 8YxSUo3… exists;
+ *     the live burn tx 3q7H3kV4… had NO bundled create)
+ *   - ETH.X: FALSE — SYNTHETIC shape (no live ETH.X burn exists to anchor;
+ *     the fee wallet has no ETH.X ATA on X1 — verified via the mint's tx
+ *     history, all ATA creates for other wallets — so an executable burn
+ *     would bundle the idempotent create)
+ */
+export const FEE_ATA_EXISTS = {
+  "wSOL.X": true,
+  "ETH.X": false,
+};
+
 /**
  * Build ALL three reverse-leg fixtures from the fixed sample input + the
- * frozen quote. `quote` = the frozen live quote (input fixture). Returns the
+ * frozen quote. `quote` = the frozen live quote (input fixture); `sampleInput`
+ * defaults to the wSOL.X SAMPLE_INPUT (the historical oracle) — pass
+ * ETHX_SAMPLE_INPUT for the synthetic ETH.X pct-default route. Returns the
  * three capture objects {step, artifact, sha256, ...} plus the sample input,
  * the deterministic stage-1/release math, and the quote's reference.
  */
-export async function captureReverseLeg({ quote }) {
-  const seq = encodeReverseSeq(SAMPLE_INPUT.seqSlot, 0); // chain-pair 0x10: X1→Sol
-  const burn = await buildStep1ReverseBurn({ seq });
+export async function captureReverseLeg({ quote, sampleInput = SAMPLE_INPUT }) {
+  const seq = encodeReverseSeq(sampleInput.seqSlot, 0); // chain-pair 0x10: X1→Sol
+  const x1tok = X1_REVERSE_TOKENS[sampleInput.token];
+  const twin = SOLANA_TWINS[sampleInput.token] || { localMint: WSOL_MINT, decimals: 9 };
+  const feeAtaExists = FEE_ATA_EXISTS[sampleInput.token] !== false;
+  const burn = await buildStep1ReverseBurn({
+    solanaAddress: sampleInput.solanaAddress,
+    feeWallet: sampleInput.feeWallet,
+    amountGross: sampleInput.amountUser,
+    token: sampleInput.token,
+    seq,
+    blockhash: sampleInput.blockhash,
+    connection: mockX1ReverseConnection({
+      solanaAddress: sampleInput.solanaAddress,
+      blockhash: sampleInput.blockhash,
+      slot: sampleInput.seqSlot,
+      mint: x1tok.mint,
+      decimals: x1tok.decimals,
+      feeAtaExists,
+    }),
+  });
   const { bridgeBase } = burn.artifact;
   const step2 = buildReverseReleaseShape({
-    solanaAddress: SAMPLE_INPUT.solanaAddress,
+    solanaAddress: sampleInput.solanaAddress,
     seq,
     bridgeBase, // the burn amount bridge_out actually locked
+    token: sampleInput.token,
+    sourceTokenMint: x1tok.mint,
+    localMint: twin.localMint,
+    decimals: twin.decimals,
   });
-  const step3 = buildStep3LifiOut({});
-  const math = reverseBurnMath({ amountGross: SAMPLE_INPUT.amountUser });
-  const release = reverseReleaseMath({ bridgeBase });
+  const step3 = buildStep3LifiOut({
+    token: sampleInput.token,
+    amountUser: sampleInput.amountUser,
+    toAddress: sampleInput.evmDestination,
+  });
+  const math = reverseBurnMath({ amountGross: sampleInput.amountUser, decimals: x1tok.decimals });
+  const release = reverseReleaseMath({ bridgeBase, token: sampleInput.token });
 
   return {
-    sampleInput: SAMPLE_INPUT,
+    sampleInput,
     derived: {
       rawAmountGrossBase: (math.skimBase + math.bridgeBase).toString(),
       skimBase: math.skimBase.toString(),
       bridgeBase: math.bridgeBase.toString(),
       warpFeeBase: release.warpFeeBase.toString(),
       releaseBase: release.releaseBase.toString(),
-      releaseHuman: Number(release.releaseBase) / 10 ** 9,
+      releaseHuman: Number(release.releaseBase) / 10 ** twin.decimals,
       seq: seq.toString(),
-      seqSlot: SAMPLE_INPUT.seqSlot,
+      seqSlot: sampleInput.seqSlot,
     },
     quoteReference: quoteReferenceOf(quote),
     steps: { step1: burn, step2, step3 },

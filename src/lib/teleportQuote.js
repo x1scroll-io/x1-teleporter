@@ -91,17 +91,22 @@ export function deriveQuoteFromLifi({ data, from, token, amount, destToken = "US
     throw new Error("Malformed quote response — no estimate.toAmount");
   }
   // LiFi delivers the Solana-side landing token — USDC (6 dec) or WSOL
-  // (9 dec when the X1 destination is wSOL.X).
+  // (9 dec when the X1 destination is wSOL.X). (Forward destinations are
+  // USDC.x/wSOL.X today — TOKENS.x1 keys the picker; the decode below keeps
+  // its legacy USDC fallback for unknown destTokens.)
   const solanaLanding = destToken === "wSOL.X" ? "WSOL" : "USDC";
   const outDecimals = TOKENS.sol[solanaLanding].decimals;
   const out = parseFloat(data.estimate.toAmount) / 10 ** outDecimals;
   // POLICY quote: x1-class fees are computed on what LiFi DELIVERED (the
   // stage-2 skim base is leg-1-delivered), not the original input. The Warp
-  // fee component is token-aware too (wSOL.X charges 25 bps, not the flat $1
-  // — live Warp config, verified on-chain 2026-09-02).
+  // fee component is token-aware too — PER-ASSET (Mr. Esters' verified
+  // structure 2026-09-02): flat $1 ONLY for USDC.x; every OTHER destination
+  // (wSOL.X today; ETH.X/cbBTC.X/future) is 25 bps pct — the fallback is
+  // pct, never flat (live Warp config, verified on-chain 2026-09-02).
   const route = {
     from, to: "x1", routeType: "x1", amount,
-    ...(destToken === "wSOL.X" ? { warpFeeBps: 25 } : {}),
+    // warpFeeBps present ⇒ warp-pct (0.25%); absent ⇒ warp-flat ($1).
+    ...(destToken !== "USDC.x" ? { warpFeeBps: 25 } : {}),
   };
   const qf = quoteFees(route, out);
   return {

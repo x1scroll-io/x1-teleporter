@@ -16,6 +16,9 @@ import {
   checkReverseMin,
   resolveReversePriceUSD,
   defaultPriceFetch,
+  x1WarpFeeShape,
+  X1_WARP_FEE_PCT_DEFAULT,
+  reverseSolanaToken,
 } from "./reverseQuote.js";
 import { FEE_RATES } from "./fees.ts";
 import { CHAINS, TOKENS } from "./teleportConstants.js";
@@ -254,6 +257,89 @@ test("deriveReverseQuote (wSOL.X): quoted leg shows the dest stable; unquoted le
   assert.equal(unquoted.recvToken, "WSOL", "honest handoff: WSOL rests on Solana");
   assert.equal(unquoted.recvChain, "Solana");
   assert.equal(unquoted.lifiQuoted, false);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PER-ASSET WARP FEE — THE PCT DEFAULT (the fix on v2 @ 1b541e5): flat $1
+//  applies ONLY to USDC.x (Mr. Esters' verified structure, 2026-09-02 — live
+//  Warp UI: USDC→USDC.x = flat $1; ETH/BTC/SOL/OTHER = 0.25%). The lookup
+//  default for unknown assets must be 25 bps pct — NEVER the flat $1 — so
+//  ETH.X / cbBTC.X / any FUTURE Warp token quotes at 0.25%.
+// ════════════════════════════════════════════════════════════════════════════
+
+test("x1WarpFeeShape: the DEFAULT for an unknown token is pct 25bps — never the flat $1", () => {
+  const dflt = x1WarpFeeShape("SomeFutureWarpToken");
+  assert.equal(dflt.kind, "pct", "unknown asset → pct (0.25%), NOT flat");
+  assert.equal(dflt.bps, 25);
+  assert.equal(X1_WARP_FEE_PCT_DEFAULT.kind, "pct", "the exported default itself is pct — no code path can resolve it to flat");
+  assert.equal(X1_WARP_FEE_PCT_DEFAULT.bps, 25);
+  // The registry never resolves the flat to a non-USDC asset.
+  assert.equal(x1WarpFeeShape("USDC.x").kind, "flat", "USDC.x stays flat $1 (unchanged)");
+  assert.equal(x1WarpFeeShape("wSOL.X").kind, "pct");
+  assert.equal(x1WarpFeeShape("ETH.X").kind, "pct");
+  assert.equal(x1WarpFeeShape("cbBTC.X").kind, "pct");
+});
+
+test("computeReverseLegs (ETH.X): Warp fee = 25 bps of the bridge gross (pct default for a non-USDC asset)", () => {
+  const legs = computeReverseLegs({ amount: 100, token: "ETH.X" });
+  assert.equal(legs.skim, 0.5);
+  assert.equal(legs.burnAmount, 99.5);
+  assert.equal(legs.warpFee, 99.5 * 0.0025, "25 bps of the 99.5 gross — NEVER the flat $1");
+  assert.equal(legs.netOnSolana, 99.5 - 99.5 * 0.0025);
+  const ids = legs.feeQuote.feeLines.map((l) => l.id).sort();
+  assert.deepEqual(ids, ["warp-pct", "warp-skim"], "warp-pct line, NO warp-flat line");
+  const pct = legs.feeQuote.feeLines.find((l) => l.id === "warp-pct");
+  assert.equal(pct.label, "Warp bridge fee (0.25%)", "quote-box line labels the pct for ETH.X");
+  assert.equal(pct.party, "third-party");
+});
+
+test("computeReverseLegs (cbBTC.X): Warp fee = 25 bps of the bridge gross (explicit config entry)", () => {
+  const legs = computeReverseLegs({ amount: 100, token: "cbBTC.X" });
+  assert.equal(legs.warpFee, 99.5 * 0.0025, "cbBTC.X is a pct asset like every non-USDC token");
+  const ids = legs.feeQuote.feeLines.map((l) => l.id).sort();
+  assert.deepEqual(ids, ["warp-pct", "warp-skim"]);
+});
+
+test("computeReverseLegs (UNKNOWN token): Warp fee = 25 bps — the pct default, never flat $1", () => {
+  const legs = computeReverseLegs({ amount: 100, token: "NOT-A-REAL-TOKEN" });
+  assert.equal(legs.warpFee, 99.5 * 0.0025, "unknown → 0.25% of the gross (Mr. Esters: OTHER = 0.25%)");
+  assert.notEqual(legs.warpFee, 1, "never the flat $1");
+  assert.equal(legs.netOnSolana, 99.5 - 99.5 * 0.0025);
+  const ids = legs.feeQuote.feeLines.map((l) => l.id).sort();
+  assert.deepEqual(ids, ["warp-pct", "warp-skim"], "unknown assets show warp-pct, never warp-flat");
+});
+
+test("computeReverseLegs: USDC.x keeps the flat $1 (unchanged) — wSOL.X keeps 0.25% (unchanged)", () => {
+  const usdc = computeReverseLegs({ amount: 100, token: "USDC.x" });
+  assert.equal(usdc.warpFee, 1, "USDC.x → flat $1 (unchanged)");
+  assert.deepEqual(usdc.feeQuote.feeLines.map((l) => l.id).sort(), ["warp-flat", "warp-skim"]);
+  const wsol = computeReverseLegs({ amount: 100, token: "wSOL.X" });
+  assert.equal(wsol.warpFee, 99.5 * 0.0025, "wSOL.X → 0.25% (unchanged)");
+  assert.deepEqual(wsol.feeQuote.feeLines.map((l) => l.id).sort(), ["warp-pct", "warp-skim"]);
+});
+
+test("deriveReverseQuote (ETH.X): the quote-box Warp line is warp-pct 0.25% — flat only for USDC.x routes", () => {
+  const eth = deriveReverseQuote({ data: null, to: "eth", amount: 100, token: "ETH.X" });
+  const ethWarp = eth.feeLines.find((l) => l.id === "warp-pct");
+  assert.ok(ethWarp, "ETH.X route shows the pct line");
+  assert.equal(ethWarp.amountUsd, 0.25, "0.25% of the journey amount — the displayed Warp fee");
+  assert.equal(eth.feeLines.find((l) => l.id === "warp-flat"), undefined, "no flat $1 line on an ETH.X route");
+  assert.equal(eth.thirdPartyFeeUsd, 0.25);
+  // reverseSolanaToken: an ETH.X burn releases ETH on Solana (8 dec) — the honest handoff token.
+  assert.equal(reverseSolanaToken("ETH.X"), "ETH");
+  assert.equal(reverseSolanaToken("cbBTC.X"), "cbBTC");
+
+  const usdc = deriveReverseQuote({ data: null, to: "eth", amount: 100, token: "USDC.x" });
+  const usdcWarp = usdc.feeLines.find((l) => l.id === "warp-flat");
+  assert.ok(usdcWarp, "USDC.x route keeps the flat line");
+  assert.equal(usdcWarp.amountUsd, 1, "flat $1 for USDC.x (unchanged)");
+  assert.equal(usdc.feeLines.find((l) => l.id === "warp-pct"), undefined);
+});
+
+test("reverseSolanaToken: USDC.x→USDC / wSOL.X→WSOL (legacy rails unchanged); unknown falls back to USDC", () => {
+  assert.equal(reverseSolanaToken("USDC.x"), "USDC");
+  assert.equal(reverseSolanaToken("wSOL.X"), "WSOL");
+  assert.equal(reverseSolanaToken("MysteryToken"), "USDC");
 });
 
 // ── REVERSE MINIMUM GATE — DISABLED (fee-model v2 removed the $25 floor) ────

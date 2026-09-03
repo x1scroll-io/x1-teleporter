@@ -713,24 +713,75 @@ const X1_FEE_COLLECTOR = new PublicKey("7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2J
 //   25 bps of the gross, net release 0.109725).
 export const WSOL_MINT = new PublicKey("So11111111111111111111111111111111111111112"); // Solana native wSOL (spl-token v1)
 export const X1_WSOLX_MINT = new PublicKey("JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8"); // X1 wrapped wSOL.X (Token-2022)
+
+// ── ETH / ETH.X + cbBTC / cbBTC.X — the ETH + BTC rails (ground truth: the
+//    SAME live Warp config https://api.bridge.mainnet.x1.xyz/config, Sep 2026) ──
+// Solana-side ETH (Wormhole 7vfCX…, native vault token) + cbBTC (cbbtcf3a…,
+// native vault token): BOTH 8 decimals, flat 0, percentageFeeBps 25 — exactly
+// like wSOL. Their X1 twins (ETH.X / cbBTC.X) are wrapped Token-2022 mints
+// with the same 8 decimals + 25 bps. Fee shapes from the live token registry
+// (feeCollectorAta per token below); ZERO bridge volume on both sides as of
+// the 2026-09-03 capture (config dailyVolume 0, no live burns — see the
+// synthetic-labeled ETH.X golden fixture), so these entries pin the CONFIG
+// fee shape, not an observed burn.
+export const ETH_MINT = new PublicKey("7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs"); // Solana ETH (Wormhole) — 8 dec, 25bps (live config)
+export const X1_ETHX_MINT = new PublicKey("4wxJFFnRSCgFgS8GvWH9iHgSjFsKbQpXkBG5Y826cbvw"); // X1 wrapped ETH.X (Token-2022)
+export const CBBTC_MINT = new PublicKey("cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij"); // Solana cbBTC — 8 dec, 25bps (live config)
+export const X1_CBBTCX_MINT = new PublicKey("s47zmcZNFkZkdJqgZxZSBvXb8wRx89HgVGXt5Pf791K"); // X1 wrapped cbBTC.X (Token-2022)
 // Warp fee-collector token accounts (per-token, from the live config):
 export const X1_WSOLX_FEE_ACCOUNT = new PublicKey("9Tdid7tM1bKv8hMyiTDLfB2LhfCGoaBv5GoezQzW2VP9"); // X1 wSOL.X fee collector ATA
 const SOL_WSOL_FEE_ACCOUNT = new PublicKey("GxfLqeziL8wrUF31H1thWVAHkqzPodoqbwZeoDTRAkyU"); // Solana wSOL fee collector ATA
+export const X1_ETHX_FEE_ACCOUNT = new PublicKey("4JXWhxSyMB5fy7GDkqXqNCgA6tRWfK5qSY6gXChkHTvJ"); // X1 ETH.X fee collector ATA (live config)
+export const SOL_ETH_FEE_ACCOUNT = new PublicKey("FHZFWBfhdCj7yZr75j8kTbCqWHCKvxqDiH9XPz8sH2uK"); // Solana ETH fee collector ATA (live config)
+export const X1_CBBTCX_FEE_ACCOUNT = new PublicKey("7JsdSDzJskwoMFnmhbHzVrue8vwHBRNmH5LVbZBwfmDc"); // X1 cbBTC.X fee collector ATA (live config)
+export const SOL_CBBTC_FEE_ACCOUNT = new PublicKey("6WFfCbyw2TRfJuGSNZp2VCtcFXqA8UngVQHs8bNaQsPD"); // Solana cbBTC fee collector ATA (live config)
 
 /** Warp's per-token fee on the X1 side (bridge_out burn) — from the LIVE
- *  Warp config token registry. USDC.x: flat $1 (1_000_000 base, 6 dec).
- *  wSOL.X: percentage 25 bps of the bridge gross, flat 0. The program carves
+ *  Warp config token registry. FLAT $1 applies ONLY to USDC.x (1_000_000
+ *  base, 6 dec — VERIFIED on-chain 2026-09-02). EVERY other token charges a
+ *  percentage of the bridge gross, flat 0: wSOL.X 25 bps (verified
+ *  on-chain), ETH.X + cbBTC.X 25 bps (live config, 8 dec each — no live
+ *  burns yet, see the synthetic-labeled fixture). UNKNOWN/future tokens
+ *  default to the SAME 25 bps pct (X1_WARP_FEE_PCT_DEFAULT) — flat $1 is
+ *  USDC.x-ONLY (Mr. Esters, verified live 2026-09-02 via the official Warp
+ *  UI: USDC→USDC.x flat $1; ETH/BTC/SOL/OTHER 0.25%). The program carves
  *  the fee OUT of the gross inside bridge_out (verified on-chain). */
 export const X1_WARP_FEES = {
   "USDC.x": { kind: "flat", amountBase: 1_000_000n, decimals: 6 },
   "wSOL.X": { kind: "pct", bps: 25, decimals: 9 },
+  "ETH.X": { kind: "pct", bps: 25, decimals: 8 },
+  "cbBTC.X": { kind: "pct", bps: 25, decimals: 8 },
 };
 
-/** Warp's per-token fee on the SOLANA side (bridge_out lock) — same config. */
+/** The DEFAULT Warp fee shape for an UNKNOWN X1 token: 25 bps pct — flat $1
+ *  applies ONLY to USDC.x. Never default an unknown asset to the flat. */
+export const X1_WARP_FEE_PCT_DEFAULT = { kind: "pct", bps: 25, decimals: 9 };
+
+/** Per-asset X1 Warp fee lookup — unknown tokens fall back to the 25 bps pct
+ *  default (NEVER the USDC.x flat $1). The one function consumers use so the
+ *  default cannot drift per call site. */
+export function x1WarpFeeFor(token) {
+  return X1_WARP_FEES[token] || X1_WARP_FEE_PCT_DEFAULT;
+}
+
+/** Warp's per-token fee on the SOLANA side (bridge_out lock) — same config,
+ *  same rule: flat $1 for USDC ONLY; WSOL/ETH/cbBTC charge 25 bps pct;
+ *  unknown tokens default to the pct (SOL_WARP_FEE_PCT_DEFAULT). */
 export const SOL_WARP_FEES = {
   USDC: { kind: "flat", amountBase: 1_000_000n, decimals: 6 },
   WSOL: { kind: "pct", bps: 25, decimals: 9 },
+  ETH: { kind: "pct", bps: 25, decimals: 8 },
+  cbBTC: { kind: "pct", bps: 25, decimals: 8 },
 };
+
+/** The DEFAULT Warp fee shape for an UNKNOWN Solana-side token: 25 bps pct. */
+export const SOL_WARP_FEE_PCT_DEFAULT = { kind: "pct", bps: 25, decimals: 8 };
+
+/** Per-asset Solana-side Warp fee lookup — unknown tokens fall back to the
+ *  25 bps pct default (NEVER the USDC flat $1). */
+export function solWarpFeeFor(token) {
+  return SOL_WARP_FEES[token] || SOL_WARP_FEE_PCT_DEFAULT;
+}
 
 /** The reverse (X1→Sol) token map — which mint/decimals/fee account each
  *  bridged X1 token burns against. wSOL.X is WRAPPED on X1 (isNative=false):
@@ -748,6 +799,8 @@ export const SOL_WARP_FEES = {
 export const X1_REVERSE_TOKENS = {
   "USDC.x": { mint: X1_USDCX_MINT, decimals: 6, feeAccount: new PublicKey("4uRFjqVU5ZKkp7hQLx3Lm3YeWFts17ER8a5HLUE18ayG") },
   "wSOL.X": { mint: X1_WSOLX_MINT, decimals: 9, feeAccount: X1_WSOLX_FEE_ACCOUNT },
+  "ETH.X": { mint: X1_ETHX_MINT, decimals: 8, feeAccount: X1_ETHX_FEE_ACCOUNT }, // live config — 25bps pct fee (no live burn yet: synthetic-labeled fixture)
+  "cbBTC.X": { mint: X1_CBBTCX_MINT, decimals: 8, feeAccount: X1_CBBTCX_FEE_ACCOUNT }, // live config — 25bps pct fee
 };
 
 /** The forward (Sol→X1) token map — the Solana-side SOURCE token (locked by

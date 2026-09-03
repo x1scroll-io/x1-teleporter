@@ -39,6 +39,12 @@ import {
   X1_WSOLX_FEE_ACCOUNT,
   X1_REVERSE_TOKENS,
   X1_FORWARD_TOKENS,
+  X1_WARP_FEES,
+  X1_WARP_FEE_PCT_DEFAULT,
+  x1WarpFeeFor,
+  SOL_WARP_FEES,
+  SOL_WARP_FEE_PCT_DEFAULT,
+  solWarpFeeFor,
   toBaseUnits,
   fromBaseUnits,
   deriveVaultAccounts,
@@ -1375,4 +1381,74 @@ test("X1_REVERSE_TOKENS / X1_FORWARD_TOKENS: ground-truth mints + fee accounts f
   assert.equal(X1_FORWARD_TOKENS["wSOL.X"].destMint.toBase58(), "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8");
   assert.equal(X1_FORWARD_TOKENS["wSOL.X"].feeAccount.toBase58(), "GxfLqeziL8wrUF31H1thWVAHkqzPodoqbwZeoDTRAkyU");
   assert.equal(X1_FORWARD_TOKENS["wSOL.X"].decimals, 9);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  PER-ASSET WARP FEE MAPS — THE PCT DEFAULT (fix on v2 @ 1b541e5): flat $1
+//  applies ONLY to USDC.x/USDC (Mr. Esters, verified live 2026-09-02 via the
+//  official Warp UI). Every other asset — wSOL.X/WSOL, ETH.X/ETH, cbBTC.X/
+//  cbBTC (live config, 8 dec) — charges 25 bps pct, and the lookup DEFAULT
+//  for unknown/future tokens is pct, NEVER flat $1. The maps are the on-chain
+//  constants; consumers must resolve through x1WarpFeeFor()/solWarpFeeFor()
+//  so the pct default cannot drift per call site.
+// ════════════════════════════════════════════════════════════════════════════
+
+test("X1_WARP_FEES: explicit entries — USDC.x flat $1; wSOL.X/ETH.X/cbBTC.X pct 25bps with live-config decimals", () => {
+  assert.equal(X1_WARP_FEES["USDC.x"].kind, "flat");
+  assert.equal(X1_WARP_FEES["USDC.x"].amountBase, 1_000_000n);
+  assert.equal(X1_WARP_FEES["USDC.x"].decimals, 6);
+  for (const t of ["wSOL.X", "ETH.X", "cbBTC.X"]) {
+    assert.equal(X1_WARP_FEES[t].kind, "pct", `${t} is a pct asset`);
+    assert.equal(X1_WARP_FEES[t].bps, 25, `${t} charges 25 bps`);
+  }
+  assert.equal(X1_WARP_FEES["ETH.X"].decimals, 8, "ETH.X decimals from the live config — not guessed");
+  assert.equal(X1_WARP_FEES["cbBTC.X"].decimals, 8, "cbBTC.X decimals from the live config — not guessed");
+});
+
+test("SOL_WARP_FEES: explicit entries — USDC flat $1; WSOL/ETH/cbBTC pct 25bps with live-config decimals", () => {
+  assert.equal(SOL_WARP_FEES.USDC.kind, "flat");
+  assert.equal(SOL_WARP_FEES.USDC.amountBase, 1_000_000n);
+  for (const t of ["WSOL", "ETH", "cbBTC"]) {
+    assert.equal(SOL_WARP_FEES[t].kind, "pct", `${t} is a pct asset`);
+    assert.equal(SOL_WARP_FEES[t].bps, 25);
+  }
+  assert.equal(SOL_WARP_FEES.ETH.decimals, 8);
+  assert.equal(SOL_WARP_FEES.cbBTC.decimals, 8);
+});
+
+test("x1WarpFeeFor/solWarpFeeFor: the fallback default is PCT 25bps — no code path defaults an unknown token to flat", () => {
+  assert.equal(X1_WARP_FEE_PCT_DEFAULT.kind, "pct");
+  assert.equal(X1_WARP_FEE_PCT_DEFAULT.bps, 25);
+  assert.equal(SOL_WARP_FEE_PCT_DEFAULT.kind, "pct");
+  assert.equal(SOL_WARP_FEE_PCT_DEFAULT.bps, 25);
+  // Unknown/future tokens → pct 25bps on BOTH sides.
+  assert.equal(x1WarpFeeFor("FutureToken.X").kind, "pct");
+  assert.equal(x1WarpFeeFor("FutureToken.X").bps, 25);
+  assert.equal(solWarpFeeFor("FutureToken").kind, "pct");
+  assert.equal(solWarpFeeFor("FutureToken").bps, 25);
+  // Explicit assets resolve to their own shapes (USDC.x flat stays flat).
+  assert.equal(x1WarpFeeFor("USDC.x").kind, "flat");
+  assert.equal(x1WarpFeeFor("ETH.X").kind, "pct");
+  assert.equal(solWarpFeeFor("USDC").kind, "flat");
+  assert.equal(solWarpFeeFor("ETH").kind, "pct");
+});
+
+test("X1_REVERSE_TOKENS: ETH.X + cbBTC.X registry entries match the live config (mint/decimals/fee ATA)", async () => {
+  assert.equal(X1_REVERSE_TOKENS["ETH.X"].mint.toBase58(), "4wxJFFnRSCgFgS8GvWH9iHgSjFsKbQpXkBG5Y826cbvw");
+  assert.equal(X1_REVERSE_TOKENS["ETH.X"].decimals, 8);
+  assert.equal(X1_REVERSE_TOKENS["ETH.X"].feeAccount.toBase58(), "4JXWhxSyMB5fy7GDkqXqNCgA6tRWfK5qSY6gXChkHTvJ");
+  assert.equal(X1_REVERSE_TOKENS["cbBTC.X"].mint.toBase58(), "s47zmcZNFkZkdJqgZxZSBvXb8wRx89HgVGXt5Pf791K");
+  assert.equal(X1_REVERSE_TOKENS["cbBTC.X"].decimals, 8);
+  assert.equal(X1_REVERSE_TOKENS["cbBTC.X"].feeAccount.toBase58(), "7JsdSDzJskwoMFnmhbHzVrue8vwHBRNmH5LVbZBwfmDc");
+  // The mirror in reverseQuote.js must agree with the on-chain constants for
+  // every registry asset (kind + bps), so the quote math can never drift.
+  const { x1WarpFeeShape } = await import("./lib/reverseQuote.js");
+  for (const t of ["USDC.x", "wSOL.X", "ETH.X", "cbBTC.X"]) {
+    const onChain = X1_WARP_FEES[t];
+    const mirror = x1WarpFeeShape(t);
+    assert.equal(mirror.kind, onChain.kind, `${t}: kind agrees across warpBridge + reverseQuote`);
+    if (onChain.kind === "pct") assert.equal(mirror.bps, onChain.bps, `${t}: bps agrees across warpBridge + reverseQuote`);
+  }
+  // An unknown token must NOT resolve to USDC.x's flat in either module.
+  assert.notEqual(x1WarpFeeShape("Unknown.X").kind, X1_WARP_FEES["USDC.x"].kind);
 });

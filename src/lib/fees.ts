@@ -442,8 +442,12 @@ function x1HopFee(route: FeeRoute): FeeStructure {
   // "Warp bridge fee" (never "Teleporter fee"). Two shapes, token-driven
   // (live Warp config, VERIFIED on-chain 2026-09-02 — the rumored USDC
   // flat→0.25% change did NOT happen): USDC.x charges a flat $1 (warp-flat);
-  // wSOL.X charges a 25 bps percentage (warp-pct) — the bps override
-  // switches the component.
+  // every OTHER asset (wSOL.X/ETH.X/cbBTC.X/future) charges 25 bps pct
+  // (warp-pct) — the bps override switches the component, and the callers
+  // (teleportQuote.js deriveQuoteFromLifi / reverseQuote.js
+  // computeReverseLegs) pass it PER-ASSET with a pct default: warpFeeBps is
+  // present for every non-USDC.x token, absent only for USDC.x (flat $1 is
+  // USDC.x-ONLY — Mr. Esters' verified structure 2026-09-02).
   if (route.warpFeeBps && route.warpFeeBps > 0) {
     components.push(rateComponent(
       "warp-pct",
