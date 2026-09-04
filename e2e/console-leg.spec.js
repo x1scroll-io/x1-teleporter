@@ -21,9 +21,17 @@
  *      byte-for-byte vs step1-approval.json) — never auto-signs, never
  *      sends; declining surfaces the honest rejection.
  *   4. RESPONSIVE: the wide landscape console reflows to a VERTICAL stack on
- *      a phone portrait viewport, and mobile renders the astronaut POSTER
- *      still instead of the ambient video (design doc). Screenshots of each
- *      state on both viewports.
+ *      a phone portrait viewport, and the ambient astronaut VIDEO plays on
+ *      mobile too (autoplay muted playsinline — the poster stays only as the
+ *      pre-load fallback and as the reduced-motion still). Screenshots of
+ *      each state on both viewports.
+ *
+ *   5. MOTION + GLASS PROOFS: on a phone viewport the video element is
+ *      asserted playing (not paused, readyState >= HAVE_CURRENT_DATA, the
+ *      media clock advances) with a screenshot PAIR (t0 vs t1) showing the
+ *      astronaut frame changed; the frosted-glass recipe (backdrop-filter
+ *      blur(20px) + a ~35-45% dark-cyan tint on the shell AND the inner
+ *      panels) is asserted via computed styles.
  *
  * WHAT IS MOCKED vs ASSERTED (same contract as forward-leg):
  *   - Wallets:  EVM = the EIP-6963 fake (fakeEthereum.js — CANNOT sign);
@@ -132,9 +140,9 @@ test("console: renders as the front door + the forward quote renders the exact f
   attachConsole(page, log);
 
   // The screenshot journeys run under reduced-motion emulation: the design
-  // doc renders the astronaut POSTER still for reduced-motion (and mobile)
-  // users, so the screenshots are deterministic (the video layer itself is
-  // asserted in its own test below). Reduced motion also makes the readout
+  // doc renders the astronaut POSTER still for reduced-motion users, so the
+  // screenshots are deterministic (the video layer itself is asserted in its
+  // own tests below). Reduced motion also makes the readout
   // ticker jump instantly — stable text for the exact-match assertions.
   // Set BEFORE goto so the app mounts with the preference already applied.
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -203,9 +211,9 @@ test("console: renders as the front door + the forward quote renders the exact f
   await page.screenshot({ path: join(SHOTS, "3-console-quote-fees-desktop.png"), fullPage: true });
 });
 
-test("console: the ambient astronaut VIDEO layer renders on desktop (webm + mp4 fallback)", async ({ page }) => {
+test("console: the ambient astronaut VIDEO layer renders AND PLAYS on desktop (webm + mp4 fallback)", async ({ page }) => {
   // No reduced-motion emulation here: desktop users with default motion get
-  // the ambient video (the poster is the reduced-motion/mobile still).
+  // the ambient video (the poster is the reduced-motion still only).
   await page.goto("/");
   const video = page.locator('[data-testid="console-video"]');
   await expect(video).toBeVisible();
@@ -216,6 +224,16 @@ test("console: the ambient astronaut VIDEO layer renders on desktop (webm + mp4 
   await expect(video).toHaveJSProperty("muted", true);
   await expect(video).toHaveJSProperty("playsInline", true);
   await expect(page.locator('[data-testid="console-poster"]')).toHaveCount(0);
+  // The astronaut DRIFTS: frames decode (readyState >= HAVE_CURRENT_DATA),
+  // playback is not paused, and the media clock advances.
+  await expect
+    .poll(() => video.evaluate((v) => v.paused === false && v.readyState >= 2 && v.currentTime > 0), { timeout: 20_000 })
+    .toBe(true);
+  const t0 = await video.evaluate((v) => v.currentTime);
+  await page.waitForTimeout(1200);
+  const t1 = await video.evaluate((v) => v.currentTime);
+  expect(t1 - t0).toBeGreaterThan(0.5);
+  await page.screenshot({ path: join(SHOTS, "8-console-video-desktop.png"), fullPage: true });
 });
 
 test("console: per-asset Warp fee — landing wSOL.X swaps the fee line to 0.25% (no $1 flat)", async ({ page }) => {
@@ -295,19 +313,72 @@ test("console: declining the signature surfaces the honest rejection and sends n
   await page.screenshot({ path: join(SHOTS, "5-console-sign-declined-desktop.png"), fullPage: true });
 });
 
-test("console: MOBILE PORTRAIT — the console reflows to a VERTICAL stack and renders the poster still (not the video)", async ({ page }) => {
-  // Phone portrait — the make-or-break layout (most users are on phones).
+test("console: FROSTED GLASS — shell + inner panels run the real recipe: backdrop blur(20px), ~35-45% dark-cyan tint, no ancestor-filter trap", async ({ page }) => {
+  // Structural proof of the frosted recipe (the pixel proof lives in the
+  // screenshots): the shell, the FROM/TO/TOKEN slots and the quote strip
+  // must all carry a REAL backdrop blur(20px) over a translucent tint — and
+  // the housing must NOT put a filter on an ancestor of the glass (an
+  // ancestor filter would become the backdrop root and starve the blur).
+  const alphas = (bg) => [...bg.matchAll(/rgba?\(([^)]+)\)/g)].map((m) => Number(m[1].split(",").at(-1)));
+  const readGlass = () =>
+    page.evaluate(() => {
+      const cs = (sel) => {
+        const el = document.querySelector(sel);
+        if (!el) return null;
+        const s = getComputedStyle(el);
+        return { filter: s.filter, backdropFilter: s.backdropFilter, backgroundImage: s.backgroundImage };
+      };
+      return { wrap: cs(".tc-shell-wrap"), glass: cs(".tc-shell-glass"), slot: cs(".tc-slot"), strip: cs(".tc-strip") };
+    });
+  const assertGlass = (g) => {
+    expect(g.wrap.filter).toBe("none"); // the backdrop-root trap is gone
+    for (const key of ["glass", "slot", "strip"]) {
+      expect(g[key].backdropFilter).toContain("blur(20px)"); // REAL blur, not 1-2px
+      const a = alphas(g[key].backgroundImage);
+      expect(Math.max(...a)).toBeGreaterThanOrEqual(0.3); // a real tint
+      expect(Math.max(...a)).toBeLessThanOrEqual(0.5); // 35-45% band (was ~0.84-0.92 opaque)
+    }
+  };
+
+  // Desktop, default motion (the drifting video glows behind the glass).
+  await page.goto("/");
+  assertGlass(await readGlass());
+  await page.screenshot({ path: join(SHOTS, "11-glass-desktop.png"), fullPage: true });
+
+  // Phone portrait, default motion — same recipe on mobile.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  assertGlass(await readGlass());
+  await page.screenshot({ path: join(SHOTS, "12-glass-mobile.png"), fullPage: true });
+});
+
+test("console: MOBILE PORTRAIT — the console reflows to a VERTICAL stack and the astronaut VIDEO plays (drift, not a poster)", async ({ page }) => {
+  // Phone portrait — the make-or-break layout (most users are on phones).
+  // Default motion: the astronaut DRIFTS on mobile too (muted autoplay +
+  // playsinline are the unlock) — the poster is NOT the mobile default.
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
   const shell = page.locator('[data-testid="teleport-console"]');
   await expect(shell).toBeVisible();
   await expect(page.locator('[data-testid="console-header"]')).toContainText("TELEPORT CONSOLE");
 
-  // Mobile renders the astronaut POSTER still instead of the ambient video.
-  await expect(page.locator('[data-testid="console-poster"]')).toBeVisible();
-  await expect(page.locator('[data-testid="console-video"]')).toHaveCount(0);
+  // The ambient VIDEO layer renders on the phone — no poster still.
+  const video = page.locator('[data-testid="console-video"]');
+  await expect(video).toBeVisible();
+  await expect(page.locator('[data-testid="console-poster"]')).toHaveCount(0);
+
+  // PROOF OF MOTION on mobile: exists, not paused, frames decoded
+  // (readyState >= HAVE_CURRENT_DATA = 2), media clock advancing.
+  await expect
+    .poll(() => video.evaluate((v) => v.paused === false && v.readyState >= 2 && v.currentTime > 0), { timeout: 20_000 })
+    .toBe(true);
+  const t0 = await video.evaluate((v) => v.currentTime);
+  await page.screenshot({ path: join(SHOTS, "9a-console-motion-mobile-t0.png") });
+  await page.waitForTimeout(1600);
+  await page.screenshot({ path: join(SHOTS, "9b-console-motion-mobile-t1.png") });
+  const t1 = await video.evaluate((v) => v.currentTime);
+  expect(t1 - t0).toBeGreaterThan(0.8); // the astronaut frame moved on screen
 
   // The housing fits the phone width.
   const box = await shell.boundingBox();
@@ -337,4 +408,18 @@ test("console: MOBILE PORTRAIT — the console reflows to a VERTICAL stack and r
   const fire = await page.locator('[data-testid="teleport-now"]').boundingBox();
   expect(fire.width).toBeGreaterThan(300);
   expect(fire.height).toBeGreaterThanOrEqual(44);
+});
+
+test("console: MOBILE REDUCED-MOTION — the poster still replaces the video (a11y rule stays)", async ({ page }) => {
+  // Reduced motion is the ONLY thing that swaps the poster in: phones with
+  // default motion get the drifting video; phones that ask for less motion
+  // get the deterministic poster still.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+
+  await expect(page.locator('[data-testid="teleport-console"]')).toBeVisible();
+  await expect(page.locator('[data-testid="console-poster"]')).toBeVisible();
+  await expect(page.locator('[data-testid="console-video"]')).toHaveCount(0);
+  await page.screenshot({ path: join(SHOTS, "10-console-mobile-reduced-idle.png"), fullPage: true });
 });

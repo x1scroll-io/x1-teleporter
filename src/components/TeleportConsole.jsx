@@ -96,10 +96,13 @@ const CONSOLE_CSS = `
 .tc-scrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(2,5,10,.46) 0%,rgba(2,5,10,.24) 30%,rgba(2,5,10,.34) 55%,rgba(2,4,9,.68) 100%)}
 .tc-portal{position:absolute;left:50%;top:40%;width:min(1080px,130vw);height:min(1080px,130vw);transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(0,240,255,.17) 0%,rgba(63,211,232,.07) 36%,transparent 68%);pointer-events:none}
 .tc-scroll{position:relative;z-index:1;height:100vh;height:100dvh;overflow-y:auto;display:flex;align-items:center;justify-content:center;padding:18px}
-.tc-shell-wrap{position:relative;width:min(700px,94vw);margin:auto;filter:drop-shadow(0 0 16px rgba(63,211,232,.30)) drop-shadow(0 30px 64px rgba(0,0,0,.62)) drop-shadow(0 3px 12px rgba(0,0,0,.5))}
+.tc-shell-wrap{position:relative;width:min(700px,94vw);margin:auto;isolation:isolate;box-shadow:0 0 18px rgba(63,211,232,.26),0 30px 64px rgba(0,0,0,.6),0 3px 12px rgba(0,0,0,.5)}
+/* NOTE: the housing glow/depth shadows are box-shadow here (NOT an ancestor
+   filter) — an ancestor filter would become the glass's backdrop root and
+   starve .tc-shell-glass's backdrop-filter (the blur would sample nothing). */
 .tc-halo{position:absolute;inset:-74px;z-index:-1;pointer-events:none;background:radial-gradient(60% 54% at 50% 50%,rgba(0,240,255,.22) 0%,rgba(63,211,232,.09) 42%,rgba(63,211,232,0) 70%)}
 .tc-shell-rim{clip-path:polygon(0 24px,24px 0,calc(100% - 24px) 0,100% 24px,100% calc(100% - 24px),calc(100% - 24px) 100%,24px 100%,0 calc(100% - 24px));background:linear-gradient(150deg,#a8c6e0 0%,#4a6c8c 10%,#17293d 26%,rgba(0,240,255,.95) 42%,rgba(63,211,232,.35) 50%,#0d1e30 62%,rgba(0,240,255,.8) 80%,#5d8db0 92%,#93b8d6 100%);padding:2px;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),inset 0 -1px 0 rgba(0,0,0,.6)}
-.tc-shell-glass{clip-path:polygon(24px 2px,calc(100% - 24px) 2px,calc(100% - 2px) 24px,calc(100% - 2px) calc(100% - 24px),calc(100% - 24px) calc(100% - 2px),24px calc(100% - 2px),2px calc(100% - 24px),2px 24px);background:linear-gradient(180deg,rgba(255,255,255,.05) 0%,rgba(255,255,255,0) 76px),linear-gradient(180deg,rgba(10,16,27,.84) 0%,rgba(9,14,24,.79) 34%,rgba(8,12,22,.75) 62%,rgba(7,11,21,.78) 100%);backdrop-filter:blur(20px) saturate(1.45) brightness(1.06);-webkit-backdrop-filter:blur(20px) saturate(1.45) brightness(1.06);box-shadow:inset 0 1px 0 rgba(160,235,255,.09),inset 0 -1px 0 rgba(0,0,0,.3)}
+.tc-shell-glass{clip-path:polygon(24px 2px,calc(100% - 24px) 2px,calc(100% - 2px) 24px,calc(100% - 2px) calc(100% - 24px),calc(100% - 24px) calc(100% - 2px),24px calc(100% - 2px),2px calc(100% - 24px),2px 24px);background:linear-gradient(180deg,rgba(255,255,255,.05) 0%,rgba(255,255,255,0) 90px),linear-gradient(180deg,rgba(10,30,47,.44) 0%,rgba(7,23,37,.42) 38%,rgba(6,18,30,.40) 100%);backdrop-filter:blur(20px) saturate(1.45) brightness(1.06);-webkit-backdrop-filter:blur(20px) saturate(1.45) brightness(1.06);box-shadow:inset 0 1px 0 rgba(160,235,255,.09),inset 0 -1px 0 rgba(0,0,0,.3)}
 .tc-bolt{position:absolute;width:13px;height:13px;border-radius:50%;background:radial-gradient(circle at 34% 30%,#e2f0fa 0%,#9dbed8 16%,#3a5a74 48%,#10202f 78%,#060d15 100%);box-shadow:0 0 0 1px rgba(0,0,0,.65),0 1px 3px rgba(0,0,0,.55),0 0 9px rgba(63,211,232,.5);z-index:2}
 .tc-bolt::before,.tc-bolt::after{content:"";position:absolute;left:50%;top:50%;border-radius:1px}
 .tc-bolt::before{width:9px;height:2px;transform:translate(-50%,-50%) rotate(45deg);background:linear-gradient(90deg,rgba(4,8,13,.9) 0%,rgba(4,8,13,.9) 38%,rgba(170,210,235,.55) 50%,rgba(4,8,13,.9) 62%,rgba(4,8,13,.9) 100%)}
@@ -118,22 +121,22 @@ const CONSOLE_CSS = `
 .tc-tab{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:none;border:none;border-bottom:2px solid transparent;color:#8fc4d8;text-shadow:0 0 1px rgba(3,8,13,.5),0 0 8px rgba(0,240,255,.18);font-size:12px;letter-spacing:.18em;padding:10px 12px 8px;cursor:pointer;text-transform:uppercase}
 .tc-tab-active{color:#7ff3ff;border-bottom-color:rgba(0,240,255,.9);text-shadow:0 0 10px rgba(0,240,255,.8),0 0 24px rgba(0,240,255,.4)}
 .tc-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;letter-spacing:.24em;color:#8fe0f2;text-shadow:0 0 1px rgba(3,8,13,.5),0 0 6px rgba(0,240,255,.4),0 0 14px rgba(0,240,255,.18);text-transform:uppercase;display:block;margin-bottom:5px}
-.tc-slot{background:linear-gradient(180deg,rgba(2,5,10,.92) 0%,rgba(7,12,20,.88) 55%,rgba(10,16,26,.84) 100%);border:1px solid rgba(63,211,232,.28);box-shadow:inset 0 2px 4px rgba(0,0,0,.72),inset 0 6px 14px rgba(0,0,0,.38),inset 0 -1px 0 rgba(255,255,255,.06),0 1px 0 rgba(255,255,255,.05);border-radius:8px;padding:10px 12px;min-height:56px;display:flex;flex-direction:column;justify-content:center;transition:border-color 140ms ease-out,box-shadow 140ms ease-out}
-.tc-slot:focus-within{border-color:rgba(0,240,255,.75);box-shadow:inset 0 2px 4px rgba(0,0,0,.72),inset 0 6px 14px rgba(0,0,0,.38),inset 0 -1px 0 rgba(255,255,255,.06),0 0 0 1px rgba(0,240,255,.3),0 0 20px rgba(0,240,255,.2)}
+.tc-slot{background:linear-gradient(180deg,rgba(11,34,52,.44) 0%,rgba(8,24,39,.41) 55%,rgba(6,19,31,.38) 100%);border:1px solid rgba(63,211,232,.3);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 2px 10px rgba(0,0,0,.22),inset 0 -1px 0 rgba(255,255,255,.05),0 1px 0 rgba(255,255,255,.04);border-radius:8px;padding:10px 12px;min-height:56px;display:flex;flex-direction:column;justify-content:center;transition:border-color 140ms ease-out,box-shadow 140ms ease-out}
+.tc-slot:focus-within{border-color:rgba(0,240,255,.75);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 2px 10px rgba(0,0,0,.22),inset 0 -1px 0 rgba(255,255,255,.05),0 0 0 1px rgba(0,240,255,.3),0 0 20px rgba(0,240,255,.2)}
 .tc-coords{display:flex;align-items:stretch;gap:10px}
 .tc-slot-grow{flex:1;min-width:0}
 .tc-arrow{display:flex;align-items:center;justify-content:center;color:#3fd3e8;font-size:22px;padding:0 2px;text-shadow:0 0 10px rgba(63,211,232,.8);animation:tcTravel 1.6s ease-in-out infinite}
-.tc-select{width:100%;background:transparent;border:none;outline:none;color:#e8ecf3;font-size:15px;font-weight:700;appearance:none;-webkit-appearance:none;cursor:pointer;padding:0;font-family:inherit}
+.tc-select{width:100%;background:transparent;border:none;outline:none;color:#e8ecf3;font-size:15px;font-weight:700;appearance:none;-webkit-appearance:none;cursor:pointer;padding:0;font-family:inherit;text-shadow:0 1px 2px rgba(1,4,9,.85)}
 .tc-select option{background:#0b1422;color:#e8ecf3;font-weight:400}
 .tc-sub{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;color:#8ab8cf;text-shadow:0 0 6px rgba(0,240,255,.2);letter-spacing:.1em;margin-top:3px;text-transform:uppercase}
-.tc-amount{width:100%;background:transparent;border:none;outline:none;color:#f2feff;font-size:30px;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.02em;padding:0}
+.tc-amount{width:100%;background:transparent;border:none;outline:none;color:#f2feff;font-size:30px;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.02em;padding:0;text-shadow:0 1px 2px rgba(1,4,9,.85)}
 .tc-amount::placeholder{color:#3c5570;font-weight:600}
 .tc-max{background:linear-gradient(180deg,rgba(63,211,232,.16),rgba(63,211,232,.08));border:1px solid rgba(0,240,255,.5);color:#7ff3ff;text-shadow:0 0 8px rgba(0,240,255,.5);border-radius:7px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.14em;padding:7px 12px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 2px 5px rgba(0,0,0,.35);transition:all 140ms ease-out}
 .tc-max:hover:not(:disabled){background:linear-gradient(180deg,rgba(63,211,232,.3),rgba(63,211,232,.14));box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 0 12px rgba(0,240,255,.25)}
 .tc-max:active:not(:disabled){transform:translateY(1px);box-shadow:inset 0 2px 4px rgba(0,0,0,.35)}
 .tc-max:disabled{opacity:.35;cursor:default}
-.tc-strip{margin-top:12px;border:1px solid rgba(63,211,232,.16);background:linear-gradient(180deg,rgba(2,5,10,.8),rgba(6,11,19,.72));box-shadow:inset 0 2px 6px rgba(0,0,0,.5),inset 0 -1px 0 rgba(255,255,255,.05);border-radius:8px;padding:10px 12px;min-height:54px}
-.tc-strip-hint{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;letter-spacing:.08em;color:#7fabc2;line-height:1.6}
+.tc-strip{margin-top:12px;border:1px solid rgba(63,211,232,.18);background:linear-gradient(180deg,rgba(11,34,52,.42) 0%,rgba(7,21,34,.36) 100%);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),inset 0 -1px 0 rgba(255,255,255,.04);border-radius:8px;padding:10px 12px;min-height:54px}
+.tc-strip-hint{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;letter-spacing:.08em;color:#7fabc2;line-height:1.6;text-shadow:0 1px 2px rgba(1,4,9,.8)}
 .tc-strip-hint b{color:#aee4f2;text-shadow:0 0 8px rgba(0,240,255,.3);font-weight:600}
 .tc-fire{width:100%;margin-top:14px;border:none;cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:800;font-size:15px;letter-spacing:.3em;color:#f4feff;text-shadow:0 1px 2px rgba(0,30,50,.55),0 0 14px rgba(0,240,255,.35);padding:16px 0 14px;clip-path:polygon(0 12px,12px 0,calc(100% - 12px) 0,100% 12px,100% calc(100% - 12px),calc(100% - 12px) 100%,12px 100%,0 calc(100% - 12px));background:linear-gradient(180deg,#3be6ff 0%,#17b8dd 40%,#0e93b8 68%,#0a7194 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -3px 6px rgba(0,35,55,.55),0 5px 16px rgba(0,0,0,.5),0 9px 28px rgba(0,0,0,.3),0 0 16px rgba(0,240,255,.35);transition:filter 140ms ease-out,opacity 140ms ease-out,box-shadow 140ms ease-out,transform 90ms ease-out}
 .tc-fire:not(:disabled):hover{filter:brightness(1.12) saturate(1.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -3px 6px rgba(0,35,55,.55),0 6px 18px rgba(0,0,0,.5),0 0 26px rgba(0,240,255,.55),0 12px 34px rgba(0,240,255,.25)}
@@ -148,9 +151,9 @@ const CONSOLE_CSS = `
 .tc-connect{background:linear-gradient(180deg,rgba(63,211,232,.06),rgba(63,211,232,0));border:1px solid rgba(0,240,255,.55);color:#7ff3ff;text-shadow:0 0 8px rgba(0,240,255,.45);border-radius:999px;padding:6px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;letter-spacing:.12em;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 1px 3px rgba(0,0,0,.3);transition:all 140ms ease-out}
 .tc-connect:hover{background:rgba(63,211,232,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 0 14px rgba(0,240,255,.25)}
 .tc-quote-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0;font-size:13px}
-.tc-quote-key{color:#8ab8cf;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase}
-.tc-quote-val{color:#b9c9dc;font-weight:600;font-size:13px}
-.tc-quote-hi{color:#3fd3e8;font-weight:800;font-size:17px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-shadow:0 0 12px rgba(63,211,232,.45)}
+.tc-quote-key{color:#8ab8cf;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;text-shadow:0 1px 2px rgba(1,4,9,.8)}
+.tc-quote-val{color:#b9c9dc;font-weight:600;font-size:13px;text-shadow:0 1px 2px rgba(1,4,9,.8)}
+.tc-quote-hi{color:#3fd3e8;font-weight:800;font-size:17px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-shadow:0 1px 2px rgba(1,4,9,.9),0 0 12px rgba(63,211,232,.45)}
 .tc-refresh{background:rgba(63,211,232,.05);border:1px solid rgba(0,240,255,.45);color:#7ff3ff;text-shadow:0 0 6px rgba(0,240,255,.4);border-radius:6px;font-size:11px;padding:3px 10px;cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.1em;box-shadow:inset 0 1px 0 rgba(255,255,255,.1)}
 .tc-steps{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .tc-step{font-size:10px;padding:3px 9px;border-radius:999px;color:#9fd8e6;border:1px solid rgba(63,211,232,.3);background:rgba(63,211,232,.06);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em}
@@ -205,12 +208,6 @@ function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-/** Is this a phone-ish (portrait/small) screen? Poster replaces the video. */
-function isCompactScreen() {
-  if (typeof window === "undefined" || !window.matchMedia) return false;
-  return window.matchMedia("(max-width: 767px)").matches;
-}
-
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 
 const defaultTickerFormat = (v) => v.toFixed(2);
@@ -260,23 +257,18 @@ export function useTicker(value, { format = defaultTickerFormat, durationMs = 48
   return display;
 }
 
-/** The ambient astronaut layer: video on desktop, poster still on mobile/
- *  reduced-motion (design doc). Pure presentational. */
+/** The ambient astronaut layer: the drifting VIDEO everywhere — desktop AND
+ *  mobile (autoplay needs muted + playsinline, both present). The poster
+ *  stays ONLY as the <video> pre-load fallback and for reduced-motion
+ *  users (a11y). Pure presentational. */
 function AstronautBackdrop() {
-  const [poster, setPoster] = useState(() => isCompactScreen() || prefersReducedMotion());
+  const [poster, setPoster] = useState(() => prefersReducedMotion());
   useEffect(() => {
-    const update = () => setPoster(isCompactScreen() || prefersReducedMotion());
     if (typeof window === "undefined" || !window.matchMedia) return undefined;
-    const mq = window.matchMedia("(max-width: 767px)");
     const rmq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    mq.addEventListener?.("change", update);
+    const update = () => setPoster(prefersReducedMotion());
     rmq.addEventListener?.("change", update);
-    window.addEventListener("resize", update);
-    return () => {
-      mq.removeEventListener?.("change", update);
-      rmq.removeEventListener?.("change", update);
-      window.removeEventListener("resize", update);
-    };
+    return () => rmq.removeEventListener?.("change", update);
   }, []);
   const posterSrc = "/assets/teleporter-astronaut-poster.jpg";
   return (
@@ -291,7 +283,7 @@ function AstronautBackdrop() {
           loop
           playsInline
           poster={posterSrc}
-          preload="metadata"
+          preload="auto"
           aria-hidden="true"
         >
           <source src="/assets/teleporter-astronaut.webm" type="video/webm" />
