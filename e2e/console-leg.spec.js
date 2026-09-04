@@ -30,8 +30,10 @@
  *      asserted playing (not paused, readyState >= HAVE_CURRENT_DATA, the
  *      media clock advances) with a screenshot PAIR (t0 vs t1) showing the
  *      astronaut frame changed; the frosted-glass recipe (backdrop-filter
- *      blur(20px) + a ~35-45% dark-cyan tint on the shell AND the inner
- *      panels) is asserted via computed styles.
+ *      blur(30-40px) HEAVY frost + a ~10-15% near-transparent dark-cyan
+ *      tint on the shell AND the inner panels — the astronaut glows through
+ *      the whole card, the blur carries readability) is asserted via
+ *      computed styles.
  *
  * WHAT IS MOCKED vs ASSERTED (same contract as forward-leg):
  *   - Wallets:  EVM = the EIP-6963 fake (fakeEthereum.js — CANNOT sign);
@@ -313,12 +315,13 @@ test("console: declining the signature surfaces the honest rejection and sends n
   await page.screenshot({ path: join(SHOTS, "5-console-sign-declined-desktop.png"), fullPage: true });
 });
 
-test("console: FROSTED GLASS — shell + inner panels run the real recipe: backdrop blur(20px), ~35-45% dark-cyan tint, no ancestor-filter trap", async ({ page }) => {
+test("console: FROSTED GLASS v3 — shell + inner panels run the AGGRESSIVE recipe: backdrop blur(30-40px) heavy frost, ~10-15% near-transparent tint, no ancestor-filter trap", async ({ page }) => {
   // Structural proof of the frosted recipe (the pixel proof lives in the
   // screenshots): the shell, the FROM/TO/TOKEN slots and the quote strip
-  // must all carry a REAL backdrop blur(20px) over a translucent tint — and
-  // the housing must NOT put a filter on an ancestor of the glass (an
-  // ancestor filter would become the backdrop root and starve the blur).
+  // must all carry a REAL backdrop blur in the 30-40px band over a
+  // near-transparent 10-15% tint — and the housing must NOT put a filter on
+  // an ancestor of the glass (an ancestor filter would become the backdrop
+  // root and starve the blur).
   const alphas = (bg) => [...bg.matchAll(/rgba?\(([^)]+)\)/g)].map((m) => Number(m[1].split(",").at(-1)));
   const readGlass = () =>
     page.evaluate(() => {
@@ -333,10 +336,20 @@ test("console: FROSTED GLASS — shell + inner panels run the real recipe: backd
   const assertGlass = (g) => {
     expect(g.wrap.filter).toBe("none"); // the backdrop-root trap is gone
     for (const key of ["glass", "slot", "strip"]) {
-      expect(g[key].backdropFilter).toContain("blur(20px)"); // REAL blur, not 1-2px
+      // Heavy frost: the computed blur must sit in the 30-40px band.
+      const m = g[key].backdropFilter.match(/blur\((\d+(?:\.\d+)?)px\)/);
+      expect(m, `${key} should carry a real backdrop blur`).not.toBeNull();
+      const px = Number(m[1]);
+      expect(px, `${key} blur`).toBeGreaterThanOrEqual(30);
+      expect(px, `${key} blur`).toBeLessThanOrEqual(40);
+      // Near-transparent tint: EVERY fill alpha sits inside the 10-15% band
+      // (the blur — not the paint — is what keeps text readable now).
       const a = alphas(g[key].backgroundImage);
-      expect(Math.max(...a)).toBeGreaterThanOrEqual(0.3); // a real tint
-      expect(Math.max(...a)).toBeLessThanOrEqual(0.5); // 35-45% band (was ~0.84-0.92 opaque)
+      expect(a.length, `${key} tint band`).toBeGreaterThan(0);
+      for (const alpha of a) {
+        expect(alpha, `${key} tint alpha`).toBeGreaterThanOrEqual(0.1 - 1e-6);
+        expect(alpha, `${key} tint alpha`).toBeLessThanOrEqual(0.15 + 1e-6);
+      }
     }
   };
 
