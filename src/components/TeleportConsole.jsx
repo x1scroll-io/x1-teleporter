@@ -99,7 +99,7 @@ const CONSOLE_CSS = `
 .tc-shell-wrap{position:relative;width:min(700px,94vw);margin:auto;filter:drop-shadow(0 0 16px rgba(63,211,232,.30)) drop-shadow(0 30px 64px rgba(0,0,0,.62)) drop-shadow(0 3px 12px rgba(0,0,0,.5))}
 .tc-halo{position:absolute;inset:-74px;z-index:-1;pointer-events:none;background:radial-gradient(60% 54% at 50% 50%,rgba(0,240,255,.22) 0%,rgba(63,211,232,.09) 42%,rgba(63,211,232,0) 70%)}
 .tc-shell-rim{clip-path:polygon(0 24px,24px 0,calc(100% - 24px) 0,100% 24px,100% calc(100% - 24px),calc(100% - 24px) 100%,24px 100%,0 calc(100% - 24px));background:linear-gradient(150deg,#a8c6e0 0%,#4a6c8c 10%,#17293d 26%,rgba(0,240,255,.95) 42%,rgba(63,211,232,.35) 50%,#0d1e30 62%,rgba(0,240,255,.8) 80%,#5d8db0 92%,#93b8d6 100%);padding:2px;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),inset 0 -1px 0 rgba(0,0,0,.6)}
-.tc-shell-glass{clip-path:polygon(24px 2px,calc(100% - 24px) 2px,calc(100% - 2px) 24px,calc(100% - 2px) calc(100% - 24px),calc(100% - 24px) calc(100% - 2px),24px calc(100% - 2px),2px calc(100% - 24px),2px 24px);background:linear-gradient(180deg,rgba(9,15,25,.97),rgba(5,9,17,.96));backdrop-filter:blur(18px) saturate(1.15);-webkit-backdrop-filter:blur(18px) saturate(1.15);box-shadow:inset 0 1px 0 rgba(160,235,255,.07)}
+.tc-shell-glass{clip-path:polygon(24px 2px,calc(100% - 24px) 2px,calc(100% - 2px) 24px,calc(100% - 2px) calc(100% - 24px),calc(100% - 24px) calc(100% - 2px),24px calc(100% - 2px),2px calc(100% - 24px),2px 24px);background:linear-gradient(180deg,rgba(255,255,255,.05) 0%,rgba(255,255,255,0) 76px),linear-gradient(180deg,rgba(10,16,27,.84) 0%,rgba(9,14,24,.79) 34%,rgba(8,12,22,.75) 62%,rgba(7,11,21,.78) 100%);backdrop-filter:blur(20px) saturate(1.45) brightness(1.06);-webkit-backdrop-filter:blur(20px) saturate(1.45) brightness(1.06);box-shadow:inset 0 1px 0 rgba(160,235,255,.09),inset 0 -1px 0 rgba(0,0,0,.3)}
 .tc-bolt{position:absolute;width:13px;height:13px;border-radius:50%;background:radial-gradient(circle at 34% 30%,#e2f0fa 0%,#9dbed8 16%,#3a5a74 48%,#10202f 78%,#060d15 100%);box-shadow:0 0 0 1px rgba(0,0,0,.65),0 1px 3px rgba(0,0,0,.55),0 0 9px rgba(63,211,232,.5);z-index:2}
 .tc-bolt::before,.tc-bolt::after{content:"";position:absolute;left:50%;top:50%;border-radius:1px}
 .tc-bolt::before{width:9px;height:2px;transform:translate(-50%,-50%) rotate(45deg);background:linear-gradient(90deg,rgba(4,8,13,.9) 0%,rgba(4,8,13,.9) 38%,rgba(170,210,235,.55) 50%,rgba(4,8,13,.9) 62%,rgba(4,8,13,.9) 100%)}
@@ -110,14 +110,14 @@ const CONSOLE_CSS = `
 .tc-bolt-se{bottom:-5px;right:-5px}
 .tc-header{padding:12px 18px 8px;border-bottom:1px solid rgba(63,211,232,.16);box-shadow:inset 0 1px 0 rgba(140,240,255,.06)}
 .tc-body{padding:14px 18px 20px}
-.tc-title{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;letter-spacing:.22em;font-size:15px;color:#aef6ff;text-shadow:0 0 8px rgba(0,240,255,.55),0 0 22px rgba(0,240,255,.30)}
-.tc-subheader{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;letter-spacing:.3em;color:#9fdcf0;text-shadow:0 0 10px rgba(0,240,255,.28);text-transform:uppercase}
-.tc-status{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;letter-spacing:.14em;color:#bff3ff;text-shadow:0 0 8px rgba(0,240,255,.5),0 0 16px rgba(0,240,255,.22);display:flex;align-items:center;gap:7px;white-space:nowrap}
+.tc-title{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:700;letter-spacing:.22em;font-size:15px;color:#aef6ff;text-shadow:0 0 1px rgba(3,8,13,.55),0 0 8px rgba(0,240,255,.55),0 0 22px rgba(0,240,255,.30)}
+.tc-subheader{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;letter-spacing:.3em;color:#9fdcf0;text-shadow:0 0 1px rgba(3,8,13,.5),0 0 10px rgba(0,240,255,.28);text-transform:uppercase}
+.tc-status{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.14em;color:#c8f6ff;text-shadow:0 0 2px rgba(2,6,11,.8),0 0 8px rgba(0,240,255,.5),0 0 16px rgba(0,240,255,.22);display:flex;align-items:center;gap:7px;white-space:nowrap}
 .tc-status-dot{width:8px;height:8px;border-radius:50%;background:#3fd3e8;box-shadow:0 0 8px rgba(63,211,232,.95),0 0 18px rgba(63,211,232,.5);animation:tcBlink 2.4s ease-in-out infinite}
 .tc-tabs{display:flex;gap:4px;padding:0 18px;border-bottom:1px solid rgba(63,211,232,.12)}
-.tc-tab{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:none;border:none;border-bottom:2px solid transparent;color:#8fc4d8;text-shadow:0 0 8px rgba(0,240,255,.18);font-size:12px;letter-spacing:.18em;padding:10px 12px 8px;cursor:pointer;text-transform:uppercase}
+.tc-tab{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:none;border:none;border-bottom:2px solid transparent;color:#8fc4d8;text-shadow:0 0 1px rgba(3,8,13,.5),0 0 8px rgba(0,240,255,.18);font-size:12px;letter-spacing:.18em;padding:10px 12px 8px;cursor:pointer;text-transform:uppercase}
 .tc-tab-active{color:#7ff3ff;border-bottom-color:rgba(0,240,255,.9);text-shadow:0 0 10px rgba(0,240,255,.8),0 0 24px rgba(0,240,255,.4)}
-.tc-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;letter-spacing:.24em;color:#8fe0f2;text-shadow:0 0 6px rgba(0,240,255,.4),0 0 14px rgba(0,240,255,.18);text-transform:uppercase;display:block;margin-bottom:5px}
+.tc-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;letter-spacing:.24em;color:#8fe0f2;text-shadow:0 0 1px rgba(3,8,13,.5),0 0 6px rgba(0,240,255,.4),0 0 14px rgba(0,240,255,.18);text-transform:uppercase;display:block;margin-bottom:5px}
 .tc-slot{background:linear-gradient(180deg,rgba(2,5,10,.92) 0%,rgba(7,12,20,.88) 55%,rgba(10,16,26,.84) 100%);border:1px solid rgba(63,211,232,.28);box-shadow:inset 0 2px 4px rgba(0,0,0,.72),inset 0 6px 14px rgba(0,0,0,.38),inset 0 -1px 0 rgba(255,255,255,.06),0 1px 0 rgba(255,255,255,.05);border-radius:8px;padding:10px 12px;min-height:56px;display:flex;flex-direction:column;justify-content:center;transition:border-color 140ms ease-out,box-shadow 140ms ease-out}
 .tc-slot:focus-within{border-color:rgba(0,240,255,.75);box-shadow:inset 0 2px 4px rgba(0,0,0,.72),inset 0 6px 14px rgba(0,0,0,.38),inset 0 -1px 0 rgba(255,255,255,.06),0 0 0 1px rgba(0,240,255,.3),0 0 20px rgba(0,240,255,.2)}
 .tc-coords{display:flex;align-items:stretch;gap:10px}
@@ -174,9 +174,16 @@ const CONSOLE_CSS = `
 @keyframes tcScan{0%{background-position:0 0}100%{background-position:200px 0}}
 @media (max-width:767px){
   .tc-page{overflow-y:auto;overflow-x:hidden}
-  .tc-scroll{height:auto;min-height:100vh;min-height:100dvh;align-items:flex-start;padding:10px}
+  /* Breathing room: the console FLOATS in the portal scene — margins above and
+     below (the astronaut stays visible around the card, never edge-to-edge). */
+  .tc-scroll{height:auto;min-height:100vh;min-height:100dvh;align-items:flex-start;padding:44px 18px 60px}
   .tc-shell-wrap{width:100%;margin:0}
-  .tc-bg video,.tc-bg img{top:0;height:100%}
+  /* Astronaut composition on mobile: the figure is zoomed and kept low so the
+     bright helmet/visor glows through the frosted glass AND floats in the open
+     portal below the console (desktop keeps the head-above-console crop). */
+  .tc-bg video,.tc-bg img{top:0;height:170%}
+  .tc-scrim{background:linear-gradient(180deg,rgba(2,5,10,.52) 0%,rgba(2,5,10,.27) 26%,rgba(2,5,10,.28) 52%,rgba(2,5,10,.32) 76%,rgba(2,4,9,.44) 100%)}
+  .tc-portal{top:76%;width:min(1080px,152vw);height:min(1080px,152vw)}
   .tc-halo{inset:-26px}
   .tc-bolt{width:11px;height:11px}
   .tc-coords{flex-direction:column;gap:8px}
