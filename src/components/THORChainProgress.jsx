@@ -129,6 +129,10 @@ const S = {
  * @param {number} [props.landingMaxMs] landing arrival window (default 30 min)
  * @param {number} [props.tolerance] SOL landing shortfall tolerance
  * @param {Function} [props.onStateChange] ({stage, phase, error}) => void
+ * @param {object} [props.copy] neutral-copy overrides for a host surface
+ *   that must not name the rail (default: THIS component's own copy, so the
+ *   classic THORChain tab renders byte-identically without it). Keys:
+ *   { paused: string, stageDetail: { observed?: string, swapping?: string } }.
  */
 export default function THORChainProgress({
   hop,
@@ -149,6 +153,7 @@ export default function THORChainProgress({
   landingMaxMs,
   tolerance,
   onStateChange,
+  copy = {},
 }) {
   if (!hop?.inboundTxid) {
     throw new Error("THORChainProgress: hop.inboundTxid is required");
@@ -343,7 +348,7 @@ export default function THORChainProgress({
     phase === "paused" ? (
       <div style={{ ...S.banner, ...S.bannerWarn }} data-testid="tc-banner-paused">
         <span>⚠️</span>
-        <span>Paused by THORChain — the chain is halted right now. Your deposit is safe; polling continues and this clears automatically.</span>
+        <span>{copy.paused ?? "Paused by THORChain — the chain is halted right now. Your deposit is safe; polling continues and this clears automatically."}</span>
       </div>
     ) : phase === "timeout" ? (
       <div style={{ ...S.banner, ...S.bannerWarn }} data-testid="tc-banner-timeout">
@@ -389,6 +394,7 @@ export default function THORChainProgress({
         {STAGE_SEQUENCE.map((s) => {
           const done = reached(s.stage);
           const active = stage === s.stage && phase !== "arrived";
+          const detail = copy.stageDetail?.[s.stage] ?? s.detail;
           return (
             <div
               key={s.stage}
@@ -401,7 +407,7 @@ export default function THORChainProgress({
                 <div style={{ ...S.stageLabel, ...(done ? S.stageLabelDone : {}), ...(active ? S.stageLabelActive : {}) }}>
                   {s.label}
                 </div>
-                <div style={S.stageDetail}>{s.detail}</div>
+                <div style={S.stageDetail}>{detail}</div>
               </div>
             </div>
           );

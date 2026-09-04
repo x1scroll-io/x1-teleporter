@@ -38,6 +38,11 @@ import { createSolBalanceReader } from "../lib/thorchain/solBalance.js";
 import THORChainProgress from "./THORChainProgress.jsx";
 import THORChainDeposit from "./THORChainDeposit.jsx";
 
+// The lane's public doorway re-exports (the console's unified flow drives
+// the deposit-address rail through this component's module — the lane
+// internals stay contained behind it; gate.test.js enforces the boundary).
+export { createThorchainStorage, createSolBalanceReader };
+
 /** The sequential states of the THORChain flow inside the card. The quote
  *  state is the quote gate inside the deposit stage (Step 3.3) — the tab
  *  renders the deposit stage directly; "quote" is the conceptual first

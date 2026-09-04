@@ -65,11 +65,23 @@ const QUOTE = read("../test/fixtures/golden/forward-leg/quote-eth-sol-usdc-25.65
 const SUMMARY = read("../test/fixtures/golden/forward-leg/forward-leg-summary.json");
 const GOLDEN_STEP1 = read("../test/fixtures/golden/forward-leg/step1-approval.json");
 const TOOLS = read("./fixtures/tools-chain-1.json");
+// The deposit rail's frozen fixtures (the same bodies the frozen
+// thorchain-leg harness measures — the unified console's native-source flow
+// reproduces the same honest payload).
+const INBOUND_BODY = read("../test/fixtures/golden/thorchain-leg/inbound-addresses-body.json").body;
+const QUOTE_BODY = read("../test/fixtures/golden/thorchain-leg/quote-body-btc-sol.json").body;
+const TC_SUMMARY = read("../test/fixtures/golden/thorchain-leg/thorchain-leg-summary.json");
+const GOLDEN_MEMO = TC_SUMMARY.derived.memo; // =:SOL.SOL:wJs2CD1p…
+const GOLDEN_ADDRESS = TC_SUMMARY.derived.depositAddress; // the synthetic BTC vault
+const GOLDEN_FEE_LINES = TC_SUMMARY.derived.feeLines; // affiliate 1.00% / Teleporter 0.50% / Warp $1 flat
 
 // The mock solana session address (WalletContext dev-mock fallback — what the
 // Starport row connects when no real Solana wallet is installed).
 const MOCK_SOL_ADDRESS = "mock:solana:9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
 const EVM_ADDRESS = "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6";
+// The fakeSolana helper's deterministic base58 address (the golden USER) —
+// the deposit rail's memo destination must be a real base58 address.
+const SOL_ADDRESS = "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV";
 
 const baseURL = process.env.E2E_BASE_URL || "http://127.0.0.1:4176";
 const DEPLOYED = baseURL.includes("vercel.app");
@@ -95,8 +107,11 @@ function motionShare(a, b, t = 10) {
 }
 
 test.beforeEach(async ({ page }) => {
-  // The fake EVM wallet must exist before ANY app script runs.
+  // The fake wallets must exist before ANY app script runs (EVM first — it
+  // creates the shared harness; Solana extends it for the deposit-rail
+  // tests — its base58 session is the golden memo destination).
   await page.addInitScript({ path: join(here, "helpers", "fakeEthereum.js") });
+  await page.addInitScript({ path: join(here, "helpers", "fakeSolana.js") });
   // Freeze the LiFi network: quote + tools come from the fixtures.
   await page.route("**/api/lifi/quote?*", (route) =>
     route.fulfill({ contentType: "application/json", body: JSON.stringify(QUOTE) }),
@@ -666,4 +681,142 @@ test("console: MOBILE REDUCED-MOTION — the poster still replaces the video (a1
   await expect(page.locator('[data-testid="console-poster"]')).toBeVisible();
   await expect(page.locator('[data-testid="console-video"]')).toHaveCount(0);
   await page.screenshot({ path: join(SHOTS, "10-console-mobile-reduced-idle.png"), fullPage: true });
+});
+
+test("console: LANDSCAPE PHONE — the console reflows HORIZONTAL (coords in a row, centered) and the astronaut shows the FULL wide shot (no portrait crop)", async ({ page }) => {
+  // Rotate the phone: landscape is the enhanced cinematic view — the footage
+  // IS landscape, so the horizontal crop portrait forces disappears.
+  await page.setViewportSize({ width: 844, height: 390 });
+  await page.goto("/");
+
+  const shell = page.locator('[data-testid="teleport-console"]');
+  await expect(shell).toBeVisible();
+
+  // The console reflows: FROM and TO slots sit side-by-side on the same row
+  // (NOT the portrait vertical stack) — the coords are readable horizontally.
+  const fromSlot = await page.locator('[data-testid="from-slot"]').boundingBox();
+  const toSlot = await page.locator('[data-testid="to-slot"]').boundingBox();
+  expect(fromSlot.x).toBeLessThan(toSlot.x);
+  expect(Math.abs(fromSlot.y - toSlot.y)).toBeLessThan(6);
+
+  // The astronaut VIDEO plays in landscape too, and the footage — now shown
+  // by WIDTH — renders its full wide composition (no side crop): the video
+  // element's painted width fills the viewport at ~natural scale.
+  const video = page.locator('[data-testid="console-video"]');
+  await expect(video).toBeVisible();
+  await expect
+    .poll(() => video.evaluate((v) => v.paused === false && v.readyState >= 2 && v.currentTime > 0), { timeout: 20_000 })
+    .toBe(true);
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: join(SHOTS, "b1-console-landscape-cinematic.png"), fullPage: true });
+});
+
+test("console: UNIFIED FLOW — one surface, no rail tabs, no Buy; the source-asset union lists the native chains; a BTC source routes into the DEPOSIT-ADDRESS final step (vault + memo byte-identical to the golden fixtures) and STOPS — the rail is never named", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  // The deposit rail's network: vault-address refresh + our quote proxy are
+  // fulfilled with the frozen THORChain fixtures (the same bodies the frozen
+  // thorchain-leg harness uses). Registered AFTER the shared beforeEach
+  // routes — Playwright matches the newest route first.
+  await page.route("**/thorchain/inbound_addresses*", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify(INBOUND_BODY) }),
+  );
+  await page.route("**/api/thorchain/quote*", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify(QUOTE_BODY) }),
+  );
+
+  await page.goto("/");
+
+  // ── 1. ONE unified surface: no rail tabs, no Buy tab, no rail name. ──
+  await expect(page.locator('[data-testid="teleport-console"]')).toBeVisible();
+  await expect(page.locator('[role="tab"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="buy-tab"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="thorchain-tab"]')).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("THORChain");
+  await expect(page.locator("body")).not.toContainText("Buy");
+
+  // ── 2. The source-asset union: the from-chain picker carries the native
+  //    chains next to the EVM chains and X1. ──
+  const fromChain = page.locator('[data-testid="from-chain"]');
+  for (const v of ["eth", "btc", "doge", "ltc", "xrp", "x1"]) {
+    await expect(fromChain.locator(`option[value="${v}"]`)).toHaveCount(1);
+  }
+  await fromChain.selectOption("btc");
+  // Native route locks: single asset BTC, destination X1, USDC.x land-as.
+  await expect(page.locator('[data-testid="token"]')).toHaveValue("BTC");
+  await expect(page.locator('[data-testid="to-chain"]')).toHaveValue("x1");
+  await expect(page.locator('[data-testid="to-slot"]')).toContainText("arrives as USDC.x on X1");
+  await expect(page.locator('[data-testid="x1-token"]')).toHaveCount(0);
+  await page.screenshot({ path: join(SHOTS, "c1-unified-asset-picker-btc.png"), fullPage: true });
+
+  // ── 3. Connect ONLY the Solana/X1 wallet (the deposit destination). The
+  //    fakeSolana session has the golden base58 address — the memo's dest. ──
+  await page.locator('[data-testid="connect-open"]').click();
+  await expect(page.locator('[data-testid="connect-modal"]')).toBeVisible();
+  await page.locator('button[data-family="solana"]').click();
+  const solRow = page.locator('li[data-wallet-id="Playwright Test Solana"]');
+  await expect(solRow).toBeVisible();
+  await solRow.locator("button.connect-btn").click();
+  await expect(page.locator('[data-testid="wallet-chip-solana"]')).toBeVisible();
+
+  // ── 4. Amount → TELEPORT → the DEPOSIT-ADDRESS final step (the rail
+  //    decision happened post-pick, pre-execution, invisibly). ──
+  await page.locator('[data-testid="amount"]').fill("0.01");
+  await expect(page.locator('[data-testid="quote-strip"]')).toContainText("DEPOSIT ROUTE READY");
+  await page.locator('[data-testid="teleport-now"]').click();
+  await expect(page.locator('[data-testid="deposit-step"]')).toBeVisible();
+  await expect(page.locator('[data-testid="tc-deposit"]')).toBeVisible();
+  await expect(page.locator('[data-testid="console-status"]')).toContainText("DEPOSIT");
+  // The console amount rode into the deposit stage; source locked; the
+  // destination is the connected session (never typed).
+  await expect(page.locator('[data-testid="tc-amount-input"]')).toHaveValue("0.01");
+  await expect(page.locator('[data-testid="tc-source-locked"]')).toContainText("BTC");
+  await expect(page.locator('[data-testid="tc-sources"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="tc-destination-input"]')).toHaveValue(SOL_ADDRESS);
+
+  // ── 5. The QUOTE GATE: the vault address appears only after a fresh quote
+  //    lands. Fees render with NEUTRAL labels (the rail is never named). ──
+  await expect(page.locator('[data-testid="tc-deposit-card"]')).toHaveCount(0);
+  await page.locator('[data-testid="tc-get-quote"]').click();
+  await expect(page.locator('[data-testid="tc-quote-summary"]')).toContainText("0.4975 SOL");
+  await expect(page.locator('[data-testid="tc-fee-line"][data-fee-id="thorchain-affiliate"]')).toContainText("Network protocol fee");
+  await expect(page.locator('[data-testid="tc-fee-line"][data-fee-id="thorchain-affiliate"]')).toContainText(GOLDEN_FEE_LINES[0].display);
+  await expect(page.locator('[data-testid="tc-fee-line"][data-fee-id="warp-skim"]')).toContainText(GOLDEN_FEE_LINES[1].display);
+  await expect(page.locator('[data-testid="tc-fee-line"][data-fee-id="warp-flat"]')).toContainText(GOLDEN_FEE_LINES[2].display);
+
+  // ── 6. THE DEPOSIT PAYLOAD — vault + memo byte-for-byte vs the golden
+  //    fixtures (destination = the connected fakeSolana session). ──
+  await expect(page.locator('[data-testid="tc-deposit-card"]')).toBeVisible();
+  await expect(page.locator('[data-testid="tc-deposit-address"]')).toHaveText(GOLDEN_ADDRESS);
+  await expect(page.locator('[data-testid="tc-memo"]')).toHaveText(GOLDEN_MEMO);
+
+  // ── 7. The rail stays invisible end-to-end. ──
+  await expect(page.locator("body")).not.toContainText("THORChain");
+  await page.screenshot({ path: join(SHOTS, "c2-unified-deposit-address-step.png"), fullPage: true });
+
+  // ── 8. STOP AT THE DEPOSIT BOUNDARY: the send is out-of-band — never
+  //    paste a txid, never submit, nothing signed in-app. ──
+  await expect(page.locator('[data-testid="tc-submit"]')).toBeDisabled();
+  await expect(page.locator('[data-testid="console-wallets"]')).toBeVisible();
+});
+
+test("console: UNIFIED FLOW — the EVM rail keeps the WALLET-CONNECT final step (sign boundary) and the console never offers a Buy tab", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await connectWallets(page);
+  await getForwardQuote(page);
+
+  // The wallet-connect rail end-to-end: quote → ARMED → sign step (the fake
+  // EVM wallet hangs at the prompt — never signs, never sends).
+  await page.evaluate(() => window.__x1TeleporterHarness.setMode("hang"));
+  await page.locator('[data-testid="teleport-now"]').click();
+  await expect(page.locator('[data-testid="bridging"]')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => window.__x1TeleporterHarness.signingRequests.length), { timeout: 20_000 })
+    .toBe(1);
+
+  // The unified surface held throughout: no tabs, no Buy, no rail name.
+  await expect(page.locator('[role="tab"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="buy-tab"]')).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("THORChain");
+  await page.screenshot({ path: join(SHOTS, "c3-unified-wallet-connect-step.png"), fullPage: true });
 });

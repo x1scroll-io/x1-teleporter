@@ -69,6 +69,7 @@ function renderConsole({
   formProps = {},
   flags = { THORCHAIN: false },
   initialTab = "teleport",
+  consoleProps = {},
 }) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -89,7 +90,10 @@ function renderConsole({
             balancesDeps: NOOP_BALANCES,
             ...formProps,
           },
-          consoleProps: { autoQuoteDebounceMs: 0 },
+          consoleProps: {
+            autoQuoteDebounceMs: 0,
+            ...consoleProps,
+          },
         }),
       ),
     );
@@ -193,7 +197,7 @@ async function quoteAmount(container, amount) {
 
 // ── THE CONSOLE MOUNTS (the bridge card's console variant) ─────────────────
 
-test("console mounts as the bridge card's console variant: hardware shell, header strip, route coordinates, TELEPORT", () => {
+test("console mounts as the bridge card's console variant: hardware shell, header strip, route coordinates, TELEPORT — ONE unified flow (no rail tabs, no Buy)", () => {
   const { container, unmount } = renderConsole({});
   try {
     const shell = container.querySelector('[data-testid="teleport-console"]');
@@ -217,9 +221,19 @@ test("console mounts as the bridge card's console variant: hardware shell, heade
     assert.ok(fire, "the TELEPORT fire control");
     assert.ok(fire.textContent.includes("TELEPORT"), `label, got: ${fire.textContent}`);
     assert.equal(fire.disabled, true, "no amount yet → not armed");
-    // Tabs preserved (the console is the swap surface; THORChain/Buy live on)
-    const tabs = [...container.querySelectorAll('[role="tab"]')].map((b) => b.getAttribute("data-tab"));
-    assert.deepEqual(tabs, ["teleport", "thorchain", "buy"], "tab shell preserved");
+    // ONE unified flow: no rail tabs anywhere, no Buy tab, and the rail is
+    // never named in the console surface.
+    assert.equal(container.querySelectorAll('[role="tab"]').length, 0, "no tab strip in the unified console");
+    assert.equal(container.querySelector('[data-testid="buy-tab"]'), null, "Buy tab panel gone");
+    assert.equal(container.querySelector('[data-testid="thorchain-tab"]'), null, "THORChain tab shell gone");
+    const shellText = shell.textContent;
+    assert.ok(!shellText.includes("THORChain"), "the rail is never named in the console");
+    assert.ok(!shellText.includes("Buy"), "no Buy entry in the console");
+    // Source-asset union: EVM chains + native chains (BTC/DOGE/LTC/XRP) + X1.
+    const fromOptions = [...container.querySelector('[data-testid="from-chain"]').options].map((o) => o.value);
+    for (const c of ["eth", "bsc", "arb", "btc", "doge", "ltc", "xrp", "x1"]) {
+      assert.ok(fromOptions.includes(c), `source picker lists ${c}`);
+    }
   } finally {
     unmount();
   }
@@ -258,15 +272,49 @@ test("route-first direction: FROM X1 flips the console to the reverse off-ramp (
     assert.equal(container.querySelector('[data-testid="to-chain"]').value, "eth");
     const toOptions = [...container.querySelector('[data-testid="to-chain"]').options].map((o) => o.value);
     assert.ok(toOptions.includes("arb") && toOptions.includes("bsc"), "EVM destinations listed");
+    assert.ok(!toOptions.includes("btc") && !toOptions.includes("x1"), "native chains + X1 are not EVM destinations");
     assert.ok(container.querySelector('[data-testid="to-token"]'), "receive-token slot on reverse");
     assert.equal(container.querySelector('[data-testid="x1-token"]'), null, "land-as slot is forward-only");
     const body = container.querySelector('[data-testid="teleport-console"]');
-    assert.ok(body.textContent.includes("X1 → EVM"), "route readout flips");
+    assert.ok(body.textContent.includes("X1 → Ethereum"), "route readout flips");
     // And back: EVM source restores the forward surface.
     setSelect(container.querySelector('[data-testid="from-chain"]'), "eth");
     assert.equal(container.querySelector('[data-testid="token"]').value, "USDC");
     assert.equal(container.querySelector('[data-testid="to-chain"]').value, "x1");
     assert.ok(container.querySelector('[data-testid="x1-token"]'), "land-as slot back");
+  } finally {
+    unmount();
+  }
+});
+
+test("unified source union: a native source (Bitcoin) locks the deposit-address route — dest X1, single asset, USDC.x land-as, rail never named", () => {
+  const { container, unmount } = renderConsole({});
+  try {
+    const fromChain = container.querySelector('[data-testid="from-chain"]');
+    setSelect(fromChain, "btc");
+    assert.equal(fromChain.value, "btc");
+    // Source chain label renders the native chain name (no CHAINS crash).
+    assert.ok(container.querySelector('[data-testid="from-slot"]').textContent.includes("Bitcoin"), "native chain label");
+    // Single asset, locked; destination locked to X1; no land-as picker.
+    const token = container.querySelector('[data-testid="token"]');
+    assert.equal(token.value, "BTC", "native chain carries its one asset");
+    assert.equal(token.disabled, true, "the single native asset is not a picker");
+    assert.equal(container.querySelector('[data-testid="to-chain"]').value, "x1");
+    assert.equal(container.querySelector('[data-testid="x1-token"]'), null, "no land-as picker on the native rail (USDC.x is fixed)");
+    assert.ok(container.querySelector('[data-testid="to-slot"]').textContent.includes("arrives as USDC.x on X1"), "fixed land-as readout");
+    const body = container.querySelector('[data-testid="teleport-console"]');
+    assert.ok(!body.textContent.includes("THORChain"), "the rail is never named");
+    assert.ok(body.textContent.includes("Bitcoin → X1"), "route readout names the real chains");
+    // Amount set → TELEPORT arms (◉) and the strip announces the deposit route.
+    setInput(container.querySelector('[data-testid="amount"]'), "0.01");
+    const fire = container.querySelector('[data-testid="teleport-now"]');
+    assert.equal(fire.disabled, false, "armed with an amount");
+    assert.ok(fire.textContent.includes("◉ TELEPORT"), "armed label");
+    assert.ok(container.querySelector('[data-testid="quote-strip"]').textContent.includes("DEPOSIT ROUTE READY"), "strip announces the deposit step, not a rail");
+    // And the reverse of the union: switching back to Ethereum restores USDC.
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "eth");
+    assert.equal(container.querySelector('[data-testid="token"]').value, "USDC");
+    assert.ok(container.querySelector('[data-testid="x1-token"]'), "land-as picker back on the EVM rail");
   } finally {
     unmount();
   }
@@ -655,15 +703,73 @@ test("wallet chips: connected sessions render as chips with disconnect", async (
   }
 });
 
-test("tab shell preserved: THORChain + Buy tabs still reachable from the console", async () => {
-  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+test("unified flow: a native source routes into the DEPOSIT-ADDRESS final step on TELEPORT (the engine picks the rail invisibly — no signing, no rail name)", async () => {
+  // No wallets at all: the deposit step must render and explain itself — the
+  // console never asks the user to understand a rail. A fake inbound
+  // refresher keeps the mount hermetic (no network).
+  const noopRefresher = { start() {}, stop() {} };
+  const { container, unmount } = renderConsole({
+    initialState: connectedState({}),
+    consoleProps: {
+      depositDeps: { createInboundRefresher: () => noopRefresher },
+    },
+  });
   try {
-    click(container.querySelector('[data-tab="thorchain"]'));
-    assert.ok(container.querySelector('[data-testid="thorchain-tab"]'), "THORChain tab panel (placeholder — flag off)");
-    click(container.querySelector('[data-tab="buy"]'));
-    assert.ok(container.querySelector('[data-testid="buy-tab"]'), "Buy tab panel");
-    click(container.querySelector('[data-tab="teleport"]'));
-    assert.ok(container.querySelector('[data-testid="teleport-console"]'), "back to the console surface");
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "btc");
+    setInput(container.querySelector('[data-testid="amount"]'), "0.01");
+    click(container.querySelector('[data-testid="teleport-now"]'));
+    // The deposit-address final step rendered (post-pick, pre-execution).
+    const depositStep = container.querySelector('[data-testid="deposit-step"]');
+    assert.ok(depositStep, "the deposit-address step renders");
+    assert.ok(container.querySelector('[data-testid="tc-deposit"]'), "the deposit card (vault address + memo + txid) renders");
+    assert.ok(
+      depositStep.textContent.includes("Sending BTC from Bitcoin → X1"),
+      "step context names the real chains, not a rail",
+    );
+    // The rail is invisible: the word never appears anywhere in the console.
+    const body = container.querySelector('[data-testid="teleport-console"]').textContent;
+    assert.ok(!body.includes("THORChain"), "the word THORChain never renders in the unified console");
+    assert.ok(!body.includes("Buy"), "no Buy tab");
+    // The console body is replaced by the deposit step (no competing pickers).
+    assert.equal(container.querySelector('[data-testid="console-coords"]'), null, "coords hidden during the deposit step");
+    assert.equal(container.querySelector('[data-testid="teleport-now"]'), null, "fire control hidden during the deposit step");
+    // The status readout reflects the step.
+    assert.ok(container.querySelector('[data-testid="console-status"]').textContent.includes("DEPOSIT"), "status: DEPOSIT");
+    // Back to the route.
+    click(container.querySelector('[data-testid="back-to-route"]'));
+    assert.ok(container.querySelector('[data-testid="console-coords"]'), "back on the route coordinates");
+    assert.equal(container.querySelector('[data-testid="from-chain"]').value, "btc", "route kept");
+  } finally {
+    unmount();
+  }
+});
+
+test("unified flow: the deposit step prefills the console's amount and locks the source (no second picker)", async () => {
+  const noopRefresher = { start() {}, stop() {} };
+  const { container, unmount } = renderConsole({
+    solana: true,
+    solProvider: makeSolAdapter(),
+    consoleProps: {
+      depositDeps: { createInboundRefresher: () => noopRefresher },
+    },
+  });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "doge");
+    setInput(container.querySelector('[data-testid="amount"]'), "1234.5");
+    click(container.querySelector('[data-testid="teleport-now"]'));
+    const depositStep = container.querySelector('[data-testid="deposit-step"]');
+    assert.ok(depositStep, "deposit step renders");
+    // The console amount rode into the deposit stage.
+    assert.equal(container.querySelector('[data-testid="tc-amount-input"]').value, "1234.5", "amount prefilled from the route");
+    // The source is locked to the picked asset (no competing grid).
+    assert.ok(container.querySelector('[data-testid="tc-source-locked"]'), "source locked row renders");
+    assert.equal(container.querySelector('[data-testid="tc-sources"]'), null, "no source picker grid inside the step");
+    assert.ok(container.querySelector('[data-testid="tc-source-locked"]').textContent.includes("DOGE"), "locked to DOGE");
+    // The destination is the connected Solana/X1 wallet session.
+    assert.equal(container.querySelector('[data-testid="tc-destination-input"]').value, SOL_ADDR, "destination = the connected session");
+    // Neutral copy: no rail name in the deposit card either.
+    const depositText = depositStep.textContent;
+    assert.ok(!depositText.includes("THORChain"), "deposit card copy never names the rail");
   } finally {
     unmount();
   }

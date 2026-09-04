@@ -14,23 +14,37 @@
  *
  * INTEGRATION (how it mounts vs the old form):
  *   - BridgeCard variant="console" renders this component INSTEAD of the
- *     classic TeleportTab/TeleportForm stack. The tab strip is preserved
- *     (Teleport = the console swap surface; THORChain/Buy tabs unchanged —
- *     THORChainTab is reused verbatim when the THORCHAIN flag is on).
- *   - The classic card (BridgeCard default variant) stays byte-behavior-
- *     identical and remains the default on non-preview hosts — the frozen
- *     browser harnesses (forward/reverse/thorchain-leg.spec.js) keep
- *     measuring it. The console mounts by default on the x1scroll Vercel
- *     preview hosts (src/lib/uiVariant.js decides; main.jsx applies).
+ *     classic TeleportTab/TeleportForm stack. The classic card (BridgeCard
+ *     default variant) stays byte-behavior-identical and remains the default
+ *     on non-preview hosts — the frozen browser harnesses (forward/reverse/
+ *     thorchain-leg.spec.js) keep measuring it. The console mounts by default
+ *     on the x1scroll Vercel preview hosts (src/lib/uiVariant.js decides;
+ *     main.jsx applies).
  *   - Phase/flow semantics mirror TeleportForm 1:1 (same phases, same
  *     fail-closed gates, same error strings, same testids for the shared
  *     elements) so the console-leg harness mirrors the frozen forward/
  *     reverse harness patterns and a future ruler update is mechanical.
  *
+ * UNIFIED FLOW (2026-09-04 UX pass — Mr. Esters): NO rail tabs, NO Buy tab.
+ *   One clean flow: pick what you have (source asset), where it's going
+ *   (destination), TELEPORT. The source picker is the UNION of what every
+ *   engine rail can carry — EVM-chain stables (USDC/USDT/DAI — the LiFi/Warp
+ *   rail), native BTC/DOGE/LTC/XRP (the THORChain rail), and X1's own tokens
+ *   (USDC.x/wSOL.X — the reverse off-ramp). A rail-selection layer
+ *   (src/lib/teleportRail.js — pickRail) decides the engine path INVISIBLY
+ *   after the asset pick and before execution, with silent failover; the
+ *   user never sees a rail name. The two execution shapes route into their
+ *   own final steps: deposit-address (vault address + memo + txid-paste —
+ *   rendered by THORChainDeposit/THORChainProgress with neutral copy, the
+ *   word "THORChain" never rendered) vs wallet-connect (the EVM/X1 sign
+ *   stages below). The THORChain engine code, tests, fixtures and fees are
+ *   untouched — this is UI consolidation only.
+ *
  * DIRECTION MODEL: route-first (docs/UX-VISION.md) — there is no direction
- * toggle. FROM and TO are the route coordinates: FROM an EVM chain → X1 is
- * the forward on-ramp; FROM X1 → an EVM chain is the reverse off-ramp. The
- * console derives the direction from the FROM slot.
+ * toggle. FROM and TO are the route coordinates: FROM an EVM chain or a
+ * native chain (BTC/DOGE/LTC/XRP) → X1 is the forward on-ramp; FROM X1 → an
+ * EVM chain is the reverse off-ramp. The console derives the direction from
+ * the FROM slot.
  *
  * MOTION: numbers tick when quoting (readout feel), the TELEPORT button
  * pulses when armed, micro-interactions are ≤200ms ease-out, and the
@@ -40,8 +54,18 @@
  * ambient video (design doc).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { CHAINS, EVM_CHAINS, TOKENS, WARP_BRIDGE_URL, tokensFor } from "../lib/teleportConstants.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CHAINS, TOKENS, WARP_BRIDGE_URL } from "../lib/teleportConstants.js";
+import {
+  RAIL,
+  NATIVE_CHAINS,
+  SOURCE_CHAINS,
+  chainName,
+  chainGlyph,
+  tokensOn,
+  isNativeChain,
+  pickRail,
+} from "../lib/teleportRail.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
 import { SignerResolver, RoutePlanner, runForwardEvmStage } from "../engine/index.js";
@@ -61,7 +85,12 @@ import {
 } from "../lib/balances.js";
 import { getPricesUSD, usdValue } from "../lib/prices.js";
 import ConnectModal from "./ConnectModal.jsx";
-import THORChainTab from "./THORChainTab.jsx";
+import THORChainDeposit from "./THORChainDeposit.jsx";
+import THORChainProgress from "./THORChainProgress.jsx";
+// The deposit-address rail's storage/balance handles arrive through the
+// lane's public doorway component — the lane internals stay contained
+// behind it (the containment gate enforces the boundary).
+import { createThorchainStorage, createSolBalanceReader } from "./THORChainTab.jsx";
 // The REAL runners live on TeleportForm (unchanged, DI seams intact) — the
 // console imports them so the send path is byte-the-same code as the classic
 // form's, not a reimplementation. The form's default export is NOT used here.
@@ -79,6 +108,28 @@ import {
 export const QUOTE_REFRESH_SECONDS = 30;
 /** Debounce before an auto-quote fires after route/amount edits. */
 export const AUTO_QUOTE_DEBOUNCE_MS = 600;
+
+// ── Neutral copy for the deposit-address rail (the THORChain ENGINE path
+//    rendered inside the unified flow). Mr. Esters: the user picks an asset
+//    and destination — they NEVER see a rail name. These overrides rename
+//    every rail-naming string the shared deposit/progress components render;
+//    the components' OWN defaults (used by the classic THORChain tab) are
+//    untouched. {label} is the source asset's human name.
+const DEPOSIT_NEUTRAL_COPY = Object.freeze({
+  subtitle: "Send native {label} to the deposit address below — it arrives in your wallet, then hops to X1 as USDC.x.",
+  pausedBanner: "⚠️ {label} deposits are paused right now — pick another source or wait; this refreshes automatically.",
+  pausedBy: "paused right now",
+  noSolana: "Connect your Solana/X1 wallet first — the deposit destination is your wallet address and can't be typed. Use CONNECT WALLET above to connect one.",
+  destBadge: "Solana/X1 wallet",
+  feeLabels: { "thorchain-affiliate": "Network protocol fee" },
+});
+const TRACKING_NEUTRAL_COPY = Object.freeze({
+  paused: "Deposits are paused right now — your funds are safe; polling continues and this clears automatically.",
+  stageDetail: {
+    observed: "Deposit observed — preparing the swap",
+    swapping: "Swapping through the bridge network",
+  },
+});
 
 // Defense-in-depth copy of the form's placeholder guard (TeleportForm keeps
 // its own; both refuse to drive a real send toward a known demo address).
@@ -413,7 +464,8 @@ function statusFor(phase, armed, busy) {
   if (phase === "quoted") return armed ? "ARMED" : "READY";
   if (phase === "done") return "COMPLETE";
   if (phase === "handoff") return "HANDOFF";
-  if (phase === "relaying" || phase === "step2") return "IN FLIGHT";
+  if (phase === "deposit") return "DEPOSIT";
+  if (phase === "tracking" || phase === "relaying" || phase === "step2") return "IN FLIGHT";
   return "READY";
 }
 
@@ -441,16 +493,28 @@ export default function TeleportConsole({
   const solSession = sessions.solana;
 
   // ── Route coordinates ────────────────────────────────────────────────────
-  const [from, setFrom] = useState("eth"); // EVM chain | "x1"
+  // from: an EVM chain | a native chain (btc/doge/ltc/xrp — THORChain rail)
+  //       | "x1" (reverse). The rail is derived (pickRail) — never chosen.
+  const [from, setFrom] = useState("eth");
   const [to, setTo] = useState("eth"); // reverse destination (EVM chains)
-  const [token, setToken] = useState("USDC"); // the SOURCE token (forward: EVM stable; reverse: X1 token)
-  const [x1Token, setX1Token] = useState("USDC.x"); // forward: land-as on X1
+  const [token, setToken] = useState("USDC"); // the SOURCE token
+  const [x1Token, setX1Token] = useState("USDC.x"); // forward: land-as on X1 (EVM sources)
   const [toToken, setToToken] = useState("USDC"); // reverse: receive on the EVM destination
   const [amount, setAmount] = useState("");
   const direction = from === "x1" ? "reverse" : "forward";
+  // THE RAIL DECISION (post-pick, pre-execution — invisible to the user):
+  // native sources → the THORChain engine path (deposit-address execution);
+  // EVM/X1 sources → the LiFi/Warp engine path (wallet-connect execution).
+  const railMeta = pickRail({ fromChain: from });
+  const rail = railMeta.rail;
+  const nativeMeta = isNativeChain(from) ? NATIVE_CHAINS[from] : null;
+  const nativeAsset = nativeMeta ? nativeMeta.asset : null;
 
-  // ── Flow state (mirrors TeleportForm's phase machine exactly) ────────────
-  const [phase, setPhase] = useState("idle"); // idle|quoting|quoted|bridging|step2|relaying|handoff|done
+  // ── Flow state (mirrors TeleportForm's phase machine exactly; the native
+  //    deposit-address rail adds two phases — "deposit" (the vault-address +
+  //    memo + txid step) and "tracking" (the hop progress tracker)):
+  //    idle|quoting|quoted|bridging|step2|relaying|handoff|done|deposit|tracking ──
+  const [phase, setPhase] = useState("idle");
   const [quote, setQuote] = useState(null);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState(null);
@@ -466,10 +530,12 @@ export default function TeleportConsole({
   const [balanceRefresh, setBalanceRefresh] = useState(0);
 
   // ── UI chrome state ──────────────────────────────────────────────────────
-  const [tab, setTab] = useState(initialTab);
   const [connecting, setConnecting] = useState(false);
   const [seqVisible, setSeqVisible] = useState(false);
   const [sourceBalance, setSourceBalance] = useState(null); // { balance, symbol, usd } | null
+  // Native-rail hop (the THORChain engine path — deposit → tracking): the
+  // submit payload from the deposit step, fed to the progress tracker.
+  const [hop, setHop] = useState(null); // { inboundTxid, sourceChain, destination, expectedAmountOut } | null
 
   const evmReady = Boolean(evmSession?.address);
   const solReady = Boolean(solSession?.address);
@@ -489,27 +555,35 @@ export default function TeleportConsole({
     setReverseStage(0); setReleaseNote(null); setPolling(false); setHandoffReason(null);
     setRefreshLeft(QUOTE_REFRESH_SECONDS);
     setBalanceRefresh((n) => n + 1);
+    setHop(null);
   }, []);
 
   const changeFrom = useCallback((c) => {
     setFrom(c);
     if (c === "x1") {
       // Reverse: source becomes an X1 token, destination an EVM chain.
-      setToken((prev) => (tokensFor("x1").includes(prev) ? prev : "USDC.x"));
+      setToken((prev) => (tokensOn("x1").includes(prev) ? prev : "USDC.x"));
       setTo("eth");
-      setToToken((prev) => (tokensFor("eth").includes(prev) ? prev : "USDC"));
+      setToToken((prev) => (tokensOn("eth").includes(prev) ? prev : "USDC"));
+    } else if (isNativeChain(c)) {
+      // Native source (BTC/DOGE/LTC/XRP) → the deposit-address rail, dest X1.
+      // The rail lands USDC.x on X1 (the auto-advance's Warp leg) — the
+      // land-as choice is fixed for this rail (no token picker ambiguity).
+      setToken(NATIVE_CHAINS[c].asset);
+      setTo("x1");
+      setToToken((prev) => (tokensOn("eth").includes(prev) ? prev : "USDC"));
     } else {
       // Forward: source is an EVM stable that exists on the chain; dest = X1.
-      setToken((prev) => (tokensFor(c).includes(prev) ? prev : Object.keys(TOKENS[c] || {})[0] || "USDC"));
+      setToken((prev) => (tokensOn(c).includes(prev) ? prev : Object.keys(TOKENS[c] || {})[0] || "USDC"));
       setTo("x1");
     }
     setQuote(null); setError(null); setPhase("idle"); setWarpSig(null); setStage1Hash(null);
-    setConfirmMode(false); setReverseStage(0); setHandoffReason(null);
+    setConfirmMode(false); setReverseStage(0); setHandoffReason(null); setHop(null);
   }, []);
 
   const changeTo = useCallback((c) => {
     setTo(c);
-    setToToken((prev) => (tokensFor(c).includes(prev) ? prev : Object.keys(TOKENS[c] || {})[0] || "USDC"));
+    setToToken((prev) => (tokensOn(c).includes(prev) ? prev : Object.keys(TOKENS[c] || {})[0] || "USDC"));
     setQuote(null); setError(null); setPhase("idle"); setWarpSig(null); setStage1Hash(null);
     setConfirmMode(false); setReverseStage(0); setHandoffReason(null);
   }, []);
@@ -576,6 +650,10 @@ export default function TeleportConsole({
   // ── THE REAL QUOTE PATH (forward + reverse — same builders the classic
   //    form uses; no fakes) ─────────────────────────────────────────────────
   const runQuote = useCallback(async () => {
+    // The native deposit-address rail never quotes over LiFi — its quote gate
+    // lives in the deposit step (THORChainDeposit). TELEPORT on that rail
+    // routes straight to the deposit-address step instead of runQuote.
+    if (rail === RAIL.THORCHAIN) return;
     const amt = parseFloat(amount);
     if (!amount || !(amt > 0)) { setError("Enter an amount"); setPhase("idle"); return; }
     if (direction === "forward") {
@@ -636,16 +714,19 @@ export default function TeleportConsole({
         setError("Quote request failed"); setPhase("idle");
       }
     }
-  }, [amount, direction, from, to, token, x1Token, toToken, evmReady, solReady, evmSession, solSession]);
+  }, [amount, direction, from, to, token, x1Token, toToken, rail, evmReady, solReady, evmSession, solSession]);
 
-  // Auto-quote: route/amount edits (debounced) re-quote when idle.
+  // Auto-quote: route/amount edits (debounced) re-quote when idle. The
+  // native deposit-address rail has no LiFi quote to fetch (its quote gate
+  // is the deposit step's own) — never auto-fire it.
   useEffect(() => {
     if (phase !== "idle") return;
+    if (rail === RAIL.THORCHAIN) return;
     const amt = parseFloat(amount);
     if (!amount || !(amt > 0)) return;
     const t = setTimeout(() => { runQuote(); }, debounceMs);
     return () => clearTimeout(t);
-  }, [amount, from, to, token, x1Token, toToken, direction, evmReady, solReady, phase, runQuote, debounceMs]);
+  }, [amount, from, to, token, x1Token, toToken, direction, rail, evmReady, solReady, phase, runQuote, debounceMs]);
 
   // Refresh countdown: while quoted, re-quote when the window elapses.
   useEffect(() => {
@@ -875,6 +956,17 @@ export default function TeleportConsole({
     setError(null);
     if (phase === "quoting" || phase === "bridging") return;
     if (!amount || !(parseFloat(amount) > 0)) { setError("Enter an amount to teleport"); return; }
+    // THE DEPOSIT-ADDRESS-vs-WALLET-CONNECT DECISION POINT: the rail was
+    // picked (invisibly) the moment the source asset was chosen; TELEPORT
+    // now routes the user into the right FINAL EXECUTION step:
+    //   - native sources (THORChain rail)   → the deposit-address step
+    //     (vault address + memo + txid — send out-of-band, no signing),
+    //   - EVM/X1 sources (LiFi/Warp rail)   → wallet-connect sign stages
+    //     (quote first, then the engine stage runners below).
+    if (rail === RAIL.THORCHAIN) {
+      setPhase("deposit");
+      return;
+    }
     if (phase !== "quoted") { runQuote(); return; }
     if (direction === "forward") executeStage1();
     else executeReverseStage1();
@@ -894,21 +986,80 @@ export default function TeleportConsole({
     if (phase === "done") setBalanceRefresh((n) => n + 1);
   }, [phase]);
 
+  // ── Deposit-address rail (native sources — THORChain engine path) ────────
+  // Storage: same persisted-hop store the classic THORChain tab uses (the
+  // progress tracker writes its stages into it; closed-tab resume is the
+  // classic tab's job — the console keeps the store handle shared so the
+  // tracker's "saved on close" semantics hold within a journey).
+  const depositStoreRef = useRef(null);
+  if (!depositStoreRef.current) depositStoreRef.current = createThorchainStorage();
+  const depositDeps = consoleProps.depositDeps || {};
+  // Source-family sessions prefill the deposit step's refund address (the
+  // wallet layer's deposit rows for BTC/DOGE/LTC/XRP — same read as the
+  // classic THORChain tab).
+  const sourceSessions = useMemo(() => {
+    const session = (s) => (s?.status === "connected" ? { address: s.address ?? null } : null);
+    return {
+      bitcoin: session(sessions.bitcoin),
+      litecoin: session(sessions.litecoin),
+      dogecoin: session(sessions.dogecoin),
+      xrp: session(sessions.xrp),
+    };
+  }, [sessions]);
+
+  // Deposit-step submit → persist the hop (resume parity with the classic
+  // lane) and advance to the tracking phase.
+  const handleDepositSubmit = useCallback((payload) => {
+    if (!payload?.inboundTxid) return;
+    setHop(payload);
+    try {
+      depositStoreRef.current.saveHop({
+        inboundTxid: payload.inboundTxid,
+        stage: "observed",
+        payload,
+      });
+    } catch { /* storage failure must never block the flow */ }
+    setPhase("tracking");
+  }, []);
+
+  // Tracking-phase arrival → the console's done panel (progress stays mounted
+  // until then — it removes the hop from storage on success itself).
+  const handleTrackingState = useCallback((s) => {
+    if (s?.phase === "arrived") setPhase("done");
+  }, []);
+
+  // Native-SOL balance reader for the tracking phase's landing detection
+  // (created once per connected address, like the classic tab).
+  const getSolBalance = useMemo(() => {
+    if (!solReady || !solSession?.address) return null;
+    return createSolBalanceReader({ connection: depositDeps.connection });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [solReady, solSession?.address]);
+
   const busy = phase === "bridging" || phase === "quoting" || step2Busy;
   const armed = phase === "quoted" && Boolean(quote);
   const tickerDisplay = useTicker(quote?.net ?? 0, { active: phase === "quoted" });
+  const routeReadout = direction === "reverse" ? `X1 → ${chainName(to)}` : `${chainName(from)} → X1`;
+  // The destination token the DONE readout names — the native rail always
+  // lands USDC.x on X1 (its Warp leg is USDC.x-fixed); LiFi/Warp rails land
+  // the chosen land-as/receive token.
+  const doneTokenLabel = rail === RAIL.THORCHAIN ? "USDC.x" : (quote?.recvToken || x1Token);
 
   // Wallet guidance (which wallet the CURRENT route needs next).
   const missingWallets = [];
-  if (direction === "forward") {
+  if (rail === RAIL.THORCHAIN) {
+    // The deposit-address rail needs ONLY the Solana/X1 wallet — the deposit
+    // destination (funds land there before the X1 hop). The source send is
+    // out-of-band from the user's own BTC/DOGE/LTC/XRP wallet — never asked
+    // for in-app.
+    if (!solReady) missingWallets.push("Solana/X1 (Phantom / Backpack) — where your deposit lands before X1");
+  } else if (direction === "forward") {
     if (!evmReady) missingWallets.push("EVM (Rabby / MetaMask) — the source wallet");
     if (!solReady) missingWallets.push("Solana/X1 (Phantom / Backpack) — where it lands on X1");
   } else {
     if (!solReady) missingWallets.push("Solana/X1 (Phantom / Backpack) — the burn happens on X1");
     if (!evmReady) missingWallets.push("EVM (Rabby / MetaMask) — the destination wallet");
   }
-
-  const thorchainEnabled = flags.THORCHAIN === true;
 
   // Shared phase panel (same testids/semantics as the classic form, styled
   // to the console) — forward + reverse branches mirror TeleportForm.
@@ -1006,7 +1157,7 @@ export default function TeleportConsole({
         <div data-testid="done" className="tc-box tc-ok" style={{ marginTop: 12 }}>
           {confirmMode
             ? <>✓ Simulation passed — <b>not sent</b> (live Warp sends are OFF; set VITE_WARP_LIVE_SEND=true to arm).</>
-            : <>✓ Bridge complete — {quote?.recvToken || x1Token}{direction === "reverse" ? ` on ${CHAINS[quote?.to || to]?.name}` : " on X1"}.</>}
+            : <>✓ Bridge complete — {doneTokenLabel}{direction === "reverse" ? ` on ${CHAINS[quote?.to || to]?.name}` : " on X1"}.</>}
           <button data-testid="reset" className="tc-ghost" onClick={reset}>Bridge again</button>
         </div>
       );
@@ -1093,8 +1244,16 @@ export default function TeleportConsole({
         </div>
       );
     }
+    if (rail === RAIL.THORCHAIN && amount && parseFloat(amount) > 0) {
+      return (
+        <div className="tc-strip-hint">
+          <b>DEPOSIT ROUTE READY</b> — press TELEPORT to reveal your deposit
+          address + memo; the network fees are shown before you send.
+        </div>
+      );
+    }
     if (!amount || !(parseFloat(amount) > 0)) {
-      return <div className="tc-strip-hint"><b>SET YOUR JOURNEY COORDINATES</b> — pick chains, token and amount, then TELEPORT.</div>;
+      return <div className="tc-strip-hint"><b>SET YOUR JOURNEY COORDINATES</b> — pick a source asset, destination and amount, then TELEPORT.</div>;
     }
     return <div className="tc-strip-hint"><b>ROUTE READY</b> — calculating…</div>;
   };
@@ -1119,44 +1278,15 @@ export default function TeleportConsole({
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 5 }}>
                   <span data-testid="console-subheader" className="tc-subheader">Route · set your journey coordinates</span>
-                  <span className="tc-subheader" style={{ opacity: 0.6 }}>{direction === "forward" ? "EVM → X1" : "X1 → EVM"}</span>
+                  <span className="tc-subheader" style={{ opacity: 0.6 }}>{routeReadout}</span>
                 </div>
               </div>
 
-              {/* Tabs — the console is the primary swap surface; THORChain/Buy
-                  keep existing in the same shell (BridgeCard parity). */}
-              <nav className="tc-tabs" role="tablist" aria-label="Teleport console">
-                {["teleport", "thorchain", "buy"].map((id) => (
-                  <button
-                    key={id}
-                    type="button"
-                    role="tab"
-                    aria-selected={tab === id}
-                    data-tab={id}
-                    className={tab === id ? "tc-tab tc-tab-active" : "tc-tab"}
-                    onClick={() => setTab(id)}
-                  >
-                    {id === "teleport" ? "Teleport" : id === "thorchain" ? "THORChain" : "Buy"}
-                  </button>
-                ))}
-              </nav>
-
-              {tab === "thorchain" ? (
-                <div className="tc-tab-body">
-                  {thorchainEnabled ? <THORChainTab /> : (
-                    <div role="tabpanel" data-testid="thorchain-tab" style={{ color: "#6e93ad", fontSize: 13, padding: "10px 0" }}>
-                      THORChain swap flow arrives in a later step.
-                    </div>
-                  )}
-                </div>
-              ) : tab === "buy" ? (
-                <div className="tc-tab-body">
-                  <div role="tabpanel" data-testid="buy-tab" style={{ color: "#6e93ad", fontSize: 13, padding: "10px 0" }}>
-                    Buy flow arrives in a later step.
-                  </div>
-                </div>
-              ) : (
-                <div className="tc-body" role="tabpanel" aria-label="Teleport console">
+              {/* ONE UNIFIED FLOW — no rail tabs, no Buy tab (2026-09-04 UX
+                  pass, Mr. Esters): the body below is the single surface —
+                  pick what you have (the source-asset union), where it's
+                  going, TELEPORT. The engine path is decided invisibly. */}
+              <div className="tc-body" role="tabpanel" aria-label="Teleport console">
                   {/* Wallet chips */}
                   <div className="tc-wallets" data-testid="console-wallets">
                     {WALLET_FAMILIES.filter((f) => sessions[f]?.status === "connected").map((f) => (
@@ -1170,18 +1300,85 @@ export default function TeleportConsole({
                     </button>
                   </div>
 
-                  {/* Route coordinates — FROM → TO */}
+                  {phase === "deposit" ? (
+                    /* ── DEPOSIT-ADDRESS FINAL STEP (native sources — the rail
+                       decision landed here invisibly): the vault address + memo
+                       + txid-paste step rendered by the shared deposit stage
+                       with NEUTRAL copy (the rail is never named). ── */
+                    <div className="tc-tab-body" data-testid="deposit-step" role="tabpanel" aria-label="Deposit step">
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 6 }}>
+                        <span className="tc-sub" style={{ marginTop: 0 }} data-testid="deposit-step-context">
+                          {nativeMeta ? `Sending ${nativeMeta.asset} from ${nativeMeta.name} → X1` : "Deposit route"}
+                        </span>
+                        <button type="button" data-testid="back-to-route" className="tc-ghost" style={{ width: "auto", padding: "4px 12px", marginTop: 0 }} onClick={() => setPhase("idle")}>
+                          ← Adjust route
+                        </button>
+                      </div>
+                      <THORChainDeposit
+                        solAddress={solSession?.address ?? null}
+                        solConnected={solReady}
+                        sourceSessions={sourceSessions}
+                        onSubmit={handleDepositSubmit}
+                        createInboundRefresher={depositDeps.createInboundRefresher}
+                        inboundBaseUrl={depositDeps.inboundBaseUrl}
+                        fetchImpl={depositDeps.fetchImpl}
+                        refreshIntervalMs={depositDeps.refreshIntervalMs}
+                        qrFactory={depositDeps.qrFactory}
+                        fetchQuote={depositDeps.fetchQuote}
+                        maxSwapBtcEquivalent={depositDeps.maxSwapBtcEquivalent}
+                        btcEquivalentRates={depositDeps.btcEquivalentRates}
+                        initialSource={nativeAsset}
+                        sourceLocked
+                        initialAmount={amount}
+                        copy={DEPOSIT_NEUTRAL_COPY}
+                      />
+                    </div>
+                  ) : phase === "tracking" ? (
+                    /* ── HOP TRACKING (the deposit was sent out-of-band; the
+                       tracker polls the network, watches the landing, and
+                       auto-advances the hop into X1). ── */
+                    <div className="tc-tab-body" data-testid="tracking-step" role="tabpanel" aria-label="Hop tracking">
+                      {hop && (
+                        <THORChainProgress
+                          hop={hop}
+                          storage={depositStoreRef.current}
+                          createPoller={depositDeps.createPoller}
+                          createLandingWatcher={depositDeps.createLandingWatcher}
+                          advance={depositDeps.advance}
+                          getSolBalance={getSolBalance}
+                          solAddress={solSession?.address ?? null}
+                          solWallet={solSession?.provider ? { provider: solSession.provider } : null}
+                          connection={depositDeps.connection}
+                          fetchImpl={depositDeps.fetchImpl}
+                          statusBaseUrl={depositDeps.statusBaseUrl}
+                          pollIntervalMs={depositDeps.pollIntervalMs}
+                          pollMaxMs={depositDeps.pollMaxMs}
+                          landingIntervalMs={depositDeps.landingIntervalMs}
+                          landingMaxMs={depositDeps.landingMaxMs}
+                          tolerance={depositDeps.tolerance}
+                          onStateChange={handleTrackingState}
+                          copy={TRACKING_NEUTRAL_COPY}
+                        />
+                      )}
+                      <button data-testid="reset" className="tc-ghost" onClick={reset}>Done / bridge again</button>
+                    </div>
+                  ) : (
+                    <>
+
+                  {/* Route coordinates — FROM → TO (the source picker is the
+                      union of every engine rail's assets: EVM-chain stables,
+                      native BTC/DOGE/LTC/XRP, and X1's tokens for the reverse
+                      off-ramp. The rail itself is never shown.) */}
                   <div className="tc-coords" data-testid="console-coords" style={{ marginTop: 12 }}>
                     <div className="tc-slot tc-slot-grow" data-testid="from-slot">
                       <span className="tc-label">From chain</span>
                       <select data-testid="from-chain" value={from} onChange={(e) => changeFrom(e.target.value)} className="tc-select" aria-label="From chain">
-                        {EVM_CHAINS.map((c) => (
-                          <option key={c} value={c}>{CHAINS[c].glyph} {CHAINS[c].name}</option>
+                        {SOURCE_CHAINS.map((c) => (
+                          <option key={c} value={c}>{chainGlyph(c)} {chainName(c)}</option>
                         ))}
-                        <option value="x1">X1 {CHAINS.x1.glyph}</option>
                       </select>
                       {direction === "forward" && (
-                        <span className="tc-sub">source · {token} on {CHAINS[from].name}</span>
+                        <span className="tc-sub">source · {token} on {chainName(from)}</span>
                       )}
                       {direction === "reverse" && (
                         <span className="tc-sub">burn on X1 · {token}</span>
@@ -1193,15 +1390,15 @@ export default function TeleportConsole({
                       {direction === "forward" ? (
                         <>
                           <select data-testid="to-chain" value="x1" onChange={() => {}} className="tc-select" aria-label="Destination chain (fixed: X1)" disabled style={{ opacity: 0.9 }}>
-                            <option value="x1">X1 {CHAINS.x1.glyph}</option>
+                            <option value="x1">X1 {chainGlyph("x1")}</option>
                           </select>
-                          <span className="tc-sub">destination · land as {x1Token}</span>
+                          <span className="tc-sub">{rail === RAIL.THORCHAIN ? "destination · arrives as USDC.x on X1" : `destination · land as ${x1Token}`}</span>
                         </>
                       ) : (
                         <>
                           <select data-testid="to-chain" value={to} onChange={(e) => changeTo(e.target.value)} className="tc-select" aria-label="To chain">
-                            {EVM_CHAINS.map((c) => (
-                              <option key={c} value={c}>{CHAINS[c].glyph} {CHAINS[c].name}</option>
+                            {SOURCE_CHAINS.filter((c) => !isNativeChain(c) && c !== "x1").map((c) => (
+                              <option key={c} value={c}>{chainGlyph(c)} {chainName(c)}</option>
                             ))}
                           </select>
                           <span className="tc-sub">destination · receive {toToken}</span>
@@ -1215,20 +1412,20 @@ export default function TeleportConsole({
                     <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 150 }} data-testid="token-slot">
                       <span className="tc-label">{direction === "forward" ? "Token" : "Burn token"}</span>
                       {direction === "forward" ? (
-                        <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} className="tc-select" aria-label="Token">
-                          {tokensFor(from).map((t) => <option key={t} value={t}>{t}</option>)}
+                        <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} className="tc-select" aria-label="Token" disabled={Boolean(nativeMeta)}>
+                          {tokensOn(from).map((t) => <option key={t} value={t}>{t}</option>)}
                         </select>
                       ) : (
                         <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} className="tc-select" aria-label="Token to burn on X1">
-                          {tokensFor("x1").map((t) => <option key={t} value={t}>{t}</option>)}
+                          {tokensOn("x1").map((t) => <option key={t} value={t}>{t}</option>)}
                         </select>
                       )}
                     </div>
-                    {direction === "forward" && (
+                    {direction === "forward" && !nativeMeta && (
                       <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 120 }} data-testid="x1-token-slot">
                         <span className="tc-label">Land as</span>
                         <select data-testid="x1-token" value={x1Token} onChange={(e) => changeX1Token(e.target.value)} className="tc-select" aria-label="Token on X1">
-                          {tokensFor("x1").map((t) => <option key={t} value={t}>{t}</option>)}
+                          {tokensOn("x1").map((t) => <option key={t} value={t}>{t}</option>)}
                         </select>
                       </div>
                     )}
@@ -1236,7 +1433,7 @@ export default function TeleportConsole({
                       <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 120 }} data-testid="to-token-slot">
                         <span className="tc-label">Receive</span>
                         <select data-testid="to-token" value={toToken} onChange={(e) => changeToToken(e.target.value)} className="tc-select" aria-label="Receive token">
-                          {tokensFor(to).map((t) => <option key={t} value={t}>{t}</option>)}
+                          {tokensOn(to).map((t) => <option key={t} value={t}>{t}</option>)}
                         </select>
                       </div>
                     )}
@@ -1277,13 +1474,18 @@ export default function TeleportConsole({
                       onClick={onFire}
                       disabled={busy || !amount || !(parseFloat(amount) > 0)}
                     >
-                      {phase === "quoting" ? "CALCULATING ROUTE…" : phase === "quoted" ? "◉ TELEPORT" : "TELEPORT"}
+                      {phase === "quoting"
+                        ? "CALCULATING ROUTE…"
+                        : phase === "quoted" || (rail === RAIL.THORCHAIN && amount && parseFloat(amount) > 0)
+                          ? "◉ TELEPORT"
+                          : "TELEPORT"}
                     </button>
                   )}
 
                   {phasePanel()}
+                    </>
+                  )}
                 </div>
-              )}
             </div>
           </div>
           {/* Corner hardware — the bezel's mounting bolts (visual only). */}
