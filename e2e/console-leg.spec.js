@@ -26,14 +26,16 @@
  *      pre-load fallback and as the reduced-motion still). Screenshots of
  *      each state on both viewports.
  *
- *   5. MOTION + GLASS PROOFS: on a phone viewport the video element is
+ *   5. MOTION + SEE-THROUGH PROOFS: on a phone viewport the video element is
  *      asserted playing (not paused, readyState >= HAVE_CURRENT_DATA, the
- *      media clock advances) with a screenshot PAIR (t0 vs t1) showing the
- *      astronaut frame changed; the frosted-glass recipe (backdrop-filter
- *      blur(30-40px) HEAVY frost + a ~10-15% near-transparent dark-cyan
- *      tint on the shell AND the inner panels — the astronaut glows through
- *      the whole card, the blur carries readability) is asserted via
- *      computed styles.
+ *      media clock advances) with a screenshot PAIR (t0 vs t1) AND a real
+ *      pixel diff proving the astronaut frame moved on screen; the
+ *      see-through recipe (ZERO backdrop blur — the astronaut stays CLEAR and
+ *      SHARP behind the card — with a low ~5-9% dark tint on the shell AND
+ *      the inner panels, readability carried by dark text-shadows) is
+ *      asserted via computed styles AND a pixel proof: the card interior
+ *      with the console hidden vs shown matches the raw scene (low
+ *      luminance delta + preserved edge energy — no frost, no mush).
  *
  * WHAT IS MOCKED vs ASSERTED (same contract as forward-leg):
  *   - Wallets:  EVM = the EIP-6963 fake (fakeEthereum.js — CANNOT sign);
@@ -47,9 +49,13 @@
  *     payload the wallet was asked to sign. NOTHING is signed or broadcast.
  */
 import { test, expect } from "@playwright/test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+
+const require = createRequire(import.meta.url);
+const { PNG } = require("pngjs"); // already in the tree (playwright dep)
 
 const here = dirname(fileURLToPath(import.meta.url));
 const read = (p) => JSON.parse(readFileSync(join(here, p), "utf8"));
@@ -70,7 +76,23 @@ const DEPLOYED = baseURL.includes("vercel.app");
 const EXPECTED_LIVE_PHRASE = process.env.EXPECTED_LIVE_PHRASE || (DEPLOYED ? "live sends ON" : "live sends OFF");
 const EXPECTED_FLAG = EXPECTED_LIVE_PHRASE === "live sends ON" ? "WARP_LIVE_SEND=true" : "WARP_LIVE_SEND=false";
 
-const SHOTS = join(here, "screenshots", process.env.SCREENSHOT_SUBDIR || "console-local");
+const SHOTS = join(here, "screenshots", process.env.SCREENSHOT_SUBDIR || "console-seethrough");
+
+// ── Pixel-proof helpers (pngjs decode + luminance math) ────────────────────
+const LUM = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+const readPng = (buf) => PNG.sync.read(buf);
+
+/** % of pixels whose luminance moved more than t between two PNGs. */
+function motionShare(a, b, t = 10) {
+  const w = a.width, h = a.height;
+  const ad = a.data, bd = b.data;
+  let moved = 0, total = 0;
+  for (let i = 0; i < w * h * 4; i += 4) {
+    if (Math.abs(LUM(ad, i) - LUM(bd, i)) > t) moved++;
+    total++;
+  }
+  return +(moved / total).toFixed(4);
+}
 
 test.beforeEach(async ({ page }) => {
   // The fake EVM wallet must exist before ANY app script runs.
@@ -221,16 +243,22 @@ test("console: the ambient astronaut VIDEO layer renders AND PLAYS on desktop (w
   await expect(video).toBeVisible();
   const sources = await video.locator("source").evaluateAll((els) => els.map((s) => s.getAttribute("src")));
   expect(sources).toEqual(["/assets/teleporter-astronaut.webm", "/assets/teleporter-astronaut.mp4"]);
-  await expect(video).toHaveAttribute("poster", "/assets/teleporter-astronaut-poster.jpg");
   await expect(video).toHaveJSProperty("autoplay", true);
   await expect(video).toHaveJSProperty("muted", true);
   await expect(video).toHaveJSProperty("playsInline", true);
+  await expect(video).toHaveJSProperty("loop", true);
   await expect(page.locator('[data-testid="console-poster"]')).toHaveCount(0);
   // The astronaut DRIFTS: frames decode (readyState >= HAVE_CURRENT_DATA),
   // playback is not paused, and the media clock advances.
   await expect
     .poll(() => video.evaluate((v) => v.paused === false && v.readyState >= 2 && v.currentTime > 0), { timeout: 20_000 })
     .toBe(true);
+  // The poster attribute is ONLY the pre-load placeholder: the moment the
+  // first frame plays it is REMOVED from the element — a stale poster can
+  // never sit on top of live video (the real-phone frozen-frame trap).
+  await expect
+    .poll(() => video.evaluate((v) => v.getAttribute("poster")), { timeout: 10_000 })
+    .toBeNull();
   const t0 = await video.evaluate((v) => v.currentTime);
   await page.waitForTimeout(1200);
   const t1 = await video.evaluate((v) => v.currentTime);
@@ -315,13 +343,13 @@ test("console: declining the signature surfaces the honest rejection and sends n
   await page.screenshot({ path: join(SHOTS, "5-console-sign-declined-desktop.png"), fullPage: true });
 });
 
-test("console: FROSTED GLASS v3 — shell + inner panels run the AGGRESSIVE recipe: backdrop blur(30-40px) heavy frost, ~10-15% near-transparent tint, no ancestor-filter trap", async ({ page }) => {
-  // Structural proof of the frosted recipe (the pixel proof lives in the
-  // screenshots): the shell, the FROM/TO/TOKEN slots and the quote strip
-  // must all carry a REAL backdrop blur in the 30-40px band over a
-  // near-transparent 10-15% tint — and the housing must NOT put a filter on
-  // an ancestor of the glass (an ancestor filter would become the backdrop
-  // root and starve the blur).
+test("console: SEE-THROUGH GLASS v4 — zero backdrop blur (astronaut SHARP behind the card), low ~5-9% tint, dark text-shadow readability", async ({ page }) => {
+  // The transparent recipe (Mr. Esters: no frost — the astronaut must show
+  // CLEAR and SHARP through the shell AND the inner panels, dimmed only
+  // enough for the glyphs, whose readability rides dark text-shadows — never
+  // a background block, never a blur). Structural proof here; the pixel
+  // proof follows: the card interior with the console hidden vs shown must
+  // match the raw scene (low luminance delta + preserved edge energy).
   const alphas = (bg) => [...bg.matchAll(/rgba?\(([^)]+)\)/g)].map((m) => Number(m[1].split(",").at(-1)));
   const readGlass = () =>
     page.evaluate(() => {
@@ -329,40 +357,208 @@ test("console: FROSTED GLASS v3 — shell + inner panels run the AGGRESSIVE reci
         const el = document.querySelector(sel);
         if (!el) return null;
         const s = getComputedStyle(el);
-        return { filter: s.filter, backdropFilter: s.backdropFilter, backgroundImage: s.backgroundImage };
+        return {
+          filter: s.filter,
+          backdropFilter: s.backdropFilter,
+          backgroundImage: s.backgroundImage,
+          textShadow: s.textShadow,
+        };
       };
-      return { wrap: cs(".tc-shell-wrap"), glass: cs(".tc-shell-glass"), slot: cs(".tc-slot"), strip: cs(".tc-strip") };
+      return {
+        wrap: cs(".tc-shell-wrap"),
+        glass: cs(".tc-shell-glass"),
+        slot: cs(".tc-slot"),
+        strip: cs(".tc-strip"),
+        label: cs(".tc-label"),
+      };
     });
   const assertGlass = (g) => {
     expect(g.wrap.filter).toBe("none"); // the backdrop-root trap is gone
     for (const key of ["glass", "slot", "strip"]) {
-      // Heavy frost: the computed blur must sit in the 30-40px band.
-      const m = g[key].backdropFilter.match(/blur\((\d+(?:\.\d+)?)px\)/);
-      expect(m, `${key} should carry a real backdrop blur`).not.toBeNull();
-      const px = Number(m[1]);
-      expect(px, `${key} blur`).toBeGreaterThanOrEqual(30);
-      expect(px, `${key} blur`).toBeLessThanOrEqual(40);
-      // Near-transparent tint: EVERY fill alpha sits inside the 10-15% band
-      // (the blur — not the paint — is what keeps text readable now).
+      // NO backdrop blur anywhere on the card: the astronaut stays SHARP.
+      expect(g[key].backdropFilter, `${key} must have NO backdrop blur`).toBe("none");
+      // Low translucent tint: every fill alpha sits in the ~5-9% band — the
+      // scene shows through, dimmed only a touch (never a background block).
       const a = alphas(g[key].backgroundImage);
       expect(a.length, `${key} tint band`).toBeGreaterThan(0);
       for (const alpha of a) {
-        expect(alpha, `${key} tint alpha`).toBeGreaterThanOrEqual(0.1 - 1e-6);
-        expect(alpha, `${key} tint alpha`).toBeLessThanOrEqual(0.15 + 1e-6);
+        expect(alpha, `${key} tint alpha`).toBeGreaterThanOrEqual(0.02 - 1e-6);
+        expect(alpha, `${key} tint alpha`).toBeLessThanOrEqual(0.1 + 1e-6);
       }
     }
+    // Readability mechanism = dark text-shadow on the labels (over a SHARP
+    // bright astronaut, not a blurred one).
+    expect(g.label.textShadow).toMatch(/rgba?\(1, 4, 9/);
   };
 
-  // Desktop, default motion (the drifting video glows behind the glass).
+  // ── Pixel proof ──────────────────────────────────────────────────────────
+  // Same clip, console hidden vs shown (video PAUSED so both shots see the
+  // SAME astronaut frame). The comparison is made ONLY on pure-glass pixels:
+  // the card interior minus opaque UI (solid button, controls), minus the
+  // border rings of the translucent panels, minus the glyph text boxes. What
+  // remains is the glass FILL itself — the shell between the boxes AND the
+  // inside of the FROM/TO/TOKEN slots — where the astronaut must show
+  // through CLEAR and SHARP: low luminance delta (tint only) and preserved
+  // edge energy (no frost — blur(36px) would flatten every edge it touches).
+  const glassExclusions = (cardSel) =>
+    page.evaluate((sel) => {
+      const card = document.querySelector(sel);
+      if (!card) return { rects: [] };
+      const c = card.getBoundingClientRect();
+      const rects = [];
+      const push = (r, pad = 0) => {
+        const x = r.left - c.left - pad;
+        const y = r.top - c.top - pad;
+        const w = r.width + pad * 2;
+        const h = r.height + pad * 2;
+        if (w > 0.5 && h > 0.5) rects.push({ x, y, w, h });
+      };
+      // Glyph text boxes (exact) + shadow bleed — text is NOT glass.
+      const walker = document.createTreeWalker(card, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        if (!n.textContent.trim()) continue;
+        const range = document.createRange();
+        range.selectNode(n);
+        push(range.getBoundingClientRect(), 3);
+      }
+      for (const el of card.querySelectorAll("*")) {
+        const r = el.getBoundingClientRect();
+        if (r.width < 0.5 || r.height < 0.5) continue;
+        const s = getComputedStyle(el);
+        const tag = el.tagName;
+        // Interactive controls are excluded whole (their value text is not a
+        // light-DOM text node, so glyph masking can't cover it).
+        if (tag === "SELECT" || tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON") {
+          push(r, 1);
+          continue;
+        }
+        const bg = s.backgroundImage + " " + s.backgroundColor;
+        const alphas = [...bg.matchAll(/rgba?\(([^)]+)\)/g)].map((m) => Number(m[1].split(",").at(-1)));
+        const opaque = alphas.some((a) => a >= 0.95);
+        if (opaque) {
+          push(r, 1); // solid chrome (the TELEPORT button)
+          continue;
+        }
+        const border = Math.max(
+          parseFloat(s.borderTopWidth) || 0,
+          parseFloat(s.borderBottomWidth) || 0,
+          parseFloat(s.borderLeftWidth) || 0,
+          parseFloat(s.borderRightWidth) || 0,
+        );
+        // Translucent panels (slots/strips): exclude only their border ring —
+        // the panel FILL is glass too (the astronaut shows through the
+        // FROM/TO/TOKEN boxes, not just the shell).
+        if (border > 0) {
+          const bw = Math.min(border, r.width / 2, r.height / 2);
+          push({ left: r.left + bw, top: r.top + bw, right: r.right - bw, bottom: r.bottom - bw, width: r.width - bw * 2, height: r.height - bw * 2 });
+        }
+      }
+      return { rects };
+    }, cardSel);
+
+  const proveSeeThrough = async (tag) => {
+    const shell = page.locator('[data-testid="teleport-console"]');
+    await expect(shell).toBeVisible();
+    const video = page.locator('[data-testid="console-video"]');
+    // Let the first frame render, then freeze the scene for the pair.
+    await expect
+      .poll(() => video.evaluate((v) => v.paused === false && v.readyState >= 2 && v.currentTime > 0), { timeout: 20_000 })
+      .toBe(true);
+    await page.waitForTimeout(400);
+    await video.evaluate((v) => v.pause());
+    await page.waitForTimeout(120);
+    const box = await shell.boundingBox();
+    const vp = page.viewportSize();
+    // Clamp the clip to the visible viewport (the mobile console can be
+    // taller than the phone screen — screenshots can't capture offscreen).
+    const clip = {
+      x: Math.max(0, box.x),
+      y: Math.max(0, box.y),
+      width: Math.min(box.width, vp.width - Math.max(0, box.x)),
+      height: Math.min(box.height, vp.height - Math.max(0, box.y)),
+    };
+    const { rects } = await glassExclusions('[data-testid="teleport-console"]');
+    const setHidden = (hidden) =>
+      page.evaluate((h) => {
+        const el = document.querySelector(".tc-scroll");
+        if (el) el.style.visibility = h ? "hidden" : "";
+      }, hidden);
+    await setHidden(true);
+    await page.waitForTimeout(120);
+    const raw = readPng(await page.screenshot({ clip }));
+    await setHidden(false);
+    await page.waitForTimeout(120);
+    const glass = readPng(await page.screenshot({ clip }));
+    await video.evaluate((v) => { const p = v.play(); p?.catch(() => {}); });
+    const rawPath = join(SHOTS, `${tag}-raw-scene.png`);
+    const glassPath = join(SHOTS, `${tag}-glass-overlay.png`);
+    writeFileSync(rawPath, PNG.sync.write(raw));
+    writeFileSync(glassPath, PNG.sync.write(glass));
+    // Pure-glass sample: deltas + sharpness (edge energy ratio) on the
+    // pixels where the glass is the ONLY thing between camera and astronaut.
+    const w = raw.width, h = raw.height;
+    const lr = new Float32Array(w * h);
+    const lg = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+      lr[i] = LUM(raw.data, i * 4);
+      lg[i] = LUM(glass.data, i * 4);
+    }
+    const blocked = (x, y) => rects.some((r) => x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h);
+    const deltas = [];
+    let edgeNum = 0, edgeDen = 0, samples = 0;
+    for (let y = 5; y < h - 5; y += 2) {
+      for (let x = 5; x < w - 5; x += 2) {
+        if (blocked(x, y)) continue;
+        const i = y * w + x;
+        deltas.push(Math.abs(lr[i] - lg[i]));
+        samples++;
+        const gRaw = Math.abs(lr[i + 1] - lr[i - 1]) + Math.abs(lr[i + w] - lr[i - w]);
+        if (gRaw > 8) {
+          const gGlass = Math.abs(lg[i + 1] - lg[i - 1]) + Math.abs(lg[i + w] - lg[i - w]);
+          edgeNum += gGlass;
+          edgeDen += gRaw;
+        }
+      }
+    }
+    deltas.sort((p, q) => p - q);
+    const n = deltas.length;
+    const median = +deltas[Math.floor(n / 2)].toFixed(3);
+    const p95 = +deltas[Math.floor(n * 0.95)].toFixed(3);
+    const mean = +(deltas.reduce((s, d) => s + d, 0) / n).toFixed(3);
+    const shareLt24 = +(deltas.filter((d) => d <= 24).length / n).toFixed(4);
+    const edgeRatio = edgeDen > 0 ? +(edgeNum / edgeDen).toFixed(3) : null;
+    const metrics = {
+      tag,
+      clip: { width: w, height: h },
+      glassPixelsSampled: n,
+      luminanceDelta: { median, p95, mean, shareLt24 },
+      sharpness: { glassOverRawEdgeEnergy: edgeRatio, note: "Σ|∇glass| / Σ|∇raw| on pure-glass pixels where ∇raw > 8; ~1 = sharp, →0 = frosted" },
+    };
+    console.log(`[SEE-THROUGH:${tag}]`, JSON.stringify(metrics));
+    writeFileSync(join(SHOTS, `${tag}-metrics.json`), JSON.stringify(metrics, null, 2));
+    // The glass fill ≈ the raw scene: median delta is tint-scale small, and
+    // MOST pure-glass pixels sit within a hair of the raw scene.
+    expect(n, `${tag} sampled pure-glass pixels`).toBeGreaterThan(1000);
+    expect(median, `${tag} pure-glass median ΔL ≈ tint only`).toBeLessThan(16);
+    expect(shareLt24, `${tag} pure-glass pixels ≈ raw scene`).toBeGreaterThan(0.55);
+    // Edges survive at full strength: the astronaut behind the glass is
+    // SHARP (a 36px frost would crush this ratio toward ~0.1-0.2).
+    expect(edgeRatio, `${tag} sharp — edges preserved through the glass`).toBeGreaterThan(0.5);
+    return metrics;
+  };
+
+  // Desktop, default motion — the drifting video is SHARP behind the glass.
   await page.goto("/");
   assertGlass(await readGlass());
-  await page.screenshot({ path: join(SHOTS, "11-glass-desktop.png"), fullPage: true });
+  await page.screenshot({ path: join(SHOTS, "11-seethrough-desktop.png"), fullPage: true });
+  await proveSeeThrough("13-desktop");
 
   // Phone portrait, default motion — same recipe on mobile.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   assertGlass(await readGlass());
-  await page.screenshot({ path: join(SHOTS, "12-glass-mobile.png"), fullPage: true });
+  await page.screenshot({ path: join(SHOTS, "12-seethrough-mobile.png"), fullPage: true });
+  await proveSeeThrough("14-mobile");
 });
 
 test("console: MOBILE PORTRAIT — the console reflows to a VERTICAL stack and the astronaut VIDEO plays (drift, not a poster)", async ({ page }) => {
@@ -386,6 +582,11 @@ test("console: MOBILE PORTRAIT — the console reflows to a VERTICAL stack and t
   await expect
     .poll(() => video.evaluate((v) => v.paused === false && v.readyState >= 2 && v.currentTime > 0), { timeout: 20_000 })
     .toBe(true);
+  // The poster attribute is DROPPED once the first frame plays on mobile too
+  // — the astronaut is never a stuck poster on a phone.
+  await expect
+    .poll(() => video.evaluate((v) => v.getAttribute("poster")), { timeout: 10_000 })
+    .toBeNull();
   const t0 = await video.evaluate((v) => v.currentTime);
   await page.screenshot({ path: join(SHOTS, "9a-console-motion-mobile-t0.png") });
   await page.waitForTimeout(1600);
@@ -393,6 +594,36 @@ test("console: MOBILE PORTRAIT — the console reflows to a VERTICAL stack and t
   const t1 = await video.evaluate((v) => v.currentTime);
   expect(t1 - t0).toBeGreaterThan(0.8); // the astronaut frame moved on screen
 
+  // PIXEL proof of drift: the t0/t1 screenshot pair must differ where the
+  // astronaut is — real painted motion on the phone, not just a running
+  // media clock (the frozen-frame trap: clock advances while the painted
+  // layer never changes).
+  const a = readPng(readFileSync(join(SHOTS, "9a-console-motion-mobile-t0.png")));
+  const b = readPng(readFileSync(join(SHOTS, "9b-console-motion-mobile-t1.png")));
+  const moved = motionShare(a, b);
+  const shellBox = await shell.boundingBox();
+  const vp = page.viewportSize();
+  const cardClip = {
+    x: Math.max(0, shellBox.x),
+    y: Math.max(0, shellBox.y),
+    width: Math.min(shellBox.width, vp.width - Math.max(0, shellBox.x)),
+    height: Math.min(shellBox.height, vp.height - Math.max(0, shellBox.y)),
+  };
+  const aCard = readPng(await page.screenshot({ clip: cardClip }));
+  await page.waitForTimeout(1200);
+  const bCard = readPng(await page.screenshot({ clip: cardClip }));
+  const movedThroughGlass = motionShare(aCard, bCard);
+  const metrics = {
+    mediaClockAdvancedSeconds: t1 - t0,
+    paintedMotionShareWholeFrame: moved,
+    paintedMotionShareThroughCard: movedThroughGlass,
+    note: "shares = fraction of pixels whose luminance moved >10/255 between the two captures",
+  };
+  console.log("[MOBILE-MOTION]", JSON.stringify(metrics));
+  writeFileSync(join(SHOTS, "motion-mobile-metrics.json"), JSON.stringify(metrics, null, 2));
+  // The painted layer really moves (whole frame AND through the card).
+  expect(moved).toBeGreaterThan(0.001);
+  expect(movedThroughGlass).toBeGreaterThan(0.001);
   // The housing fits the phone width.
   const box = await shell.boundingBox();
   expect(box.width).toBeLessThanOrEqual(390);

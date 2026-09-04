@@ -97,16 +97,25 @@ const CONSOLE_CSS = `
 .tc-portal{position:absolute;left:50%;top:40%;width:min(1080px,130vw);height:min(1080px,130vw);transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(0,240,255,.17) 0%,rgba(63,211,232,.07) 36%,transparent 68%);pointer-events:none}
 .tc-scroll{position:relative;z-index:1;height:100vh;height:100dvh;overflow-y:auto;display:flex;align-items:center;justify-content:center;padding:18px}
 .tc-shell-wrap{position:relative;width:min(700px,94vw);margin:auto;isolation:isolate;box-shadow:0 0 18px rgba(63,211,232,.26),0 30px 64px rgba(0,0,0,.6),0 3px 12px rgba(0,0,0,.5)}
-/* NOTE: the housing glow/depth shadows are box-shadow here (NOT an ancestor
-   filter) — an ancestor filter would become the glass's backdrop root and
-   starve .tc-shell-glass's backdrop-filter (the blur would sample nothing). */
+/* NOTE: the housing glow/depth shadows are box-shadow here — plain shadows,
+   no ancestor filter or opacity layer sits between the video and the glass
+   (the card interior must stay genuinely see-through to the sharp scene). */
 .tc-halo{position:absolute;inset:-74px;z-index:-1;pointer-events:none;background:radial-gradient(60% 54% at 50% 50%,rgba(0,240,255,.22) 0%,rgba(63,211,232,.09) 42%,rgba(63,211,232,0) 70%)}
-.tc-shell-rim{clip-path:polygon(0 24px,24px 0,calc(100% - 24px) 0,100% 24px,100% calc(100% - 24px),calc(100% - 24px) 100%,24px 100%,0 calc(100% - 24px));background:linear-gradient(150deg,#a8c6e0 0%,#4a6c8c 10%,#17293d 26%,rgba(0,240,255,.95) 42%,rgba(63,211,232,.35) 50%,#0d1e30 62%,rgba(0,240,255,.8) 80%,#5d8db0 92%,#93b8d6 100%);padding:2px;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),inset 0 -1px 0 rgba(0,0,0,.6)}
-/* AGGRESSIVE FROST (v3): heavy blur(30-40px) carries the readability, so the
-   tint drops to a near-transparent 10-15% band — the astronaut glows through
-   the WHOLE card as heavily-frosted light (the top sheen that used to live in
-   the background gradient now rides the inset highlight shadow below). */
-.tc-shell-glass{clip-path:polygon(24px 2px,calc(100% - 24px) 2px,calc(100% - 2px) 24px,calc(100% - 2px) calc(100% - 24px),calc(100% - 24px) calc(100% - 2px),24px calc(100% - 2px),2px calc(100% - 24px),2px 24px);background:linear-gradient(180deg,rgba(10,30,47,.15) 0%,rgba(7,23,37,.13) 38%,rgba(6,18,30,.11) 100%);backdrop-filter:blur(36px) saturate(1.5) brightness(1.1);-webkit-backdrop-filter:blur(36px) saturate(1.5) brightness(1.1);box-shadow:inset 0 1px 0 rgba(160,235,255,.12),inset 0 -1px 0 rgba(0,0,0,.28)}
+.tc-shell-rim{position:relative;clip-path:polygon(0 24px,24px 0,calc(100% - 24px) 0,100% 24px,100% calc(100% - 24px),calc(100% - 24px) 100%,24px 100%,0 calc(100% - 24px));background:transparent;padding:2px}
+/* The metallic bezel is painted ONLY as the 2px frame (housing): the old
+   background covered the WHOLE card under the translucent glass — the
+   astronaut could never show through, and the backdrop-blur was actually
+   frosting the bezel's own metallic gradient (the "teal mush"). The frame
+   now lives on a ::before masked to the padding ring (content knocked out),
+   so the card interior stays genuinely see-through to the sharp video. */
+.tc-shell-rim::before{content:"";position:absolute;inset:0;padding:2px;background:linear-gradient(150deg,#a8c6e0 0%,#4a6c8c 10%,#17293d 26%,rgba(0,240,255,.95) 42%,rgba(63,211,232,.35) 50%,#0d1e30 62%,rgba(0,240,255,.8) 80%,#5d8db0 92%,#93b8d6 100%);clip-path:inherit;pointer-events:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),inset 0 -1px 0 rgba(0,0,0,.6);-webkit-mask:linear-gradient(#fff 0 0) border-box,linear-gradient(#fff 0 0) content-box;-webkit-mask-composite:xor;mask:linear-gradient(#fff 0 0) border-box,linear-gradient(#fff 0 0) content-box;mask-composite:exclude}
+/* SEE-THROUGH GLASS (v4): NO backdrop blur — the astronaut behind the card
+   stays CLEAR and SHARP (blur(36px) over the live video is what turned the
+   figure into teal mush AND starved the mobile compositor into a frozen
+   frame). Readability rides a low ~5-9% dark tint + the dark text-shadow
+   stacks on every glyph — never a background block, never a frost. The top
+   sheen that used to live in the gradient rides the inset highlight shadow. */
+.tc-shell-glass{clip-path:polygon(24px 2px,calc(100% - 24px) 2px,calc(100% - 2px) 24px,calc(100% - 2px) calc(100% - 24px),calc(100% - 24px) calc(100% - 2px),24px calc(100% - 2px),2px calc(100% - 24px),2px 24px);background:linear-gradient(180deg,rgba(8,24,38,.085) 0%,rgba(6,17,29,.06) 55%,rgba(5,14,25,.05) 100%);box-shadow:inset 0 1px 0 rgba(160,235,255,.1),inset 0 -1px 0 rgba(0,0,0,.3)}
 .tc-bolt{position:absolute;width:13px;height:13px;border-radius:50%;background:radial-gradient(circle at 34% 30%,#e2f0fa 0%,#9dbed8 16%,#3a5a74 48%,#10202f 78%,#060d15 100%);box-shadow:0 0 0 1px rgba(0,0,0,.65),0 1px 3px rgba(0,0,0,.55),0 0 9px rgba(63,211,232,.5);z-index:2}
 .tc-bolt::before,.tc-bolt::after{content:"";position:absolute;left:50%;top:50%;border-radius:1px}
 .tc-bolt::before{width:9px;height:2px;transform:translate(-50%,-50%) rotate(45deg);background:linear-gradient(90deg,rgba(4,8,13,.9) 0%,rgba(4,8,13,.9) 38%,rgba(170,210,235,.55) 50%,rgba(4,8,13,.9) 62%,rgba(4,8,13,.9) 100%)}
@@ -125,21 +134,21 @@ const CONSOLE_CSS = `
 .tc-tab{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:none;border:none;border-bottom:2px solid transparent;color:#8fc4d8;text-shadow:1px 0 0 rgba(1,4,9,.88),-1px 0 0 rgba(1,4,9,.88),0 1px 0 rgba(1,4,9,.88),0 -1px 0 rgba(1,4,9,.88),0 0 2px rgba(1,4,9,.92),0 0 4px rgba(1,4,9,.5),0 1px 2px rgba(1,4,9,.85),0 0 8px rgba(0,240,255,.08);font-size:12px;letter-spacing:.18em;padding:10px 12px 8px;cursor:pointer;text-transform:uppercase}
 .tc-tab-active{color:#7ff3ff;border-bottom-color:rgba(0,240,255,.9);text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.95),0 0 4px rgba(1,4,9,.55),0 1px 2px rgba(1,4,9,.85),0 0 10px rgba(0,240,255,.5),0 0 24px rgba(0,240,255,.2)}
 .tc-label{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;letter-spacing:.24em;color:#8fe0f2;text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.92),0 0 4px rgba(1,4,9,.5),0 1px 2px rgba(1,4,9,.85),0 0 6px rgba(0,240,255,.15),0 0 14px rgba(0,240,255,.06);text-transform:uppercase;display:block;margin-bottom:5px}
-.tc-slot{background:linear-gradient(180deg,rgba(11,34,52,.15) 0%,rgba(8,24,39,.13) 55%,rgba(6,19,31,.11) 100%);border:1px solid rgba(63,211,232,.26);backdrop-filter:blur(34px);-webkit-backdrop-filter:blur(34px);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 2px 10px rgba(0,0,0,.12),inset 0 -1px 0 rgba(255,255,255,.05),0 1px 0 rgba(255,255,255,.04);border-radius:8px;padding:10px 12px;min-height:56px;display:flex;flex-direction:column;justify-content:center;transition:border-color 140ms ease-out,box-shadow 140ms ease-out}
+.tc-slot{background:linear-gradient(180deg,rgba(9,26,42,.08) 0%,rgba(6,18,30,.055) 100%);border:1px solid rgba(63,211,232,.26);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 2px 10px rgba(0,0,0,.12),inset 0 -1px 0 rgba(255,255,255,.05),0 1px 0 rgba(255,255,255,.04);border-radius:8px;padding:10px 12px;min-height:56px;display:flex;flex-direction:column;justify-content:center;transition:border-color 140ms ease-out,box-shadow 140ms ease-out}
 .tc-slot:focus-within{border-color:rgba(0,240,255,.75);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 2px 10px rgba(0,0,0,.22),inset 0 -1px 0 rgba(255,255,255,.05),0 0 0 1px rgba(0,240,255,.3),0 0 20px rgba(0,240,255,.2)}
 .tc-coords{display:flex;align-items:stretch;gap:10px}
 .tc-slot-grow{flex:1;min-width:0}
-.tc-arrow{display:flex;align-items:center;justify-content:center;color:#3fd3e8;font-size:22px;padding:0 2px;text-shadow:0 0 10px rgba(63,211,232,.8);animation:tcTravel 1.6s ease-in-out infinite}
-.tc-select{width:100%;background:transparent;border:none;outline:none;color:#e8ecf3;font-size:15px;font-weight:700;appearance:none;-webkit-appearance:none;cursor:pointer;padding:0;font-family:inherit;text-shadow:0 0 2px rgba(1,4,9,.95),0 0 5px rgba(1,4,9,.55),0 1px 3px rgba(1,4,9,.9)}
+.tc-arrow{display:flex;align-items:center;justify-content:center;color:#3fd3e8;font-size:22px;padding:0 2px;text-shadow:0 0 2px rgba(1,4,9,.95),0 0 6px rgba(1,4,9,.55),0 0 10px rgba(63,211,232,.8);animation:tcTravel 1.6s ease-in-out infinite}
+.tc-select{width:100%;background:transparent;border:none;outline:none;color:#e8ecf3;font-size:15px;font-weight:700;appearance:none;-webkit-appearance:none;cursor:pointer;padding:0;font-family:inherit;text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.95),0 0 5px rgba(1,4,9,.6),0 1px 3px rgba(1,4,9,.9)}
 .tc-select option{background:#0b1422;color:#e8ecf3;font-weight:400}
 .tc-sub{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px;color:#8ab8cf;text-shadow:1px 0 0 rgba(1,4,9,.88),-1px 0 0 rgba(1,4,9,.88),0 1px 0 rgba(1,4,9,.88),0 -1px 0 rgba(1,4,9,.88),0 0 2px rgba(1,4,9,.9),0 0 4px rgba(1,4,9,.45),0 1px 2px rgba(1,4,9,.8),0 0 6px rgba(0,240,255,.08);letter-spacing:.1em;margin-top:3px;text-transform:uppercase}
-.tc-amount{width:100%;background:transparent;border:none;outline:none;color:#f2feff;font-size:30px;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.02em;padding:0;text-shadow:0 0 2px rgba(1,4,9,.95),0 0 5px rgba(1,4,9,.55),0 1px 3px rgba(1,4,9,.9)}
+.tc-amount{width:100%;background:transparent;border:none;outline:none;color:#f2feff;font-size:30px;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.02em;padding:0;text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.95),0 0 5px rgba(1,4,9,.6),0 1px 3px rgba(1,4,9,.9)}
 .tc-amount::placeholder{color:#3c5570;font-weight:600}
-.tc-max{background:linear-gradient(180deg,rgba(63,211,232,.16),rgba(63,211,232,.08));border:1px solid rgba(0,240,255,.5);color:#7ff3ff;text-shadow:0 0 8px rgba(0,240,255,.5);border-radius:7px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.14em;padding:7px 12px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 2px 5px rgba(0,0,0,.35);transition:all 140ms ease-out}
+.tc-max{background:linear-gradient(180deg,rgba(63,211,232,.16),rgba(63,211,232,.08));border:1px solid rgba(0,240,255,.5);color:#7ff3ff;text-shadow:1px 0 0 rgba(1,4,9,.9),-1px 0 0 rgba(1,4,9,.9),0 1px 0 rgba(1,4,9,.9),0 -1px 0 rgba(1,4,9,.9),0 0 2px rgba(1,4,9,.92),0 1px 2px rgba(1,4,9,.85),0 0 8px rgba(0,240,255,.5);border-radius:7px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.14em;padding:7px 12px;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 2px 5px rgba(0,0,0,.35);transition:all 140ms ease-out}
 .tc-max:hover:not(:disabled){background:linear-gradient(180deg,rgba(63,211,232,.3),rgba(63,211,232,.14));box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 0 12px rgba(0,240,255,.25)}
 .tc-max:active:not(:disabled){transform:translateY(1px);box-shadow:inset 0 2px 4px rgba(0,0,0,.35)}
 .tc-max:disabled{opacity:.35;cursor:default}
-.tc-strip{margin-top:12px;border:1px solid rgba(63,211,232,.15);background:linear-gradient(180deg,rgba(11,34,52,.13) 0%,rgba(7,21,34,.11) 100%);backdrop-filter:blur(34px);-webkit-backdrop-filter:blur(34px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),inset 0 -1px 0 rgba(255,255,255,.04);border-radius:8px;padding:10px 12px;min-height:54px}
+.tc-strip{margin-top:12px;border:1px solid rgba(63,211,232,.15);background:linear-gradient(180deg,rgba(7,21,34,.07) 0%,rgba(5,15,26,.05) 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),inset 0 -1px 0 rgba(255,255,255,.04);border-radius:8px;padding:10px 12px;min-height:54px}
 .tc-strip-hint{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;letter-spacing:.08em;color:#7fabc2;line-height:1.6;text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.92),0 0 4px rgba(1,4,9,.5),0 1px 3px rgba(1,4,9,.9)}
 .tc-strip-hint b{color:#aee4f2;text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.95),0 0 4px rgba(1,4,9,.55),0 0 8px rgba(0,240,255,.15);font-weight:600}
 .tc-fire{width:100%;margin-top:14px;border:none;cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-weight:800;font-size:15px;letter-spacing:.3em;color:#f4feff;text-shadow:0 1px 2px rgba(0,30,50,.55),0 0 14px rgba(0,240,255,.35);padding:16px 0 14px;clip-path:polygon(0 12px,12px 0,calc(100% - 12px) 0,100% 12px,100% calc(100% - 12px),calc(100% - 12px) 100%,12px 100%,0 calc(100% - 12px));background:linear-gradient(180deg,#3be6ff 0%,#17b8dd 40%,#0e93b8 68%,#0a7194 100%);box-shadow:inset 0 1px 0 rgba(255,255,255,.45),inset 0 -3px 6px rgba(0,35,55,.55),0 5px 16px rgba(0,0,0,.5),0 9px 28px rgba(0,0,0,.3),0 0 16px rgba(0,240,255,.35);transition:filter 140ms ease-out,opacity 140ms ease-out,box-shadow 140ms ease-out,transform 90ms ease-out}
@@ -149,22 +158,22 @@ const CONSOLE_CSS = `
 .tc-fire-armed{animation:tcPulse 2.2s ease-in-out infinite}
 .tc-fire-armed:hover{filter:brightness(1.1)}
 .tc-wallets{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px;min-height:30px}
-.tc-chip{display:inline-flex;align-items:center;gap:7px;background:linear-gradient(180deg,rgba(63,211,232,.1),rgba(63,211,232,.04));border:1px solid rgba(63,211,232,.35);color:#c8f2fa;text-shadow:0 0 6px rgba(0,240,255,.25);border-radius:999px;padding:5px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 3px rgba(0,0,0,.3)}
-.tc-chip-x{background:none;border:none;color:#6e93ad;cursor:pointer;font-size:13px;padding:0 2px;line-height:1}
+.tc-chip{display:inline-flex;align-items:center;gap:7px;background:linear-gradient(180deg,rgba(63,211,232,.07),rgba(63,211,232,.03));border:1px solid rgba(63,211,232,.35);color:#c8f2fa;text-shadow:1px 0 0 rgba(1,4,9,.9),-1px 0 0 rgba(1,4,9,.9),0 1px 0 rgba(1,4,9,.9),0 -1px 0 rgba(1,4,9,.9),0 0 2px rgba(1,4,9,.92),0 0 6px rgba(0,240,255,.25);border-radius:999px;padding:5px 10px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 3px rgba(0,0,0,.3)}
+.tc-chip-x{background:none;border:none;color:#6e93ad;cursor:pointer;font-size:13px;padding:0 2px;line-height:1;text-shadow:0 0 2px rgba(1,4,9,.9)}
 .tc-chip-x:hover{color:#ff8f85}
-.tc-connect{background:linear-gradient(180deg,rgba(63,211,232,.06),rgba(63,211,232,0));border:1px solid rgba(0,240,255,.55);color:#7ff3ff;text-shadow:0 0 8px rgba(0,240,255,.45);border-radius:999px;padding:6px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;letter-spacing:.12em;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 1px 3px rgba(0,0,0,.3);transition:all 140ms ease-out}
+.tc-connect{background:linear-gradient(180deg,rgba(63,211,232,.06),rgba(63,211,232,0));border:1px solid rgba(0,240,255,.55);color:#7ff3ff;text-shadow:1px 0 0 rgba(1,4,9,.9),-1px 0 0 rgba(1,4,9,.9),0 1px 0 rgba(1,4,9,.9),0 -1px 0 rgba(1,4,9,.9),0 0 2px rgba(1,4,9,.92),0 1px 2px rgba(1,4,9,.85),0 0 8px rgba(0,240,255,.45);border-radius:999px;padding:6px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;letter-spacing:.12em;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 1px 3px rgba(0,0,0,.3);transition:all 140ms ease-out}
 .tc-connect:hover{background:rgba(63,211,232,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 0 14px rgba(0,240,255,.25)}
 .tc-quote-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 0;font-size:13px}
 .tc-quote-key{color:#8ab8cf;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.92),0 0 4px rgba(1,4,9,.5),0 1px 3px rgba(1,4,9,.9)}
 .tc-quote-val{color:#b9c9dc;font-weight:600;font-size:13px;text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.92),0 0 4px rgba(1,4,9,.5),0 1px 3px rgba(1,4,9,.9)}
 .tc-quote-hi{color:#3fd3e8;font-weight:800;font-size:17px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.95),0 0 5px rgba(1,4,9,.55),0 1px 3px rgba(1,4,9,.9),0 0 12px rgba(63,211,232,.3)}
-.tc-refresh{background:rgba(63,211,232,.05);border:1px solid rgba(0,240,255,.45);color:#7ff3ff;text-shadow:0 0 6px rgba(0,240,255,.4);border-radius:6px;font-size:11px;padding:3px 10px;cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.1em;box-shadow:inset 0 1px 0 rgba(255,255,255,.1)}
+.tc-refresh{background:rgba(63,211,232,.05);border:1px solid rgba(0,240,255,.45);color:#7ff3ff;text-shadow:1px 0 0 rgba(1,4,9,.9),-1px 0 0 rgba(1,4,9,.9),0 1px 0 rgba(1,4,9,.9),0 -1px 0 rgba(1,4,9,.9),0 0 2px rgba(1,4,9,.92),0 0 6px rgba(0,240,255,.4);border-radius:6px;font-size:11px;padding:3px 10px;cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.1em;box-shadow:inset 0 1px 0 rgba(255,255,255,.1)}
 .tc-steps{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
-.tc-step{font-size:10px;padding:3px 9px;border-radius:999px;color:#9fd8e6;border:1px solid rgba(63,211,232,.3);background:rgba(63,211,232,.06);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em}
-.tc-note{font-size:11px;color:#6e93ad;margin-top:6px;line-height:1.5}
-.tc-box{margin-top:12px;border:1px solid rgba(63,211,232,.2);background:linear-gradient(180deg,rgba(11,34,52,.14) 0%,rgba(7,21,34,.11) 100%);backdrop-filter:blur(34px);-webkit-backdrop-filter:blur(34px);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6;color:#d7e4ef}
-.tc-ok{border-color:rgba(95,211,138,.35);background:linear-gradient(180deg,rgba(30,80,55,.13) 0%,rgba(22,58,42,.10) 100%)}
-.tc-err{margin-top:12px;border:1px solid rgba(232,65,66,.35);background:linear-gradient(180deg,rgba(140,32,38,.14) 0%,rgba(110,24,30,.11) 100%);backdrop-filter:blur(34px);-webkit-backdrop-filter:blur(34px);border-radius:10px;padding:10px 12px;font-size:12.5px;color:#f2b8b5;line-height:1.5;text-shadow:1px 0 0 rgba(25,3,5,.9),-1px 0 0 rgba(25,3,5,.9),0 1px 0 rgba(25,3,5,.9),0 -1px 0 rgba(25,3,5,.9),0 0 2px rgba(25,3,5,.92),0 0 4px rgba(25,3,5,.5),0 1px 2px rgba(10,1,2,.9)}
+.tc-step{font-size:10px;padding:3px 9px;border-radius:999px;color:#9fd8e6;border:1px solid rgba(63,211,232,.3);background:rgba(63,211,232,.06);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em;text-shadow:0 0 2px rgba(1,4,9,.9),0 0 4px rgba(1,4,9,.55)}
+.tc-note{font-size:11px;color:#6e93ad;margin-top:6px;line-height:1.5;text-shadow:0 0 2px rgba(1,4,9,.85),0 1px 2px rgba(1,4,9,.7)}
+.tc-box{margin-top:12px;border:1px solid rgba(63,211,232,.2);background:linear-gradient(180deg,rgba(7,21,34,.065) 0%,rgba(5,15,26,.05) 100%);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6;color:#d7e4ef}
+.tc-ok{border-color:rgba(95,211,138,.35);background:linear-gradient(180deg,rgba(24,78,57,.10) 0%,rgba(17,55,40,.075) 100%)}
+.tc-err{margin-top:12px;border:1px solid rgba(232,65,66,.35);background:linear-gradient(180deg,rgba(118,28,36,.13) 0%,rgba(92,22,30,.10) 100%);border-radius:10px;padding:10px 12px;font-size:12.5px;color:#f2b8b5;line-height:1.5;text-shadow:1px 0 0 rgba(25,3,5,.9),-1px 0 0 rgba(25,3,5,.9),0 1px 0 rgba(25,3,5,.9),0 -1px 0 rgba(25,3,5,.9),0 0 2px rgba(25,3,5,.92),0 0 4px rgba(25,3,5,.5),0 1px 2px rgba(10,1,2,.9)}
 .tc-ghost{width:100%;margin-top:8px;background:transparent;border:1px solid rgba(63,211,232,.25);color:#9fd8e6;border-radius:8px;padding:9px 0;font-size:12.5px;cursor:pointer}
 .tc-link{color:#3fd3e8;text-decoration:none;font-size:12.5px}
 .tc-overlay{position:fixed;inset:0;z-index:20;background:rgba(2,5,10,.72);backdrop-filter:blur(6px);display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:4vh 12px 24px}
@@ -262,33 +271,93 @@ export function useTicker(value, { format = defaultTickerFormat, durationMs = 48
 }
 
 /** The ambient astronaut layer: the drifting VIDEO everywhere — desktop AND
- *  mobile (autoplay needs muted + playsinline, both present). The poster
- *  stays ONLY as the <video> pre-load fallback and for reduced-motion
- *  users (a11y). Pure presentational. */
+ *  mobile. The static unlock is `autoPlay muted loop playsInline` (all four
+ *  present); the imperative engine below covers the REAL-WORLD stalls that
+ *  leave a phone stuck on a frozen frame:
+ *   1. a second play() once metadata arrives (engines that reject the first
+ *      autoplay before the resource is ready);
+ *   2. resume when the tab becomes visible again (mobile Safari suspends
+ *      media in backgrounded tabs and doesn't always restart it);
+ *   3. one user-gesture retry (WebViews / stricter engines that block even
+ *      muted autoplay until the first interaction);
+ *   4. the poster attribute is DROPPED as soon as the first frame plays — a
+ *      stale poster can never sit on top of live video (poster is only the
+ *      pre-load placeholder now). The reduced-motion <img> still (a11y) and
+ *      an all-sources-failed fallback are the ONLY poster states left.
+ *  Pure presentational; the video paints the astronaut sharp behind the card.
+ */
 function AstronautBackdrop() {
-  const [poster, setPoster] = useState(() => prefersReducedMotion());
+  const [usePoster, setUsePoster] = useState(() => prefersReducedMotion());
+  const [videoLive, setVideoLive] = useState(false); // first frame rendered
+  const videoRef = useRef(null);
+
+  // Reduced-motion preference: the poster still replaces the video (a11y).
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) return undefined;
     const rmq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const update = () => setPoster(prefersReducedMotion());
+    const update = () => setUsePoster(prefersReducedMotion());
     rmq.addEventListener?.("change", update);
     return () => rmq.removeEventListener?.("change", update);
   }, []);
+
+  // Playback engine — only meaningful in a real browser (jsdom unit runs
+  // have no media pipeline; navigator.userAgent contains "jsdom").
+  useEffect(() => {
+    if (usePoster) return undefined;
+    const v = videoRef.current;
+    if (!v || typeof v.play !== "function") return undefined;
+    if (typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent)) return undefined;
+    let alive = true;
+    let metaRetried = false;
+    const tryPlay = () => {
+      if (!alive || !v.paused) return;
+      try {
+        const p = v.play();
+        if (p && typeof p.catch === "function") p.catch(() => {});
+      } catch {
+        /* autoplay policy — the gesture retry below is the unlock */
+      }
+    };
+    tryPlay();
+    const onMeta = () => {
+      if (!metaRetried) {
+        metaRetried = true;
+        tryPlay();
+      }
+    };
+    const onVis = () => {
+      if (!document.hidden) tryPlay();
+    };
+    const unlock = () => tryPlay();
+    v.addEventListener("loadedmetadata", onMeta);
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pointerdown", unlock, { once: true });
+    return () => {
+      alive = false;
+      v.removeEventListener("loadedmetadata", onMeta);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pointerdown", unlock);
+    };
+  }, [usePoster]);
+
   const posterSrc = "/assets/teleporter-astronaut-poster.jpg";
   return (
     <div className="tc-bg" aria-hidden="true">
-      {poster ? (
+      {usePoster ? (
         <img src={posterSrc} alt="" data-testid="console-poster" />
       ) : (
         <video
+          ref={videoRef}
           data-testid="console-video"
           autoPlay
           muted
           loop
           playsInline
-          poster={posterSrc}
+          poster={videoLive ? undefined : posterSrc}
           preload="auto"
           aria-hidden="true"
+          onPlaying={() => setVideoLive(true)}
+          onError={() => setUsePoster(true)}
         >
           <source src="/assets/teleporter-astronaut.webm" type="video/webm" />
           <source src="/assets/teleporter-astronaut.mp4" type="video/mp4" />
