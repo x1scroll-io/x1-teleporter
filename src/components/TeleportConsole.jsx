@@ -194,10 +194,15 @@ const CONSOLE_CSS = `
      below (the astronaut stays visible around the card, never edge-to-edge). */
   .tc-scroll{height:auto;min-height:100vh;min-height:100dvh;align-items:flex-start;padding:44px 18px 60px}
   .tc-shell-wrap{width:100%;margin:0}
-  /* Astronaut composition on mobile: the figure is zoomed and kept low so the
-     bright helmet/visor glows through the frosted glass AND floats in the open
-     portal below the console (desktop keeps the head-above-console crop). */
-  .tc-bg video,.tc-bg img{top:0;height:170%}
+  /* Astronaut composition on PORTRAIT phones — OPEN FRAMING (2026-09-04 pass):
+     the earlier ~170% zoom cropped the figure down to body/legs; the video now
+     renders at near-natural scale (~1.1-1.3x depending on phone height) so the
+     FULL astronaut figure, the portal ring, the cyan aura and the surrounding
+     space all sit in frame, with the subject biased slightly below center so it
+     still floats in the open portal beneath the console. The band shows the
+     middle ~90% of the footage vertically (rows ~5-95%) — nothing important is
+     cropped, and the drifting loop + transparency are untouched. */
+  .tc-bg video,.tc-bg img{top:-7%;height:114%;object-position:50% 42%}
   .tc-scrim{background:linear-gradient(180deg,rgba(2,5,10,.52) 0%,rgba(2,5,10,.27) 26%,rgba(2,5,10,.28) 52%,rgba(2,5,10,.32) 76%,rgba(2,4,9,.44) 100%)}
   .tc-portal{top:76%;width:min(1080px,152vw);height:min(1080px,152vw)}
   .tc-halo{inset:-26px}
@@ -209,6 +214,38 @@ const CONSOLE_CSS = `
   .tc-tabs{padding:0 12px}
   .tc-title{font-size:13px}
   .tc-amount{font-size:26px}
+}
+/* LANDSCAPE PHONES / SHORT VIEWPORTS (2026-09-04 pass) — the enhanced
+   cinematic view. Rotating the phone reflows the console: the coordinates go
+   back to a HORIZONTAL row (wider, more centered, readable on the short
+   axis), the shell is centered and the page scrolls only as needed, and the
+   astronaut footage — which IS landscape — shows FULLER/UNCROPPED: the
+   horizontal crop that portrait forces (a narrow vertical slice of the wide
+   shot) disappears, revealing the complete astronaut-in-portal composition
+   at near-natural scale. Portrait stays the primary/default layout; this
+   block ONLY reframes when the device is actually rotated (both axes
+   required: landscape orientation AND a short viewport, so desktop wide
+   screens are untouched). The moving loop + transparency are unchanged. */
+@media (orientation:landscape) and (max-height:640px){
+  .tc-page{overflow-y:auto;overflow-x:hidden}
+  .tc-scroll{height:auto;min-height:100vh;min-height:100dvh;align-items:flex-start;justify-content:center;padding:12px 16px 20px}
+  .tc-shell-wrap{width:min(720px,94vw);margin:0 auto}
+  .tc-halo{inset:-36px}
+  /* The wide shot, full width: the video is scaled by WIDTH here (it matches
+     the phone's own landscape orientation), so the horizontal crop that
+     portrait forces is gone — the whole astronaut-in-portal scene shows. */
+  .tc-bg video,.tc-bg img{left:0;right:auto;top:50%;width:100%;height:132%;object-position:50% 50%;transform:translateY(-50%)}
+  .tc-scrim{background:linear-gradient(180deg,rgba(2,5,10,.5) 0%,rgba(2,5,10,.22) 26%,rgba(2,5,10,.26) 55%,rgba(2,4,9,.6) 100%)}
+  .tc-portal{top:52%;width:min(1080px,115vw);height:min(1080px,115vw)}
+  .tc-coords{flex-direction:row;gap:10px}
+  .tc-arrow{transform:none;align-self:center;margin:0;font-size:20px;animation:tcTravel 1.6s ease-in-out infinite}
+  .tc-header{padding:8px 16px 6px}
+  .tc-body{padding:10px 16px 14px}
+  .tc-tabs{padding:0 16px}
+  .tc-title{font-size:13px}
+  .tc-subheader{font-size:9.5px}
+  .tc-amount{font-size:24px}
+  .tc-bolt{width:11px;height:11px}
 }
 @keyframes tcTravelY{0%,100%{transform:rotate(90deg) translateX(0);opacity:.95}50%{transform:rotate(90deg) translateX(4px);opacity:.45}}
 `;
