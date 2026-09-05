@@ -47,6 +47,26 @@
  *   the Phase-1/2 oracles) and stay on their existing gated paths; the
  *   planner plans the deposit route here.
  *
+ * Phase-5 scope (this file): the RANGO route (the multi-chain aggregator
+ * lane) joins the planner as planRango — the fallback/expansion rail for
+ * source chains THORChain can't serve (SUI / TRON / XRPL — and the UTXO
+ * natives as the fallback when THORChain halts, the live SOL-halt lesson).
+ * Two legs (the Rango lane's app-constructed artifacts):
+ *
+ *   quote stage:   rango-quote    the proxy quote REQUEST (raw base units,
+ *                                  canonical asset strings — golden step1)
+ *   execute stage: rango-execute   the swap-create REQUEST (the guarded
+ *                                  stub — submit() throws
+ *                                  RangoLiveTestGateError: the broadcast
+ *                                  anchor is READY FOR LIVE TEST, Mr.
+ *                                  Esters fires live tests)
+ *
+ *   family "external" for both (no in-app signer exists for the Rango
+ *   source chains yet). Real quote RESPONSES (read-only, live-captured
+ *   2026-09-05) are pinned in test/fixtures/golden/rango-leg/; the
+ *   swap-execution anchor is deliberately NOT live-anchored in this phase.
+ *   The api/rango/swap.js proxy route lands with the live test.
+ *
  * The planner owns ROUTE SHAPE only — it does NOT execute anything and does
  * NOT touch wallets/connections — the stage runners (runners/*.js) drive the
  * planned legs with a dependency-injected context.
@@ -79,6 +99,8 @@ import { createReleaseWaitLeg } from "./legs/reverse/releaseWaitLeg.js";
 import { createLifiSolanaOutLeg } from "./legs/reverse/lifiSolanaOutLeg.js";
 import { createThorchainQuoteLeg } from "./legs/thorchain/quoteLeg.js";
 import { createThorchainDepositBuildLeg } from "./legs/thorchain/depositBuildLeg.js";
+import { createRangoQuoteLeg } from "./legs/rango/rangoQuoteLeg.js";
+import { createRangoExecuteLeg } from "./legs/rango/rangoExecuteLeg.js";
 
 /** The forward route's leg ids in execution order (the planner contract). */
 export const FORWARD_LEG_IDS = Object.freeze([
@@ -154,6 +176,52 @@ export const THORCHAIN_STAGES = Object.freeze({
 /** The two Phase-3 THORChain leg factories, in route order. */
 export function buildThorchainLegs() {
   return [createThorchainQuoteLeg(), createThorchainDepositBuildLeg()];
+}
+
+// ── Phase 5 — the Rango route (the multi-chain aggregator lane) ───────────
+
+/** The Rango route's leg ids in execution order (the planner contract). */
+export const RANGO_LEG_IDS = Object.freeze([
+  "rango-quote",
+  "rango-execute",
+]);
+
+/** Stage grouping of the Rango route's legs (the quote gate first — the
+ *  swap-create request is only meaningful after an accepted quote — then
+ *  the guarded execute stage). */
+export const RANGO_STAGES = Object.freeze({
+  quote: Object.freeze({ label: "quote gate (fresh quote before the swap request)", legIds: Object.freeze(["rango-quote"]) }),
+  execute: Object.freeze({ label: "swap request + wallet sign (guarded — live test by Mr. Esters)", legIds: Object.freeze(["rango-execute"]) }),
+});
+
+/** The two Phase-5 Rango leg factories, in route order. */
+export function buildRangoLegs() {
+  return [createRangoQuoteLeg(), createRangoExecuteLeg()];
+}
+
+/**
+ * Plan the Rango route (source chain → SOL — the multi-chain aggregator
+ * lane, Phase 5): the quote-request leg + the guarded swap-execution leg,
+ * mapped to the lane's two moments (quote gate → swap request). The
+ * execution leg's submit() throws RangoLiveTestGateError — the broadcast
+ * anchor is READY FOR LIVE TEST and stays Mr. Esters' job.
+ *
+ * @param {{source?: string}} opts the SOURCE chain ("sui" default — a
+ *   RANGO_SOURCES key: "sui" | "xrpl" | "btc" | "tron"; the legs read the
+ *   chain + amounts from the run ctx).
+ * @returns {object} the planned route { id, direction, sourceChain,
+ *   destChain, legs, stages }.
+ */
+export function planRango({ source = "sui" } = {}) {
+  const legs = buildRangoLegs();
+  return {
+    id: "rango-" + String(source).toLowerCase() + "-sol",
+    direction: "rango",
+    sourceChain: String(source).toLowerCase(),
+    destChain: "sol",
+    legs,
+    stages: RANGO_STAGES,
+  };
 }
 
 /** The four Phase-1 forward leg factories, in route order. */
@@ -358,15 +426,17 @@ export function composeRoute(firstRoute, secondRoute, opts = {}) {
 /**
  * The RoutePlanner entry: plans a route for a direction.
  * Plans "forward" (ETH → X1, four legs), "reverse" (X1 → EVM, three legs —
- * Phase 2), "thorchain" (source → SOL.SOL deposit route, two legs — Phase 3)
- * and the Phase-4 DEX swap routes: plan({direction: "swap", via:
- * "jupiter"|"xdex"|"lifi"}) (single-leg swap routes). Unknown directions /
+ * Phase 2), "thorchain" (source → SOL.SOL deposit route, two legs — Phase 3),
+ * the Phase-4 DEX swap routes (plan({direction: "swap", via:
+ * "jupiter"|"xdex"|"lifi"}) — single-leg swap routes), and "rango"
+ * (source → SOL aggregator route, two legs — Phase 5). Unknown directions /
  * vias return null — those lanes keep their existing paths.
  */
 export function plan({ direction = "forward", ...opts } = {}) {
   if (direction === "forward") return planForward(opts);
   if (direction === "reverse") return planReverse(opts);
   if (direction === "thorchain") return planThorchain(opts);
+  if (direction === "rango") return planRango(opts);
   if (direction === "swap") {
     if (opts.via === "jupiter") return planJupiterSwap();
     if (opts.via === "xdex") return planXdexSwap();
@@ -391,8 +461,9 @@ export function legsForStage(route, stageKey) {
 /**
  * The RoutePlanner surface: plan a route, read its legs/stages. Plans the
  * forward route (Phase 1), the reverse route (Phase 2), the THORChain
- * deposit route (Phase 3) and the Phase-4 DEX swap routes
- * (planJupiterSwap / planXdexSwap / planLifiEvmSwap — direction "swap");
+ * deposit route (Phase 3), the Phase-4 DEX swap routes
+ * (planJupiterSwap / planXdexSwap / planLifiEvmSwap — direction "swap")
+ * and the Phase-5 Rango aggregator route (planRango — direction "rango");
  * composeRoute is the swap-then-bridge composition primitive.
  */
 export const RoutePlanner = Object.freeze({
@@ -402,6 +473,7 @@ export const RoutePlanner = Object.freeze({
   planJupiterSwap,
   planXdexSwap,
   planLifiEvmSwap,
+  planRango,
   composeRoute,
   plan,
   legById,
@@ -418,4 +490,6 @@ export const RoutePlanner = Object.freeze({
   XDEX_STAGES,
   LIFI_EVM_SWAP_LEG_IDS,
   LIFI_EVM_SWAP_STAGES,
+  RANGO_LEG_IDS,
+  RANGO_STAGES,
 });
