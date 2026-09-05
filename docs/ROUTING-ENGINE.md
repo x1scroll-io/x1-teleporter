@@ -1,14 +1,18 @@
-# ROUTING-ENGINE.md — the x1-teleporter routing engine (Phase 4)
+# ROUTING-ENGINE.md — the x1-teleporter routing engine (Phase 5)
 
-Status: **Phase 4 — the DEX swap legs join the engine (Jupiter on Solana,
-XDEX on X1 — direct on-chain — and the LiFi EVM same-chain swap verdict
-leg), instruments-first; all four route classes (forward ETH → X1, reverse
-X1 → EVM, THORChain source → SOL.SOL, DEX swap) are planned on the engine,
-proven byte-identical against the measuring instruments.** The DEX swap
-legs are construction-migrated (their deterministic artifacts are pinned by
-the Phase-4 oracle); live DEX lanes keep their existing gated paths until a
-later phase wires runners. The engine never merges until the instruments
-pass unchanged (PR policy: base `v2`, branch `feat/engine-phaseN`).
+Status: **Phase 5 — the Rango aggregator leg joins the engine (the
+multi-chain rail: source chains THORChain can't serve — SUI/TRON/XRPL —
+plus the UTXO-native FALLBACK when THORChain halts, the live SOL-halt
+lesson), scaffolded instruments-first on REAL quote responses.** All four
+earlier route classes (forward ETH → X1, reverse X1 → EVM, THORChain source
+→ SOL.SOL, DEX swap) stay planned on the engine, proven byte-identical
+against the measuring instruments. Phase 5 adds `planRango` (quote leg +
+GUARDED execute leg — the swap-execution anchor is READY FOR LIVE TEST and
+stays Mr. Esters' job; the execute leg's submit() throws
+RangoLiveTestGateError and never broadcasts) and slots Rango into the rail
+layer's fallback chain (`pickRail` — teleportRail.js). The engine never
+merges until the instruments pass unchanged (PR policy: base `v2`, branch
+`feat/engine-phaseN`).
 
 ---
 
@@ -289,3 +293,69 @@ same proof protocol against the instruments that exist for that lane.
   stay gated on their existing paths until a later phase wires them).
 - No new chains, no new tokens, no fee changes; `vite.config.js` /
   `vercel.json` untouched; `npm run build` must succeed.
+
+## 10. Phase-5 scope — the Rango aggregator leg (scaffold)
+
+- Adds the **Rango rail** (the multi-chain aggregator: wraps THORChain/Mayan
+  for the UTXO natives + its own bridges for SUI/TRON/XRPL/TON/STELLAR) as
+  the engine's expansion lane. Scaffolded instruments-first — **quote-level
+  fixtures are REAL** (live read-only captures, 2026-09-05 —
+  `test/fixtures/golden/rango-leg/*.real.json`); the **swap-execution anchor
+  is PENDING LIVE TEST** (Mr. Esters' job — needs live funds + a real source
+  wallet). Research verdicts (verified live 2026-09-05, NOT guessed):
+  - Quote endpoint: `GET {base}/basic/quote` — `apiKey` is a QUERY PARAM and
+    keyless calls 401. Public test key (docs) works only on
+    `https://public-api.rango.exchange`; private keys use
+    `https://api.rango.exchange`. Key request = Rango's Discord.
+  - Source coverage: **SUI ✅ TRON ✅ XRPL ✅** BTC/DOGE/LTC/BCH/DASH/ZCASH ✅
+    TON ✅ STELLAR ✅ — **CARDANO ❌ and POLKADOT ❌ are NOT in Rango's chain
+    list today** (the ENGINE-UPDATE "unlocks ADA/Polkadot" framing is wrong
+    for current Rango; re-verify via `/basic/meta` when they add chains).
+  - SOL destination: **SOLANA.SOL ✅** (real quotes answer OK — SUI→SOL via
+    NearIntent, XRP→SOL via NearIntent, TRON USDT→SOL via NearIntent,
+    BTC→SOL via Flashnet). From SOL the journey continues into X1 through
+    the proven Warp bridge (composeRoute — same as the THORChain lane).
+  - Referrer fee mechanics: quote carries `referrerFee` (percent of INPUT,
+    default 0.1%, max 3%); the swap-create call carries `referrerFee` +
+    `referrerAddress` (EVM/Starknet/Osmosis payouts — Solana fee payout is
+    NOT public-ready). **Fee-class ruling pending (Mr. Esters):** our
+    fee-model v2 charges 0.5% once per journey — on the SOL-landing
+    continuation that is the Warp-leg skim, so a Rango referrerFee would
+    double-charge unless the lane is ruled its own class. The config
+    placeholders (RANGO_REFERRER_FEE / RANGO_REFERRER_ADDRESS) stay EMPTY →
+    no referrer params are ever sent (nothing invented).
+  - Security posture (honest): Rango claims zero exploits since launch;
+    published audits PeckShield 2023-06 + AstraSec 2024-09 (V2.1) and
+    2025-10 (V2.1.1). Route-level risk is delegated to the per-route swapper
+    (the quote names it — NearIntent/Flashnet/Mayan/…); Rango says it
+    circuit-breaks unhealthy/incident protocols. The sibling aggregator
+    LI.Fi (already integrated here) DID have the 2022 exploit — separate
+    company; the app's existing LiFi audit gates (lifiDiamondAllowlist) are
+    the model for a future Rango swapper allowlist on the execution path.
+- Engine construction: **`rango-quote`** (build-only leg — the canonical
+  proxy quote request: raw base units, canonical asset strings, explicit
+  slippage, no referrer params while the placeholders are empty) +
+  **`rango-execute`** (🔴 GUARDED STUB — pins the canonical swap-create
+  request against the future `/api/rango/swap` proxy; submit() ALWAYS throws
+  `RangoLiveTestGateError`: "not wired for autonomous broadcast — READY FOR
+  LIVE TEST, Mr. Esters fires live tests"). Both legs family `"external"`
+  (no in-app signer exists for the Rango source chains yet — the
+  SignerResolver returns null by design).
+- `planRango({source})` → `rango-<source>-sol` (`direction: "rango"`);
+  `RoutePlanner.plan` dispatches it. `api/rango/quote.js` is the serverless
+  proxy (CORS allowlist, param whitelist from/to/amount/slippage, server-side
+  RANGO_API_KEY appended, fail-closed 502 without a key). `api/rango/swap.js`
+  lands WITH the live test.
+- Rail layer (teleportRail.js): natives (BTC/DOGE/LTC/XRP) now carry TWO
+  candidates — THORChain (deposit-address) first, **Rango (wallet-connect)
+  as the silent fallback**; SUI/TRON (RANGO_CHAINS) are Rango-only sources.
+  Console wiring is deliberately NOT in this phase (the console passes no
+  unavailableRails today → no behavior change; see the ⚠️ CONSOLE BOUNDARY
+  note in teleportRail.js before wiring the halt fallback UI).
+- Golden oracle: `test/goldenRango.test.js` + the REAL fixtures; engine
+  coverage: `test/engineRango.test.js`; rail: `src/lib/teleportRail.test.js`;
+  proxy: `src/lib/rango/quoteProxy.test.js`; pure module:
+  `src/lib/rango/quote.test.js`.
+- Does NOT migrate: console/picker wiring, the `/api/rango/swap` proxy, any
+  live execution. No fee changes (referrer placeholders empty);
+  `vite.config.js` / `vercel.json` untouched; `npm run build` must succeed.

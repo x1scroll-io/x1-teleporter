@@ -1,0 +1,51 @@
+{
+  "tool": "golden-transaction fixtures — THORChain leg (INPUT, synthetic) — SOL-HALTED VARIANT",
+  "note": "Same synthetic THORNode /thorchain/inbound_addresses body as inbound-addresses-body.json, PLUS the SOL entry marked halted:true — the DESTINATION-route halt state verified live 2026-09-05 (gateway SOL halted=True). Used by the console harness halt-UX test: the console must show the calm paused message instead of a raw quote error.",
+  "body": [
+    {
+      "chain": "BTC",
+      "pub_key": "thorpub1addwdve3lcq7q2a06syftq28sx2p8lm7xq0j2",
+      "address": "bc1qj9teleportervault0btc000synthetic0x7k2m4",
+      "halted": false,
+      "router": null,
+      "gas_rate": "14",
+      "dust_threshold": "5000"
+    },
+    {
+      "chain": "DOGE",
+      "pub_key": "thorpub1addwdve3lcq7q2a06syftq28sx2p8lm7xq0j2",
+      "address": "D8B9teleportervault0doge0synthetic0x3p5n7",
+      "halted": true,
+      "router": null,
+      "gas_rate": "100000",
+      "dust_threshold": "100000000"
+    },
+    {
+      "chain": "LTC",
+      "pub_key": "thorpub1addwdve3lcq7q2a06syftq28sx2p8lm7xq0j2",
+      "address": "ltc1qj9teleportervault0ltc000synthetic0x8r2t6",
+      "halted": false,
+      "router": null,
+      "gas_rate": "120",
+      "dust_threshold": "10000"
+    },
+    {
+      "chain": "XRP",
+      "pub_key": "thorpub1addwdve3lcq7q2a06syftq28sx2p8lm7xq0j2",
+      "address": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+      "halted": false,
+      "router": null,
+      "gas_rate": "0.000015",
+      "dust_threshold": "1000000"
+    },
+    {
+      "chain": "SOL",
+      "pub_key": "thorpub1addwdve3lcq7q2a06syftq28sx2p8lm7xq0j2",
+      "address": "solvaultteleporter0000000000000000000000000000",
+      "halted": true,
+      "router": null,
+      "gas_rate": "0.000005",
+      "dust_threshold": "10000"
+    }
+  ]
+}

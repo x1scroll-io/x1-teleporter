@@ -153,6 +153,19 @@ export function parseQuoteResponse(json, meta = {}) {
     return { ok: false, reason: "error", message: errText };
   }
   if (typeof meta.status === "number" && (meta.status < 200 || meta.status >= 300)) {
+    // Some THORNode/gateway error bodies (e.g. a HALTED POOL — verified live
+    // 2026-09-05: HTTP 400 `{ code:3, message:"failed to simulate swap: ...
+    // trading is halted, can't process swap: invalid request" }`) carry the
+    // reason in a `message` field with NO `error` field. Surface that wire
+    // message verbatim (the caller's halt translation keys off it) instead of
+    // collapsing it into a bare "HTTP 400" line the user can't act on.
+    const wireMsg =
+      typeof json.message === "string" && json.message.trim() !== ""
+        ? json.message.trim()
+        : "";
+    if (wireMsg) {
+      return { ok: false, reason: "error", message: wireMsg };
+    }
     return { ok: false, reason: "error", message: `quote endpoint returned HTTP ${meta.status}` };
   }
 

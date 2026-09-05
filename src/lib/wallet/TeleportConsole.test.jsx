@@ -775,6 +775,64 @@ test("unified flow: the deposit step prefills the console's amount and locks the
   }
 });
 
+test("unified flow: the deposit destination chain (SOL) halted on the bridge network → the console shows the CALM paused message, not a raw error, and never names the rail", async () => {
+  // A controllable fake inbound refresher: the test pushes the SOL-halted
+  // snapshot exactly like the real 60s refresh would deliver it.
+  const instances = [];
+  const fakeRefresher = (deps) => {
+    const inst = {
+      deps,
+      start(opts) {
+        inst.opts = opts;
+      },
+      stop() {},
+    };
+    instances.push(inst);
+    return inst;
+  };
+  const { container, unmount } = renderConsole({
+    solana: true,
+    solProvider: makeSolAdapter(),
+    consoleProps: {
+      depositDeps: { createInboundRefresher: fakeRefresher },
+    },
+  });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "btc");
+    setInput(container.querySelector('[data-testid="amount"]'), "0.01");
+    click(container.querySelector('[data-testid="teleport-now"]'));
+    const depositStep = container.querySelector('[data-testid="deposit-step"]');
+    assert.ok(depositStep, "deposit step renders");
+    // The inbound snapshot arrives with the destination chain (SOL) halted.
+    act(() =>
+      instances[0].opts.onUpdate?.([
+        { chain: "BTC", address: "bc1qdepositvault123", halted: false },
+        { chain: "DOGE", address: "DDepositVault456", halted: false },
+        { chain: "LTC", address: "ltc1depositvault789", halted: false },
+        { chain: "XRP", address: "rDepositVaultXRP", halted: false },
+        { chain: "SOL", address: "solVaultHalted", halted: true },
+      ]),
+    );
+
+    // The CALM message: temporary, resumes automatically, re-checks by itself.
+    const banner = container.querySelector('[data-testid="tc-dest-paused-banner"]');
+    assert.ok(banner, "calm destination-paused banner in the console deposit step");
+    assert.match(banner.textContent, /temporarily paused/);
+    assert.match(banner.textContent, /resumes automatically/);
+    assert.match(banner.textContent, /re-checks by itself/, "notes the auto re-check");
+    // Not a broken error: no raw error block, no doomed quote button.
+    assert.equal(container.querySelector('[data-testid="tc-quote-error"]'), null, "no raw quote error");
+    assert.equal(container.querySelector('[data-testid="tc-get-quote"]').disabled, true, "quote gate disabled while halted");
+    assert.equal(container.querySelector('[data-testid="tc-deposit-card"]'), null, "no deposit address while halted");
+    // The console never names the rail, even in the halt message.
+    const body = container.querySelector('[data-testid="teleport-console"]').textContent;
+    assert.ok(!body.includes("THORChain"), "the word THORChain never renders in the unified console");
+    assert.ok(!body.includes("trading is halted"), "the raw wire error never renders");
+  } finally {
+    unmount();
+  }
+});
+
 test("the quote strip counts down to an auto-refresh (30s window)", async () => {
   const qf = mockQuoteFetch();
   const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
