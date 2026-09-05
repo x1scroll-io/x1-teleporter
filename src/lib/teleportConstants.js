@@ -27,6 +27,13 @@ export const CHAINS = {
   pol:   { id: "pol",   name: "Polygon",     lifiKey: "pol", chainId: 137,   walletType: "evm",    color: "#8247E5", glyph: "⬡" },
   avax:  { id: "avax",  name: "Avalanche",   lifiKey: "ava", chainId: 43114, walletType: "evm",    color: "#E84142", glyph: "▲" },
   sonic: { id: "sonic", name: "Sonic",       lifiKey: "son", chainId: 146,   walletType: "evm",    color: "#5BC8F5", glyph: "S" },
+  // Robinhood Chain — Arbitrum Orbit L2 (chainId 4663 = 0x1237), ETH gas.
+  // Added 2026-09-05 (research + scaffold, no live funds): LiFi key 'out'
+  // (verified via li.quest /v1/chains + a live read-only quote — Relay serves
+  // USDG(4663)→Solana USDC and back). The chain's canonical stable is Paxos
+  // USDG — NO Circle USDC deployment exists on Robinhood Chain as of
+  // 2026-09-05 (official docs list only WETH + USDG as canonical tokens).
+  rh:   { id: "rh",   name: "Robinhood Chain", lifiKey: "out", chainId: 4663,  walletType: "evm",    color: "#00C805", glyph: "R" },
 };
 
 export const TOKENS = {
@@ -39,6 +46,13 @@ export const TOKENS = {
   pol:   { USDC: { decimals: 6, address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" }, USDT: { decimals: 6, address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F" }, DAI: { decimals: 18, address: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063" } },
   avax:  { USDC: { decimals: 6, address: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E" }, USDT: { decimals: 6, address: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7" }, DAI: { decimals: 18, address: "0xd586E7F844cEa2F87f50152665BCbc2C279D8d70" } },
   sonic: { USDC: { decimals: 6, address: "0x29219dd400f2Bf60E5a23d13Be72B486D4038894" }, USDT: { decimals: 6, address: "0xE5DA20F15420aD15DE0fa650600aFc998bbE3955" } },
+  // Robinhood Chain tokens (2026-09-05): canonical stable = Paxos USDG
+  // (official docs Token Contracts page + LiFi tokenlist agree). NO Circle
+  // USDC / Tether USDT / Maker DAI on the chain — do NOT fake a USDC entry.
+  // (LiFi also lists syrupUSDC 0xC6a4... — a Maple Syrup yield wrapper, NOT
+  // canonical — deliberately excluded. Tokenized stocks SPY/NVDA/SPCX exist
+  // via Robinhood's own registry but are not bridge rails for X1.)
+  rh:   { USDG: { decimals: 6, address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" } },
   x1:    { "USDC.x": { decimals: 6, address: "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq" }, "wSOL.X": { decimals: 9, address: "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8" } }, // X1 USDC.x + wSOL.X (both Token-2022 wrapped mints)
 };
 
@@ -47,7 +61,7 @@ export const TOKENS = {
  * route). Solana-source (sol_x1) and X1-source (x1_reverse / x1_onward)
  * routes are flag-gated / removed (step 1.2) and stay OUT of this port.
  */
-export const EVM_CHAINS = Object.freeze(["eth", "bsc", "arb", "bas", "opt", "pol", "avax", "sonic"]);
+export const EVM_CHAINS = Object.freeze(["eth", "bsc", "arb", "bas", "opt", "pol", "avax", "sonic", "rh"]);
 
 // Minimum into X1 — REMOVED 2026-09-02 (fee-model v2). The old $25 floor's
 // reasoning (the flat $1 bridge fee would be ~11% of a $10 journey) is gone:

@@ -44,6 +44,7 @@ const CHAINS = {
   pol:   { id: "pol",   name: "Polygon",     lifiKey: "pol", chainId: 137,   walletType: "evm",    color: "#8247E5", glyph: "⬡" },
   avax:  { id: "avax",  name: "Avalanche",   lifiKey: "ava", chainId: 43114, walletType: "evm",    color: "#E84142", glyph: "▲" },
   sonic: { id: "sonic", name: "Sonic",       lifiKey: "son", chainId: 146,   walletType: "evm",    color: "#5BC8F5", glyph: "S" },
+  rh:    { id: "rh",    name: "Robinhood Chain", lifiKey: "out", chainId: 4663,  walletType: "evm",    color: "#00C805", glyph: "R" }, // Arbitrum Orbit L2; added 2026-09-05 (mirror of teleportConstants.js — canonical stable is Paxos USDG, NO Circle USDC on-chain)
   // TRON — gated. walletType 'tron' needs a TronLink connector (window.tronLink)
   // and TVM sign path. LiFi routes Tron, so quotes work; signing is the add.
   ...(ENABLE_TRON ? {
@@ -61,6 +62,7 @@ const TOKENS = {
   pol:   { USDC: { decimals: 6, address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" }, USDT: { decimals: 6, address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F" }, DAI: { decimals: 18, address: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063" } },
   avax:  { USDC: { decimals: 6, address: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E" }, USDT: { decimals: 6, address: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7" }, DAI: { decimals: 18, address: "0xd586E7F844cEa2F87f50152665BCbc2C279D8d70" } },
   sonic: { USDC: { decimals: 6, address: "0x29219dd400f2Bf60E5a23d13Be72B486D4038894" }, USDT: { decimals: 6, address: "0xE5DA20F15420aD15DE0fa650600aFc998bbE3955" } },
+  rh:    { USDG: { decimals: 6, address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" } }, // Robinhood Chain — Paxos USDG only (no USDC/USDT/DAI on-chain; mirror of teleportConstants.js 2026-09-05)
   x1:    { "USDC.x": { decimals: 6, address: "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq" } }, // X1 USDC.x (Token-2022 burn mint)
   // TRON tokens — USDT is the headline (huge volume). TRC-20 addresses.
   ...(ENABLE_TRON ? {
