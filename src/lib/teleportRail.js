@@ -9,17 +9,44 @@
  *   - BTC / DOGE / LTC / XRP  (native chains)  → the THORChain rail
  *       (deposit-address execution: vault address + memo + txid-paste —
  *        the send happens OUT-OF-BAND in the user's own external wallet).
+ *       Phase 5: Rango is the silent FALLBACK rail for these sources when
+ *       THORChain is unavailable (the SOL-halt lesson).
+ *   - SUI / TRON (Rango-native sources — RANGO_CHAINS) → the Rango rail
+ *       (Phase 5 registry: THORChain can't serve them; the console's source
+ *        picker adopts them in a later phase).
  *   - EVM-chain stables (USDC/USDT/DAI on Ethereum/Arbitrum/Base/…) and X1
  *     tokens (USDC.x / wSOL.X)                  → the LiFi/Warp rail
  *       (wallet-connect execution: connect the source wallet and sign —
  *        LiFi legs + the Warp hop into/out of X1).
  *
  * The rail list is PRIORITY-ORDERED per source with silent failover: when
- * the top-priority rail cannot serve the route (today: a native source has
- * exactly one rail, and an EVM/X1 source exactly one — the fallback chain
- * exists for the phase that adds competing lanes), pickRail falls through
- * the candidates instead of erroring. The user only ever sees the OUTCOME
- * (a deposit-address step or a wallet-connect step) — never a rail name.
+ * the top-priority rail cannot serve the route (e.g. a halted carrier),
+ * pickRail falls through the candidates instead of erroring. The user only
+ * ever sees the OUTCOME (a deposit-address step or a wallet-connect step) —
+ * never a rail name.
+ *
+ * PHASE-5 (Rango — 2026-09-05): the Rango aggregator rail joins as (a) the
+ * FALLBACK candidate for the native chains (BTC/DOGE/LTC/XRP) — the live
+ * THORChain SOL-halt lesson: when THORChain is unavailable, Rango (which
+ * wraps THORChain/Mayan + its own bridges for SUI/TRON/XRPL/…) can still
+ * serve the source → SOL leg — and (b) the SERVING rail for the
+ * Rango-native source chains THORChain can't serve at all (SUI / TRON —
+ * RANGO_CHAINS below; the console's source picker adopts them in a later
+ * phase; the registry is the seam, the rail layer never renders names).
+ * Rango's execution is wallet-connect-shaped (its create-tx returns the
+ * transaction the user signs); the exact step UI for each source chain is a
+ * live-test open item (a Rango BTC route may surface a deposit-style step
+ * when the best swapper is THORChain/Mayan — the console renders from the
+ * create-tx response shape once the live lane lands).
+ *
+ * ⚠️ CONSOLE BOUNDARY (read before wiring the halt fallback): the console
+ * (TeleportConsole.jsx) calls pickRail WITHOUT unavailableRails today, so
+ * natives still resolve to THORCHAIN and NO console behavior changed with
+ * this phase. Do NOT start passing unavailableRails: [THORCHAIN] at the
+ * console until the Rango execution step UI exists — a RANGO rail result
+ * currently has no console step behind it (its runQuote guards key off
+ * RAIL.THORCHAIN and would mis-handle a RANGO rail as an EVM source). The
+ * rail layer KNOWS Rango now; the console WIRES it in a later phase.
  *
  * "THORChain" is an ENGINE PATH ONLY here. Nothing in this module's data is
  * rendered to the user; RAIL_LABELS exists solely for diagnostics/logging.
@@ -37,12 +64,18 @@ export const RAIL = Object.freeze({
   LIFI_WARP: "lifi-warp",
   /** Native BTC/DOGE/LTC/XRP → SOL → X1 — the deposit-address lane. */
   THORCHAIN: "thorchain",
+  /** Rango (the multi-chain aggregator — Phase 5): the fallback rail for
+   *  the native sources when THORChain is unavailable, and the serving rail
+   *  for the Rango-native sources (SUI/TRON — RANGO_CHAINS) THORChain
+   *  can't serve. Execution is wallet-connect-shaped (create-tx → sign). */
+  RANGO: "rango",
 });
 
 /** Diagnostics only — never rendered to the user (rail names are invisible). */
 export const RAIL_LABELS = Object.freeze({
   [RAIL.LIFI_WARP]: "LiFi/Warp",
   [RAIL.THORCHAIN]: "THORChain",
+  [RAIL.RANGO]: "Rango",
 });
 
 /** The two FINAL-EXECUTION shapes the console routes into. The user sees the
@@ -73,6 +106,27 @@ export function isNativeChain(chain) {
   return Object.prototype.hasOwnProperty.call(NATIVE_CHAINS, chain);
 }
 
+/**
+ * The Rango-NATIVE source chains (Phase 5): sources THORChain can't serve
+ * that Rango does — their only rail is Rango. `asset` is the canonical
+ * Rango asset string (verified live 2026-09-05 — /basic/meta + real
+ * quotes); `family` notes the wallet family a future console phase would
+ * map. CARDANO/Polkadot are NOT here — Rango does not serve them today
+ * (verified live; re-add only when Rango's /basic/meta lists them).
+ */
+export const RANGO_CHAINS = Object.freeze({
+  sui: { id: "sui", name: "Sui", glyph: "", asset: "SUI.SUI", family: "sui" },
+  tron: { id: "tron", name: "Tron", glyph: "", asset: "TRON.TRX", family: "tron" },
+});
+
+/** The Rango-native chain ids. */
+export const RANGO_CHAIN_IDS = Object.freeze(Object.keys(RANGO_CHAINS));
+
+/** True when the chain is a Rango-native source (Rango is its only rail). */
+export function isRangoChain(chain) {
+  return Object.prototype.hasOwnProperty.call(RANGO_CHAINS, chain);
+}
+
 /** The source-chain picker's full option list: EVM chains (LiFi/Warp stables
  *  + the native gas tokens when the engine grows them), the native chains
  *  (THORChain rail), then X1 (the reverse off-ramp source). */
@@ -80,12 +134,12 @@ export const SOURCE_CHAINS = Object.freeze([...EVM_CHAINS, ...NATIVE_CHAIN_IDS, 
 
 /** Human chain name for any source/destination option. */
 export function chainName(chain) {
-  return CHAINS[chain]?.name || NATIVE_CHAINS[chain]?.name || String(chain);
+  return CHAINS[chain]?.name || NATIVE_CHAINS[chain]?.name || RANGO_CHAINS[chain]?.name || String(chain);
 }
 
 /** Chain glyph for any source/destination option. */
 export function chainGlyph(chain) {
-  return CHAINS[chain]?.glyph || NATIVE_CHAINS[chain]?.glyph || "";
+  return CHAINS[chain]?.glyph || NATIVE_CHAINS[chain]?.glyph || RANGO_CHAINS[chain]?.glyph || "";
 }
 
 /** The token options a source chain's picker offers. Native chains carry
@@ -97,16 +151,27 @@ export function tokensOn(chain) {
 
 /**
  * The rail candidates for a route, in priority order (the failover chain).
- * Today every source has exactly one serving rail; the ordered list is the
- * seam where competing lanes (a second native carrier, an EVM-native LiFi
- * bridge, a DEX-swap pre-leg) slot in later without touching the console.
+ *
+ *   - Native chains (BTC/DOGE/LTC/XRP): THORChain first (deposit-address),
+ *     Rango second (Phase 5 fallback — the SOL-halt lesson: Rango wraps
+ *     THORChain/Mayan + its own rails and can still serve the source → SOL
+ *     leg when THORChain is unavailable).
+ *   - Rango-native chains (SUI/TRON — RANGO_CHAINS): Rango only (their
+ *     serving rail; THORChain can't serve them).
+ *   - EVM/X1 sources: the LiFi/Warp rail (unchanged).
  *
  * @param {{fromChain: string}} route
  * @returns {Array<{rail: string, execution: string}>}
  */
 export function railCandidates({ fromChain }) {
   if (isNativeChain(fromChain)) {
-    return [{ rail: RAIL.THORCHAIN, execution: EXECUTION.DEPOSIT_ADDRESS }];
+    return [
+      { rail: RAIL.THORCHAIN, execution: EXECUTION.DEPOSIT_ADDRESS },
+      { rail: RAIL.RANGO, execution: EXECUTION.WALLET_CONNECT },
+    ];
+  }
+  if (isRangoChain(fromChain)) {
+    return [{ rail: RAIL.RANGO, execution: EXECUTION.WALLET_CONNECT }];
   }
   return [{ rail: RAIL.LIFI_WARP, execution: EXECUTION.WALLET_CONNECT }];
 }
@@ -139,6 +204,7 @@ export function pickRail({ fromChain, unavailableRails } = {}) {
 export function executionFor(rail) {
   if (rail === RAIL.THORCHAIN) return EXECUTION.DEPOSIT_ADDRESS;
   if (rail === RAIL.LIFI_WARP) return EXECUTION.WALLET_CONNECT;
+  if (rail === RAIL.RANGO) return EXECUTION.WALLET_CONNECT;
   return null;
 }
 
