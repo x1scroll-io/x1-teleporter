@@ -23,9 +23,9 @@
  *   - Source-chain coverage (live /basic/meta): SUI ✅ TRON ✅ XRPL ✅
  *     BTC/DOGE/LTC/BCH/DASH/ZCASH ✅ TON ✅ STELLAR ✅ — and CARDANO ❌ and
  *     POLKADOT ❌ are NOT in Rango's current chain list at all ("We don't
- *     support blockchain CARDANO currently"). The docs/ENGINE-UPDATE.md
- *     "unlocks ADA/Polkadot" framing is WRONG for today's Rango — those two
- *     land only when Rango adds the chains (re-verify via /basic/meta then).
+ *     support blockchain CARDANO currently"). An earlier framing ("Rango
+ *     unlocks ADA/Polkadot") is WRONG for today's Rango — corrected in
+ *     docs/ROUTING-ENGINE.md §10/§11 — those two chains land only when Rango adds the chains (re-verify via /basic/meta then).
  *   - SOL destination: SOLANA.SOL ✅ (native, address null, 9 decimals).
  *   - Referrer fee (docs …/basic-api-single-step/monetization): quote carries
  *     referrerFee (percent of INPUT; default 0.1%; max 3%); the swap-create

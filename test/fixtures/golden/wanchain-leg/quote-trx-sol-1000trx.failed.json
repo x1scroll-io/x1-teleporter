@@ -1,0 +1,17 @@
+{
+  "capturedAt": "2026-09-05T20:18:03.276Z",
+  "request": {
+    "fromChainId": 195,
+    "toChainId": 501,
+    "fromTokenAddress": "0x0000000000000000000000000000000000000000",
+    "toTokenAddress": "0x0000000000000000000000000000000000000000",
+    "fromAddress": "TERHajc5vZkn6DWpLYRUskDkiPHoZtQdPX",
+    "toAddress": "G8XKKQv6kESVby9b1qvGWHpyexKfbWzFvVQtEz6WyiS2",
+    "fromAmount": "1000"
+  },
+  "httpStatus": 200,
+  "response": {
+    "success": false,
+    "error": "get quotes failed, dex okx Error: workMode:6 swap cross, From Chain not supported, dex wanchain Error: Unsupported chain #1 "
+  }
+}

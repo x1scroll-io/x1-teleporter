@@ -17,6 +17,7 @@ import {
   NATIVE_CHAINS,
   NATIVE_CHAIN_IDS,
   RANGO_CHAIN_IDS,
+  COVERAGE_MATRIX,
   SOURCE_CHAINS,
   isNativeChain,
   isRangoChain,
@@ -122,6 +123,47 @@ test("rail layer: display metadata covers every source option (names + glyphs, n
   assert.equal(chainName("x1"), "X1");
   assert.equal(NATIVE_CHAINS.btc.family, "bitcoin");
   assert.equal(NATIVE_CHAINS.xrp.family, "xrp");
+});
+
+test("rail layer: the Wanchain rail is registered but serves NO current source (coverage matrix — verified live 2026-09-05)", () => {
+  // The Wanchain-family (XFlows v3) quote API was probed live for every
+  // console source: it serves EVM-chain pairs only — every non-EVM route
+  // failed (ADA→SOL, ADA→WAN, BTC→SOL, TRX→SOL and the EVM control
+  // USDC(ETH)→SOL). Evidence: test/fixtures/golden/wanchain-leg/
+  // VERIFICATION-2026-09-05.json. The matrix below is that truth, pinned.
+  assert.equal(RAIL_LABELS[RAIL.WANCHAIN], "Wanchain");
+  assert.equal(executionFor(RAIL.WANCHAIN), EXECUTION.WALLET_CONNECT);
+  // Sources that HAVE a serving rail never include Wanchain today:
+  for (const c of NATIVE_CHAIN_IDS) {
+    assert.ok(!COVERAGE_MATRIX[c].includes(RAIL.WANCHAIN), `${c}: Wanchain not a candidate (native)`);
+    assert.deepEqual(
+      railCandidates({ fromChain: c }).map((x) => x.rail),
+      [RAIL.THORCHAIN, RAIL.RANGO],
+      `${c}: [thorchain, rango] per the verified matrix`
+    );
+  }
+  for (const c of RANGO_CHAIN_IDS) {
+    assert.ok(!COVERAGE_MATRIX[c].includes(RAIL.WANCHAIN), `${c}: Wanchain not a candidate (rango-native)`);
+    assert.deepEqual(
+      railCandidates({ fromChain: c }).map((x) => x.rail),
+      [RAIL.RANGO],
+      `${c}: [rango] per the verified matrix`
+    );
+  }
+  // ADA + POLKADOT have NO serving rail (Rango meta has neither chain;
+  // THORChain can't serve them; the Wanchain-family API refuses them) —
+  // the console must not list them as sources, and if asked, the honest
+  // answer is the dead-end ({ rail: null }), never a lying rail.
+  assert.deepEqual(COVERAGE_MATRIX.ada, [], "ada: no rail in the coverage matrix");
+  assert.deepEqual(COVERAGE_MATRIX.polkadot, [], "polkadot: no rail in the coverage matrix");
+  assert.deepEqual(railCandidates({ fromChain: "ada" }), [], "ada: no candidates");
+  assert.deepEqual(railCandidates({ fromChain: "polkadot" }), [], "polkadot: no candidates");
+  assert.equal(pickRail({ fromChain: "ada" }).rail, null, "ada: honest dead-end");
+  assert.equal(pickRail({ fromChain: "polkadot" }).rail, null, "polkadot: honest dead-end");
+  // EVM/X1 sources stay on the LiFi/Warp rail (Wanchain EVM routes land
+  // EVM/Wanchain-L1 — never Solana/X1 — so there is no overlap to add).
+  assert.equal(pickRail({ fromChain: "eth" }).rail, RAIL.LIFI_WARP);
+  assert.equal(pickRail({ fromChain: "x1" }).rail, RAIL.LIFI_WARP);
 });
 
 test("rail layer: internal rail labels exist for diagnostics only (never rendered)", () => {

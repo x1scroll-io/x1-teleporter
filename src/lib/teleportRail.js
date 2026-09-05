@@ -39,6 +39,22 @@
  * when the best swapper is THORChain/Mayan — the console renders from the
  * create-tx response shape once the live lane lands).
  *
+ * WANCHAIN-FAMILY (VERIFIED 2026-09-05 — see the COVERAGE_MATRIX below):
+ * the Wanchain family's only public quote+buildTx HTTP API (XFlows v3)
+ * was probed live for every source this console lists. Result: it quotes
+ * EVM-chain pairs ONLY — every non-EVM route failed (ADA→SOL, ADA→WAN,
+ * BTC→SOL, TRX→SOL, and even the EVM control USDC(ETH)→SOL: "no token
+ * pair for SOL"). The docs' supported-chains matrix (Cardano/Sui/Polkadot/
+ * Solana/Tron/UTXOs under "WanBridge") describes the bridge.wanchain.org
+ * PORTAL product (storeman bridge-node group) whose quotes are on-chain
+ * iWan calls, NOT a public REST API — so the Wanchain rail is registered
+ * here (RAIL.WANCHAIN + RAIL_LABELS + executionFor) but appears in ZERO
+ * per-source candidate lists: no console source is served by it today.
+ * Evidence: test/fixtures/golden/wanchain-leg/VERIFICATION-2026-09-05.json.
+ * When a route the app needs becomes quotable, RE-VERIFY live first, add
+ * the source row to WANCHAIN_SOURCES (src/lib/wanchain/config.js) and to
+ * the COVERAGE_MATRIX below — all three together.
+ *
  * ⚠️ CONSOLE BOUNDARY (read before wiring the halt fallback): the console
  * (TeleportConsole.jsx) calls pickRail WITHOUT unavailableRails today, so
  * natives still resolve to THORCHAIN and NO console behavior changed with
@@ -69,6 +85,11 @@ export const RAIL = Object.freeze({
    *  for the Rango-native sources (SUI/TRON — RANGO_CHAINS) THORChain
    *  can't serve. Execution is wallet-connect-shaped (create-tx → sign). */
   RANGO: "rango",
+  /** Wanchain-family (XFlows v3 — VERIFIED 2026-09-05): registered so the
+   *  rail layer + engine can name it, but NOT a candidate for any current
+   *  console source (the live quote API serves EVM pairs only — see the
+   *  COVERAGE_MATRIX). */
+  WANCHAIN: "wanchain",
 });
 
 /** Diagnostics only — never rendered to the user (rail names are invisible). */
@@ -76,6 +97,7 @@ export const RAIL_LABELS = Object.freeze({
   [RAIL.LIFI_WARP]: "LiFi/Warp",
   [RAIL.THORCHAIN]: "THORChain",
   [RAIL.RANGO]: "Rango",
+  [RAIL.WANCHAIN]: "Wanchain",
 });
 
 /** The two FINAL-EXECUTION shapes the console routes into. The user sees the
@@ -127,6 +149,42 @@ export function isRangoChain(chain) {
   return Object.prototype.hasOwnProperty.call(RANGO_CHAINS, chain);
 }
 
+/**
+ * THE COVERAGE MATRIX — VERIFIED LIVE 2026-09-05 (no guessing; evidence:
+ * test/fixtures/golden/wanchain-leg/VERIFICATION-2026-09-05.json + the
+ * rango-leg fixtures). For every source the console can list, which rails
+ * ACTUALLY serve it — priority-ordered [THORChain, Rango, Wanchain]
+ * filtered by coverage. This matrix drives railCandidates() below.
+ *
+ *   btc/doge/ltc/xrp → THORChain, Rango   (XFlows: BTC→SOL probe FAILED,
+ *       no DOGE/LTC/XRPL rows at all → Wanchain absent)
+ *   sui              → Rango               (THORChain can't; Rango serves
+ *       (verified fixture); XFlows has no native SUI token — SUI-USDC only)
+ *   tron             → Rango               (THORChain can't; XFlows TRX→SOL
+ *       probe FAILED → Wanchain absent)
+ *   ada              → NO RAIL             (Rango ❌ live meta; THORChain ❌;
+ *       Wanchain-family ADA→SOL probe FAILED — docs' WanBridge-portal claim
+ *       is not API-quotable). Do NOT list ADA as a console source.
+ *   polkadot         → NO RAIL             (Rango ❌; THORChain ❌; XFlows has
+ *       no Polkadot row at all). Do NOT list as a console source.
+ *   evm stables/x1    → LiFi/Warp          (unchanged; Wanchain EVM routes
+ *       land EVM/Wanchain-L1 — never Solana/X1 — so no overlap)
+ *
+ * The registry is the seam: when a rail's live API starts serving a source
+ * (re-verify FIRST), update this map + railCandidates() + the engine's
+ * source registry in the same change.
+ */
+export const COVERAGE_MATRIX = Object.freeze({
+  btc: Object.freeze([RAIL.THORCHAIN, RAIL.RANGO]),
+  doge: Object.freeze([RAIL.THORCHAIN, RAIL.RANGO]),
+  ltc: Object.freeze([RAIL.THORCHAIN, RAIL.RANGO]),
+  xrp: Object.freeze([RAIL.THORCHAIN, RAIL.RANGO]),
+  sui: Object.freeze([RAIL.RANGO]),
+  tron: Object.freeze([RAIL.RANGO]),
+  ada: Object.freeze([]),
+  polkadot: Object.freeze([]),
+});
+
 /** The source-chain picker's full option list: EVM chains (LiFi/Warp stables
  *  + the native gas tokens when the engine grows them), the native chains
  *  (THORChain rail), then X1 (the reverse off-ramp source). */
@@ -152,18 +210,33 @@ export function tokensOn(chain) {
 /**
  * The rail candidates for a route, in priority order (the failover chain).
  *
+ * DRIVEN BY THE COVERAGE_MATRIX (verified live 2026-09-05 — see its
+ * comment block): the global preference order is [THORChain, Rango,
+ * Wanchain], FILTERED to the rails that actually serve the source.
+ *
  *   - Native chains (BTC/DOGE/LTC/XRP): THORChain first (deposit-address),
  *     Rango second (Phase 5 fallback — the SOL-halt lesson: Rango wraps
  *     THORChain/Mayan + its own rails and can still serve the source → SOL
- *     leg when THORChain is unavailable).
+ *     leg when THORChain is unavailable). Wanchain NOT in the list — the
+ *     live XFlows probe of BTC→SOL failed and DOGE/LTC/XRPL have no
+ *     Wanchain-family rows (COVERAGE_MATRIX).
  *   - Rango-native chains (SUI/TRON — RANGO_CHAINS): Rango only (their
- *     serving rail; THORChain can't serve them).
+ *     serving rail; THORChain can't serve them; Wanchain-family native-SUI
+ *     has no token row and TRX→SOL failed live probes).
  *   - EVM/X1 sources: the LiFi/Warp rail (unchanged).
  *
  * @param {{fromChain: string}} route
  * @returns {Array<{rail: string, execution: string}>}
  */
 export function railCandidates({ fromChain }) {
+  const covered = COVERAGE_MATRIX[fromChain];
+  if (covered) {
+    if (covered.length === 0) return [];
+    return covered.map((rail) => ({
+      rail,
+      execution: rail === RAIL.THORCHAIN ? EXECUTION.DEPOSIT_ADDRESS : EXECUTION.WALLET_CONNECT,
+    }));
+  }
   if (isNativeChain(fromChain)) {
     return [
       { rail: RAIL.THORCHAIN, execution: EXECUTION.DEPOSIT_ADDRESS },
@@ -205,6 +278,7 @@ export function executionFor(rail) {
   if (rail === RAIL.THORCHAIN) return EXECUTION.DEPOSIT_ADDRESS;
   if (rail === RAIL.LIFI_WARP) return EXECUTION.WALLET_CONNECT;
   if (rail === RAIL.RANGO) return EXECUTION.WALLET_CONNECT;
+  if (rail === RAIL.WANCHAIN) return EXECUTION.WALLET_CONNECT;
   return null;
 }
 
