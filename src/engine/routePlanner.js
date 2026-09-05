@@ -101,6 +101,8 @@ import { createThorchainQuoteLeg } from "./legs/thorchain/quoteLeg.js";
 import { createThorchainDepositBuildLeg } from "./legs/thorchain/depositBuildLeg.js";
 import { createRangoQuoteLeg } from "./legs/rango/rangoQuoteLeg.js";
 import { createRangoExecuteLeg } from "./legs/rango/rangoExecuteLeg.js";
+import { createWanchainQuoteLeg } from "./legs/wanchain/wanchainQuoteLeg.js";
+import { createWanchainExecuteLeg } from "./legs/wanchain/wanchainExecuteLeg.js";
 
 /** The forward route's leg ids in execution order (the planner contract). */
 export const FORWARD_LEG_IDS = Object.freeze([
@@ -221,6 +223,56 @@ export function planRango({ source = "sui" } = {}) {
     destChain: "sol",
     legs,
     stages: RANGO_STAGES,
+  };
+}
+
+// ── Wanchain-family route (the XFlows v3 lane — VERIFIED 2026-09-05) ──────
+
+/** The Wanchain-family route's leg ids in execution order (the planner
+ *  contract). */
+export const WANCHAIN_LEG_IDS = Object.freeze([
+  "wanchain-quote",
+  "wanchain-execute",
+]);
+
+/** Stage grouping of the Wanchain-family route's legs (the quote gate first
+ *  — the buildTx request is only meaningful after an accepted quote — then
+ *  the guarded execute stage). */
+export const WANCHAIN_STAGES = Object.freeze({
+  quote: Object.freeze({ label: "quote gate (fresh quote before the transfer request)", legIds: Object.freeze(["wanchain-quote"]) }),
+  execute: Object.freeze({ label: "transfer request + wallet sign (guarded — live test by Mr. Esters)", legIds: Object.freeze(["wanchain-execute"]) }),
+});
+
+/** The two Wanchain-family leg factories, in route order. */
+export function buildWanchainLegs() {
+  return [createWanchainQuoteLeg(), createWanchainExecuteLeg()];
+}
+
+/**
+ * Plan the Wanchain-family route (XFlows v3 — Wanchain's public quote +
+ * buildTx HTTP API): the quote-request leg + the guarded transfer-execution
+ * leg. 🔴 COVERAGE TRUTH (verified live 2026-09-05): the quote router
+ * serves EVM-chain pairs only — the source registry (WANCHAIN_SOURCES in
+ * src/lib/wanchain/config.js) gates every build, and NO current console
+ * source resolves to this route (teleportRail's coverage matrix). The plan
+ * exists so the lane is a wiring exercise the moment a route the app needs
+ * becomes quotable — re-verify live FIRST, then update the registry + the
+ * coverage matrix together.
+ *
+ * @param {{source?: string}} opts the SOURCE chain ("eth" default — a
+ *   WANCHAIN_SOURCES key).
+ * @returns {object} the planned route { id, direction, sourceChain,
+ *   destChain, legs, stages }.
+ */
+export function planWanchain({ source = "eth" } = {}) {
+  const legs = buildWanchainLegs();
+  return {
+    id: "wanchain-" + String(source).toLowerCase(),
+    direction: "wanchain",
+    sourceChain: String(source).toLowerCase(),
+    destChain: "sol",
+    legs,
+    stages: WANCHAIN_STAGES,
   };
 }
 
@@ -428,8 +480,10 @@ export function composeRoute(firstRoute, secondRoute, opts = {}) {
  * Plans "forward" (ETH → X1, four legs), "reverse" (X1 → EVM, three legs —
  * Phase 2), "thorchain" (source → SOL.SOL deposit route, two legs — Phase 3),
  * the Phase-4 DEX swap routes (plan({direction: "swap", via:
- * "jupiter"|"xdex"|"lifi"}) — single-leg swap routes), and "rango"
- * (source → SOL aggregator route, two legs — Phase 5). Unknown directions /
+ * "jupiter"|"xdex"|"lifi"}) — single-leg swap routes), the "rango"
+ * (source → SOL aggregator route, two legs — Phase 5), and "wanchain"
+ * (the XFlows v3 lane, two legs — coverage-gated; see planWanchain).
+ * Unknown directions /
  * vias return null — those lanes keep their existing paths.
  */
 export function plan({ direction = "forward", ...opts } = {}) {
@@ -437,6 +491,7 @@ export function plan({ direction = "forward", ...opts } = {}) {
   if (direction === "reverse") return planReverse(opts);
   if (direction === "thorchain") return planThorchain(opts);
   if (direction === "rango") return planRango(opts);
+  if (direction === "wanchain") return planWanchain(opts);
   if (direction === "swap") {
     if (opts.via === "jupiter") return planJupiterSwap();
     if (opts.via === "xdex") return planXdexSwap();
@@ -474,6 +529,7 @@ export const RoutePlanner = Object.freeze({
   planXdexSwap,
   planLifiEvmSwap,
   planRango,
+  planWanchain,
   composeRoute,
   plan,
   legById,
@@ -492,4 +548,6 @@ export const RoutePlanner = Object.freeze({
   LIFI_EVM_SWAP_STAGES,
   RANGO_LEG_IDS,
   RANGO_STAGES,
+  WANCHAIN_LEG_IDS,
+  WANCHAIN_STAGES,
 });

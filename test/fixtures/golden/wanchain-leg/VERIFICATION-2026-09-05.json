@@ -1,0 +1,90 @@
+{
+  "title": "Wanchain-family + Rango chain-coverage verification — 2026-09-05 (live, read-only)",
+  "capturedAt": "2026-09-05T20:10–20:16Z",
+  "method": "Live HTTP probes only (no funds, no broadcast). web_search was unavailable; all sources fetched directly.",
+  "context": "Mission premise to verify: 'Wanchain is the primary ADA/SUI/Polkadot rail'. Verdict: NOT SUPPORTED by any public HTTP API today — see per-surface evidence below. Rango re-verified: no Cardano/Polkadot (confirmed).",
+  "surfaces": {
+    "wanbridge_rest_api": {
+      "base": "https://bridge-api.wanchain.org/api",
+      "docs": "https://docs.wanchain.org/developers/wanbridge-api/ (1.1 supported chains+tokens, 1.2 quota+fees, quotaAndFee)",
+      "auth": "NONE (public, keyless)",
+      "endpoints": ["tokenPairs", "tokenPairsHash", "quota", "fee", "quotaAndFee"],
+      "live_tokenPairs_capture": {
+        "pairs": 448,
+        "distinct_chains": 26,
+        "chains": ["ARETH/Arbitrum","ASTR/Astar","AVAX/Avalanche","BASEETH/Base","BLASTETH/Blast","BNB/BSC","CELO/Celo","EDX/edeXa","ETH/Ethereum","LINEAETH/Linea","MATIC/Polygon","METIS/Metis","OETH/OP Mainnet","OKB/X Layer","S/Sonic","SGB/Songbird","SHIDO/Shido","TLOS/Telos","UNIETH/UniChain","VC/VinuChain","VET/VeChain","WAN/Wanchain","WORLDETH/WorldChain","XDC/XinFin","XPL/Plasma","ZKETH/zkSync Era"],
+        "verdict": "EVM-class chains ONLY. NO Cardano, Sui, Polkadot, Solana, Tron-native, XRP-Ledger-native, or native UTXO chains. 'BTC'/'ADA'/'DOGE' symbols in the pair data are wrapped EVM representations (e.g. BTC on BNB/AVAX/ETH), not native chains. The docs' own 'verify the pair via tokenPairs' caveat FAILS for the non-EVM chains the welcome matrix claims."
+      }
+    },
+    "xflows_v3_api": {
+      "base": "https://xflows.wanchain.org/api/v3",
+      "docs": "https://docs.wanchain.org/developers/xflows-api.md + OpenAPI https://xflows-open-api.wanscan.org/openapi.json",
+      "auth": "NONE (public, keyless)",
+      "endpoints": ["supported/chains","supported/tokens","supported/pairs","supported/bridges","supported/dexes","quote (POST)","buildTx (POST)","status (POST)"],
+      "live_supported_chains": {
+        "count": 25,
+        "includes": ["Ethereum 1","Optimism 10","BNB 56","Polygon 137","TRON 195 (TRX)","X Layer 196","zkSync 324","Solana 501 (SOL)","Astar 592","Wanchain 888","Metis 1088","Polygon zkEVM 1101","Base 8453","Arbitrum 42161","Celo 42220","Avalanche 43114","Linea 59144","Blast 81457","World Chain 480","Sonic 146","Kava 2147484107","Plasma 9745","Bitcoin 2147483648 (BTC)","Sui 2147484432 (SUI)","Cardano 2147485463 (ADA)"],
+        "absent": ["Polkadot", "Dogecoin", "Litecoin", "XRP Ledger"]
+      },
+      "live_supported_tokens": {
+        "cardano_2147485463": ["BTC(wrap)","USDT","USDC","ETH(wrap)","ADA native (0x0)"],
+        "sui_2147484432": ["USDC only — NO native SUI"],
+        "bitcoin_2147483648": ["BTC native"],
+        "solana_501": ["USDT","USDC","SOL native (0x0)"],
+        "tron_195": ["USDT","TRX native"],
+        "note": "every non-EVM token row is flagged wanBridgeOnly:true"
+      },
+      "live_quote_probes": {
+        "method": "POST /api/v3/quote with valid-format addresses (CIP-19 Cardano vector; base58 SOL; bech32 BTC; base58check TRON)",
+        "ok_control": {
+          "route": "AVAX USDT -> BNB (docs workMode-1 example)",
+          "result": "OK — amountOut 9.8, fees captured (fixture: quote-avax-usdt-bnb-10usdt.real.json)"
+        },
+        "failed_routes": {
+          "ADA (Cardano native) -> SOL": "get quotes failed … From Chain not supported / Unsupported chain #1",
+          "ADA (Cardano native) -> WAN": "same error",
+          "BTC native -> SOL": "same error",
+          "TRX native (TRON) -> SOL": "same error",
+          "USDC (Ethereum) -> SOL native (control)": "no token pair for SOL cross ETH -> SOL (Unsupported token #2) — SOL has NO quotable pairs via this API at all",
+          "bridge=wanbridge forced": "identical failures (wanBridgeOnly tokens still unroutable)"
+        }
+      },
+      "verdict": "The ONLY Wanchain-family quote+buildTx HTTP API. Its registries LIST Cardano/Sui/BTC/SOL/TRON chains+tokens, but the quote router serves NONE of them today — every non-EVM source → SOL probe failed, and even EVM USDC → SOL has no pair. Quotable coverage today = EVM-chain pairs only (which our app already serves via the LiFi/Warp rail; Wanchain EVM routes land on EVM/Wanchain-L1, never Solana or X1)."
+    },
+    "intent_api": {
+      "base": "https://intent-api.wanscan.org",
+      "live_supportedChains": ["Arbitrum","Ethereum","Optimism","BNB Chain","Polygon","Avalanche C-Chain","Wanchain"],
+      "verdict": "7 EVM chains only — no non-EVM coverage."
+    },
+    "bridge_portal": {
+      "url": "https://bridge.wanchain.org",
+      "note": "The docs 'new version' manual walks Cardano(ADA, Nami wallet) → Wanchain and BTC → Wanchain through THIS portal. The portal's non-EVM pair registry + fee/quota calls are ON-CHAIN (iWan JSON-RPC to Wanchain L1 storeman contracts — 25-node bridge group, 17-of-25 sMPC threshold, monthly rotation), NOT a documented public REST quote API. The docs welcome matrix claims WanBridge covers Cardano/Sui/Polkadot/Solana/Tron/UTXOs — product-level claim only; no public API exposes quotes for those routes, and live operational status of the Cardano storeman lane could not be verified without portal/on-chain sessions.",
+      "verdict": "Not integrable as an HTTP quote rail today. Would need (a) Mr. Esters' ruling to treat it as a deposit-address/out-of-band lane like THORChain (user drives the portal), or (b) Wanchain shipping a public API for the storeman routes."
+    }
+  },
+  "rango_reverify": {
+    "source": "https://public-api.rango.exchange/basic/meta (Rango docs' public TEST key c6381a79-2817-4602-83bf-6a641a409e32 — read-only)",
+    "blockchains_total": 102,
+    "present": ["BTC","DOGE","LTC","DASH","BCH","ZCASH","SUI","TRON","XRPL","TON","STELLAR","SOLANA","THOR","MAYA", "+ 88 more (EVMs + Cosmos family)"],
+    "absent": ["CARDANO", "POLKADOT"],
+    "verdict": "Last night's finding CONFIRMED: Rango serves SUI/TRON/XRPL/BTC-family/TON/Stellar; it does NOT serve Cardano or Polkadot. (DOT appears only as bridged EVM assets on BASE/OPTIMISM — not a POLKADOT source chain.)"
+  },
+  "security_note": {
+    "night_exploit": "June 2022: the third-party NIGHT token's own cross-chain bridge contract on Wanchain was exploited (attacker minted NIGHT; widely reported ~$1M-scale at the time). The compromise was the NIGHT project's custom bridge contract, NOT the Wanchain storeman bridge node infrastructure.",
+    "current_posture": "Wanchain docs (2026): WanBridge secured by 25 decentralised bridge nodes, rotated/re-elected monthly, 17-of-25 threshold, sMPC + Shamir Secret Sharing; storeman economics = SecRand selection, threshold TSS, deposits + falling-price auction to compensate users. No Wanchain-core bridge exploit publicly documented since NIGHT. No public audit history found in the docs (independent audits should be a live-test open item if a Wanchain lane ever goes live)."
+  },
+  "coverage_matrix": {
+    "note": "Rails listed per source in priority order — ONLY rails whose live API actually serves the route. Drives teleportRail railCandidates + docs/ROUTING-ENGINE.md.",
+    "btc": ["THORChain", "Rango"], 
+    "doge": ["THORChain", "Rango"],
+    "ltc": ["THORChain", "Rango"],
+    "xrp": ["THORChain", "Rango"],
+    "sui": ["Rango"],
+    "tron": ["Rango"],
+    "ada": ["NO RAIL — Rango ❌ / THORChain ❌ / Wanchain-family quote API ❌ (probes above). Docs-claimed Wanchain portal lane is not API-quotable; blocked on a public Wanchain API or Mr. Esters' out-of-band ruling."],
+    "polkadot": ["NO RAIL — Rango ❌ / THORChain ❌ / XFlows ❌ (not even a chain row). Do not list as a console source."],
+    "evm_stables": ["LiFi/Warp (unchanged)"],
+    "wanchain_family_quotable_today": "EVM-chain pairs only — no overlap with any console source that needs a new rail (EVM routes land EVM/Wanchain-L1, not Solana/X1)."
+  },
+  "fixtures": "test/fixtures/golden/wanchain-leg/ — 1 REAL ok quote + 6 REAL failed-route bodies (each labeled in the README)."
+}

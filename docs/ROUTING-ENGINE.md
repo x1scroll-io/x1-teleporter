@@ -14,6 +14,16 @@ layer's fallback chain (`pickRail` — teleportRail.js). The engine never
 merges until the instruments pass unchanged (PR policy: base `v2`, branch
 `feat/engine-phaseN`).
 
+**Phase-5 addendum (2026-09-05 — Wanchain-family verification, branch
+feat/wanchain-leg): the Wanchain-family rail was verified LIVE and found
+NOT to serve any non-EVM source today** — see §11. The claim that Rango
+“unlocks ADA/Polkadot” was already corrected in §10 (Rango serves neither,
+verified via its live `/basic/meta`); the Wanchain family's only public
+quote+buildTx HTTP API (XFlows v3) was probed for every console source and
+quotes EVM-chain pairs only — ADA→SOL, SUI-native, BTC→SOL, TRX→SOL and
+Polkadot all have NO quotable rail in [THORChain, Rango, Wanchain] today.
+The coverage matrix (§11) now drives `railCandidates` in teleportRail.js.
+
 ---
 
 ## 0. FEE-MODEL v2 (2026-09-02 — the money-path update, branch feat/fee-model-v2)
@@ -309,8 +319,12 @@ same proof protocol against the instruments that exist for that lane.
     `https://api.rango.exchange`. Key request = Rango's Discord.
   - Source coverage: **SUI ✅ TRON ✅ XRPL ✅** BTC/DOGE/LTC/BCH/DASH/ZCASH ✅
     TON ✅ STELLAR ✅ — **CARDANO ❌ and POLKADOT ❌ are NOT in Rango's chain
-    list today** (the ENGINE-UPDATE "unlocks ADA/Polkadot" framing is wrong
-    for current Rango; re-verify via `/basic/meta` when they add chains).
+    list today** (re-verified live 2026-09-05 against `/basic/meta` — 102
+    blockchains, no CARDANO, no POLKADOT; DOT appears only as a bridged EVM
+    asset on BASE/OPTIMISM, never as a POLKADOT source chain). Re-scope:
+    **Rango does NOT unlock ADA or Polkadot** — an earlier framing claimed
+    it did; that claim is wrong for today's Rango. Re-verify via
+    `/basic/meta` before ever re-adding them.
   - SOL destination: **SOLANA.SOL ✅** (real quotes answer OK — SUI→SOL via
     NearIntent, XRP→SOL via NearIntent, TRON USDT→SOL via NearIntent,
     BTC→SOL via Flashnet). From SOL the journey continues into X1 through
@@ -359,3 +373,99 @@ same proof protocol against the instruments that exist for that lane.
 - Does NOT migrate: console/picker wiring, the `/api/rango/swap` proxy, any
   live execution. No fee changes (referrer placeholders empty);
   `vite.config.js` / `vercel.json` untouched; `npm run build` must succeed.
+
+## 11. Wanchain-family verification (2026-09-05) — the rail that ISN'T (yet)
+
+### 11.1 The question
+
+Mr. Esters' direction (2026-09-04/05): Rango does NOT serve ADA/Polkadot, so
+Wanchain should be the primary ADA/SUI/Polkadot rail — build the leg with
+REAL quote fixtures and reorder the rail fallback chain to
+[THORChain, Rango, Wanchain], filtered by what each rail ACTUALLY supports.
+Rule applied first: **verify Wanchain's real supported-chain list live —
+don't assume.**
+
+### 11.2 What was verified LIVE (read-only, no funds — evidence pack:
+`test/fixtures/golden/wanchain-leg/VERIFICATION-2026-09-05.json`)
+
+| Surface | Live finding (2026-09-05) | Verdict |
+|---|---|---|
+| WanBridge REST API (`bridge-api.wanchain.org/api` — the docs' documented developer API: tokenPairs / quota / fee / quotaAndFee) | 448 live tokenPairs across **26 EVM-class chains only** (Arbitrum…zkSync + Wanchain hub). No Cardano, Sui, Polkadot, Solana, Tron-native, XRPL-native or native-UTXO chains. “BTC/ADA/DOGE” symbols there are wrapped EVM representations. | **Does NOT serve the non-EVM sources.** The docs' own “verify the pair via tokenPairs” caveat fails for them. |
+| XFlows v3 API (`xflows.wanchain.org/api/v3` — quote POST / buildTx / status; the ONLY Wanchain-family quote+build HTTP API; keyless) | Registries list 25 chains **incl. Cardano(ADA), Sui, Bitcoin, Solana, TRON rows** + tokens (ADA native, BTC native, TRX native, SOL native; SUI has **USDC only — no native SUI**). BUT the quote ROUTER failed **every** non-EVM probe: ADA→SOL, ADA→WAN, BTC→SOL, TRX→SOL, and the EVM control USDC(ETH)→SOL (“no token pair for SOL cross ETH -> SOL”). Real failed bodies pinned in `test/fixtures/golden/wanchain-leg/*.failed.json`. | **Quotes EVM-chain pairs only. No non-EVM source → SOL exists through it. SOL itself has NO quotable pairs.** |
+| Intent API (`intent-api.wanscan.org`) | `supportedChains` = 7 EVM chains only. | No non-EVM coverage. |
+| WanBridge portal (`bridge.wanchain.org`) | The docs' “new version” manual walks Cardano(ADA, Nami) → Wanchain and BTC → Wanchain through this portal. Its non-EVM pair registry + fee/quota are **on-chain iWan JSON-RPC calls** (25-node bridge group, 17-of-25 sMPC, monthly rotation) — NOT a documented public REST quote API. Live operational status of the Cardano storeman lane could not be verified without portal/on-chain sessions. | **Not integrable as an HTTP quote rail today.** Would need a public Wanchain API for the storeman routes, or Mr. Esters' ruling to treat it as an out-of-band deposit-style lane (like THORChain) with the portal as the tool. |
+
+### 11.3 The Rango re-verification (same pass)
+
+Live `/basic/meta` (public test key, read-only): **102 blockchains** —
+BTC/DOGE/LTC/DASH/BCH/ZCASH/SUI/TRON/XRPL/TON/STELLAR/SOLANA/THOR/MAYA +
+EVMs + Cosmos family all present. **CARDANO ❌ POLKADOT ❌** — confirmed
+absent. (DOT exists only as bridged EVM assets.) Rango's real coverage:
+**SUI, TRON, XRPL, the UTXO/BTC-family, TON, Stellar** (+ EVM stables). It
+does NOT cover Cardano or Polkadot, and nothing in this repo claims it does
+anymore.
+
+### 11.4 The coverage matrix (drives `railCandidates` in teleportRail.js)
+
+Per source, the rails that ACTUALLY serve it, priority-ordered — the global
+preference is [THORChain, Rango, Wanchain], FILTERED by this matrix:
+
+| Source | THORChain | Rango | Wanchain-family | Serving candidates (priority) |
+|---|---|---|---|---|
+| BTC | ✅ | ✅ | ❌ (BTC→SOL probe failed) | [THORChain, Rango] |
+| DOGE | ✅ | ✅ | ❌ (no XFlows row) | [THORChain, Rango] |
+| LTC | ✅ | ✅ | ❌ (no XFlows row) | [THORChain, Rango] |
+| XRP | ✅ | ✅ | ❌ (no XFlows row) | [THORChain, Rango] |
+| SUI (native) | ❌ | ✅ | ❌ (XFlows has SUI-USDC only, no native SUI) | [Rango] |
+| TRON (TRX) | ❌ | ✅ | ❌ (TRX→SOL probe failed) | [Rango] |
+| ADA (Cardano) | ❌ | ❌ | ❌ (ADA→SOL + ADA→WAN probes failed; portal flow not API-quotable) | **NO RAIL** — do not list as a console source |
+| POLKADOT | ❌ | ❌ | ❌ (no row in any Wanchain-family API) | **NO RAIL** — do not list as a console source |
+| EVM stables / X1 | — | — | (EVM pairs only; land EVM/Wanchain-L1, never SOL/X1) | LiFi/Warp (unchanged) |
+
+Consequence: the rail reorder the mission asked for ([THORChain, Rango,
+Wanchain] filtered by the matrix) leaves every current source's candidate
+list unchanged — Wanchain earns NO slot until a live-proven route exists.
+The `RAIL.WANCHAIN` rail + label + engine plan exist (registered, wired,
+tested) so the seam is one line per source when a route becomes quotable.
+
+### 11.5 What was built (branch feat/wanchain-leg, additive, all green)
+
+- `api/wanchain/quote.js` — serverless POST proxy → XFlows v3 `/quote`
+  (CORS allowlist, body whitelist, fail-closed; keyless today —
+  `WANCHAIN_API_URL` server override documented for a future keyed host).
+- `src/lib/wanchain/config.js` + `quote.js` — the verified registry
+  (**coverage gate**: quotable sources = EVM class only), deterministic
+  quote-request builder, canonical response parser (OK + real failure
+  bodies). Pure + tested.
+- `src/engine/legs/wanchain/wanchainQuoteLeg.js` (coverage-gated build;
+  refuses ADA/Sui/Polkadot rows at build time with the live evidence) +
+  `wanchainExecuteLeg.js` (**🔴 GUARDED STUB** — submit() ALWAYS throws
+  `WanchainLiveTestGateError`, never broadcasts; pins the buildTx request
+  shape from the OpenAPI).
+- `RoutePlanner.planWanchain()` + `plan({direction:"wanchain"})` +
+  `WANCHAIN_LEG_IDS`/`WANCHAIN_STAGES`.
+- `teleportRail.js` — `RAIL.WANCHAIN` + `COVERAGE_MATRIX` (the §11.4 table
+  in code) driving `railCandidates`; ADA/Polkadot answer the honest
+  dead-end ({ rail: null }) and stay OUT of the console's source list.
+- Fixtures (REAL, labeled): one ok EVM quote (the docs' own example
+  reproduced live) + six REAL failed-route bodies + the verification
+  evidence JSON. Golden + engine + rail + proxy + pure-module tests
+  (31 new — full suite count in the PR).
+- Live-test anchors (Mr. Esters' — nothing here broadcasts):
+  **wanchain-buildtx-execution** (the guarded execute leg) and the future
+  **api/wanchain/buildTx.js** proxy route (lands with the live test, same
+  shape as the quote proxy).
+
+### 11.6 Security note (honest)
+
+June 2022: the third-party NIGHT token's own cross-chain bridge contract on
+Wanchain was exploited (attacker minted NIGHT; ~$1M-scale at the time,
+widely reported). The compromise was the NIGHT project's custom contract —
+NOT the Wanchain storeman bridge infrastructure. No Wanchain-core bridge
+exploit has been publicly documented since. Current posture (docs):
+WanBridge = 25 decentralised bridge nodes, rotated/re-elected monthly,
+17-of-25 threshold, sMPC + Shamir Secret Sharing; storeman economics =
+SecRand selection, threshold TSS, deposits + falling-price auction to
+compensate users. No public audit history appears in Wanchain's docs — an
+independent audit is a live-test open item before any Wanchain-family lane
+moves real funds.
