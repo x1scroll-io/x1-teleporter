@@ -74,6 +74,19 @@ const TC_SUMMARY = read("../test/fixtures/golden/thorchain-leg/thorchain-leg-sum
 const GOLDEN_MEMO = TC_SUMMARY.derived.memo; // =:SOL.SOL:wJs2CD1p…
 const GOLDEN_ADDRESS = TC_SUMMARY.derived.depositAddress; // the synthetic BTC vault
 const GOLDEN_FEE_LINES = TC_SUMMARY.derived.feeLines; // affiliate 1.00% / Teleporter 0.50% / Warp $1 flat
+// The DESTINATION-HALT variant of the inbound body: the same golden fixture
+// PLUS the SOL entry halted:true — the LIVE THORChain state verified
+// 2026-09-05 (gateway inbound_addresses: SOL halted=True). The console must
+// show the CALM paused message for this state, never a raw quote error.
+const INBOUND_BODY_SOL_HALTED = read("./fixtures/inbound-addresses-sol-halted.json").body;
+// The REAL wire body a halted SOL pool returns from the quote endpoint
+// (live-verified 2026-09-05 through the deployed proxy + Liquify gateway:
+// HTTP 400, this exact code/message shape — no `error` field).
+const HALTED_QUOTE_ERROR_BODY = {
+  code: 3,
+  message: "failed to simulate swap: failed to simulate handler: trading is halted, can't process swap: invalid request",
+  details: [],
+};
 
 // The mock solana session address (WalletContext dev-mock fallback — what the
 // Starport row connects when no real Solana wallet is installed).
@@ -797,6 +810,69 @@ test("console: UNIFIED FLOW — one surface, no rail tabs, no Buy; the source-as
   //    paste a txid, never submit, nothing signed in-app. ──
   await expect(page.locator('[data-testid="tc-submit"]')).toBeDisabled();
   await expect(page.locator('[data-testid="console-wallets"]')).toBeVisible();
+});
+
+test("console: UNIFIED FLOW — the deposit DESTINATION chain (SOL) halted on the bridge network → the CALM paused message renders instead of a raw quote error (temporary, resumes automatically, auto re-check; the rail stays unnamed)", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  // The deposit rail's network with the DESTINATION HALT: inbound_addresses
+  // marks SOL halted:true (the live THORChain state verified 2026-09-05) and
+  // the quote endpoint answers with the REAL halted-pool wire error (HTTP
+  // 400 "trading is halted"). Registered AFTER the shared beforeEach routes —
+  // Playwright matches the newest route first.
+  await page.route("**/thorchain/inbound_addresses*", (route) =>
+    route.fulfill({ contentType: "application/json", body: JSON.stringify(INBOUND_BODY_SOL_HALTED) }),
+  );
+  await page.route("**/api/thorchain/quote*", (route) =>
+    route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify(HALTED_QUOTE_ERROR_BODY) }),
+  );
+
+  await page.goto("/");
+
+  // ── 1. The native route: BTC source → deposit-address lane. ──
+  await expect(page.locator('[data-testid="teleport-console"]')).toBeVisible();
+  await page.locator('[data-testid="from-chain"]').selectOption("btc");
+  await expect(page.locator('[data-testid="token"]')).toHaveValue("BTC");
+
+  // ── 2. Connect the Solana/X1 wallet (the deposit destination). ──
+  await page.locator('[data-testid="connect-open"]').click();
+  await expect(page.locator('[data-testid="connect-modal"]')).toBeVisible();
+  await page.locator('button[data-family="solana"]').click();
+  const solRow = page.locator('li[data-wallet-id="Playwright Test Solana"]');
+  await expect(solRow).toBeVisible();
+  await solRow.locator("button.connect-btn").click();
+  await expect(page.locator('[data-testid="wallet-chip-solana"]')).toBeVisible();
+
+  // ── 3. Amount → TELEPORT → the deposit-address step. ──
+  await page.locator('[data-testid="amount"]').fill("0.01");
+  await expect(page.locator('[data-testid="quote-strip"]')).toContainText("DEPOSIT ROUTE READY");
+  await page.locator('[data-testid="teleport-now"]').click();
+  await expect(page.locator('[data-testid="deposit-step"]')).toBeVisible();
+  await expect(page.locator('[data-testid="tc-deposit"]')).toBeVisible();
+
+  // ── 4. THE CALM HALT MESSAGE (the deposit destination chain — SOL — is
+  //    halted on the bridge network; NOT the user's fault, NOT our bug). ──
+  const banner = page.locator('[data-testid="tc-dest-paused-banner"]');
+  await expect(banner).toBeVisible();
+  await expect(banner).toContainText("temporarily paused");
+  await expect(banner).toContainText("resumes automatically");
+  await expect(banner).toContainText("re-checks by itself");
+
+  // ── 5. NO broken error surface: no raw quote-error block, no raw wire
+  //    text anywhere, quote gate disabled (a doomed quote is never fired),
+  //    and no deposit address while the route is halted. ──
+  await expect(page.locator('[data-testid="tc-quote-error"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="tc-get-quote"]')).toBeDisabled();
+  await expect(page.locator('[data-testid="tc-deposit-card"]')).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("failed to simulate");
+  await expect(page.locator("body")).not.toContainText("trading is halted");
+  await expect(page.locator("body")).not.toContainText("Quote unavailable");
+  await expect(page.locator('[data-testid="tc-submit"]')).toBeDisabled();
+
+  // ── 6. The rail stays invisible end-to-end (the calm message names the
+  //    bridge network, never the rail). ──
+  await expect(page.locator("body")).not.toContainText("THORChain");
+  await expect(page.locator("body")).not.toContainText("Buy");
+  await page.screenshot({ path: join(SHOTS, "c4-unified-sol-halted-calm.png"), fullPage: true });
 });
 
 test("console: UNIFIED FLOW — the EVM rail keeps the WALLET-CONNECT final step (sign boundary) and the console never offers a Buy tab", async ({ page }) => {
