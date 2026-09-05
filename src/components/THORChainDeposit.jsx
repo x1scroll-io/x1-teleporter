@@ -163,6 +163,12 @@ const S = {
     fontWeight: 700, cursor: "pointer",
   },
   submitBtnDisabled: { opacity: 0.45, cursor: "not-allowed" },
+  lockedRow: {
+    display: "flex", alignItems: "center", gap: 8, padding: "10px 12px",
+    borderRadius: 10, border: "1px solid #1a2130", background: "rgba(13,18,28,0.5)",
+  },
+  lockedBadge: { fontSize: 13, fontWeight: 800, color: "#e8edf6", whiteSpace: "nowrap" },
+  lockedNote: { fontSize: 10, color: "#475065", whiteSpace: "nowrap" },
 };
 
 /** Best-effort copy with a clipboard fallback — never throws in tests/jsdom. */
@@ -179,12 +185,14 @@ function copyText(text) {
 
 /** One display line per thorchain-leg fee component — the user sees all
  *  three (THORChain affiliate protocol fee, our 0.5% skim, Warp's own fee) before
- *  sending. Rates render as %, flats as $. */
-function feeLinesFor(sourceChain) {
+ *  sending. Rates render as %, flats as $. `labelOverrides` lets a neutral
+ *  host surface rename a component without touching the fee code (default:
+ *  the fee module's own labels). */
+function feeLinesFor(sourceChain, labelOverrides = {}) {
   const fee = computeFee({ from: String(sourceChain).toLowerCase(), to: "sol", thorchain: true });
   return fee.components.map((c) => ({
     id: c.id,
-    label: c.label,
+    label: labelOverrides[c.id] || c.label,
     party: c.party,
     display: c.kind === "flat" ? `$${c.flatUsd} flat` : `${(c.rate * 100).toFixed(2)}%`,
   }));
@@ -211,6 +219,20 @@ function feeLinesFor(sourceChain) {
  *   0.05 BTC-equivalent)
  * @param {object} [props.btcEquivalentRates] DI per-asset BTC-equivalent
  *   rates (default config)
+ * @param {string} [props.initialSource] lock the SOURCE to this asset id
+ *   ("BTC" | "DOGE" | "LTC" | "XRP") — the unified console already picked the
+ *   source asset; the deposit stage honors it instead of defaulting to BTC.
+ * @param {boolean} [props.sourceLocked] when true the source picker grid is
+ *   replaced by a read-only "source locked" row (the host surface owns the
+ *   asset choice — never two competing pickers).
+ * @param {string} [props.initialAmount] prefill the amount field (the host
+ *   surface's amount rides into the deposit stage).
+ * @param {object} [props.copy] neutral-copy overrides for a host surface
+ *   that must not name the rail. Every key defaults to THIS component's own
+ *   copy, so the classic THORChain tab renders byte-identically without it:
+ *   { subtitle ({label}), pausedBanner ({label}), pausedBy, noSolana,
+ *     destBadge, feeLabels: { [feeComponentId]: label } }. `{label}` is the
+ *   selected source's human name (Bitcoin/Dogecoin/Litecoin/XRP).
  */
 export default function THORChainDeposit({
   solAddress,
@@ -225,13 +247,17 @@ export default function THORChainDeposit({
   fetchQuote,
   maxSwapBtcEquivalent = THORCHAIN_MAX_SWAP_BTC_EQUIVALENT,
   btcEquivalentRates = THORCHAIN_BTC_EQUIVALENT_RATES,
+  initialSource,
+  sourceLocked = false,
+  initialAmount,
+  copy = {},
 }) {
-  const [selected, setSelected] = useState("BTC");
+  const [selected, setSelected] = useState(initialSource ?? "BTC");
   const [inbound, setInbound] = useState(null); // { BTC: entry, ... } | null
   const [inboundError, setInboundError] = useState(null);
   const [refund, setRefund] = useState("");
   const [txid, setTxid] = useState("");
-  const [amountSent, setAmountSent] = useState("");
+  const [amountSent, setAmountSent] = useState(initialAmount ?? "");
   // Step 3.3 quote gate: the address is shown ONLY after a fresh quote lands.
   const [quote, setQuote] = useState(null); // { expectedAmountOut, affiliateBps, slippageBps, ... }
   const [quoteStatus, setQuoteStatus] = useState("idle"); // idle | loading | ok | error
@@ -282,6 +308,7 @@ export default function THORChainDeposit({
   // Refund prefill: when the source chain changes, prefill from the
   // connected source-wallet session (Steps 2.3/2.4 deposit rows feed this).
   const handleSelect = (id) => {
+    if (sourceLocked) return; // the host surface owns the source choice
     if (inbound?.[id]?.halted === true) return; // greyed out — not selectable
     setSelected(id);
     // The quote is for the OLD chain's asset — invalidate it (quotes expire;
@@ -440,18 +467,21 @@ export default function THORChainDeposit({
 
   // The three fee lines (THORChain affiliate + our 0.5% skim + Warp's own fee) —
   // rendered from computeFee's thorchain-leg class, shown before sending.
-  const feeLines = useMemo(() => feeLinesFor(selected), [selected]);
+  const feeLines = useMemo(() => feeLinesFor(selected, copy.feeLabels), [selected, copy.feeLabels]);
 
   // ── NO SOLANA WALLET → BLOCK (brief wallet rule 4) ──
   if (!solConnected || !solAddress) {
+    const noSolanaText = copy.noSolana
+      ? copy.noSolana.replace(/\{label\}/g, selectedMeta.label)
+      : "Connect a Solana wallet first — the destination is your Solana "
+        + "wallet's address and cannot be typed. Open the Teleport tab to "
+        + "connect one.";
     return (
       <div className="thorchain-deposit" role="tabpanel" aria-label="THORChain deposit" data-testid="tc-deposit" style={S.wrap}>
         <div style={S.title}>Deposit address</div>
         <div style={S.subtitle}>BTC · DOGE · LTC · XRP → SOL.SOL</div>
         <div style={S.block} data-testid="tc-deposit-no-solana">
-          Connect a Solana wallet first — the destination is your Solana
-          wallet's address and cannot be typed. Open the Teleport tab to
-          connect one.
+          {noSolanaText}
         </div>
       </div>
     );
@@ -459,43 +489,61 @@ export default function THORChainDeposit({
 
   const memoParts = memo ? parseDepositMemo(memo) : null;
 
+  // Neutral-copy interpolation (host surfaces that must not name the rail).
+  const subtitleText = copy.subtitle
+    ? copy.subtitle.replace(/\{label\}/g, selectedMeta.label)
+    : `Send native ${selectedMeta.label} to THORChain — it lands on Solana as SOL, then hops to X1.`;
+  const pausedText = copy.pausedBanner
+    ? copy.pausedBanner.replace(/\{label\}/g, selectedMeta.label)
+    : `⚠️ ${selectedMeta.label} is paused by THORChain right now — deposits to this chain are halted. Choose another source or wait — this refreshes automatically.`;
+  const pausedTitle = copy.pausedBy ?? "paused by THORChain";
+  const destBadge = copy.destBadge ?? "SOL.SOL";
+
   return (
     <div className="thorchain-deposit" role="tabpanel" aria-label="THORChain deposit" data-testid="tc-deposit" style={S.wrap}>
       <div style={S.title}>Deposit address</div>
-      <div style={S.subtitle}>Send native {selectedMeta.label} to THORChain — it lands on Solana as SOL, then hops to X1.</div>
+      <div style={S.subtitle}>{subtitleText}</div>
 
       <div style={S.sectionLabel}>1 · Source chain</div>
-      <div style={S.sources} data-testid="tc-sources">
-        {THORCHAIN_SOURCES.map((src) => {
-          const entry = inbound?.[src.id] ?? null;
-          const halted = entry?.halted === true;
-          const active = selected === src.id;
-          return (
-            <button
-              key={src.id}
-              type="button"
-              data-testid={`tc-source-${src.id}`}
-              data-halted={halted ? "true" : "false"}
-              data-active={active ? "true" : "false"}
-              disabled={halted}
-              onClick={() => handleSelect(src.id)}
-              style={{
-                ...S.sourceBtn,
-                ...(active ? S.sourceBtnActive : {}),
-                ...(halted ? S.sourceBtnHalted : {}),
-              }}
-              title={halted ? "paused by THORChain" : src.label}
-            >
-              <span style={S.sourceTicker}>{src.id}</span>
-              {halted ? <span style={S.sourcePaused}>paused</span> : <span style={{ fontSize: 9, color: "#475065" }}>{src.label}</span>}
-            </button>
-          );
-        })}
-      </div>
+      {sourceLocked ? (
+        <div style={S.lockedRow} data-testid="tc-source-locked">
+          <span style={S.lockedBadge}>{selectedMeta.id}</span>
+          <span style={{ fontSize: 11, color: "#7d8aa0", flex: 1 }}>{selectedMeta.label}</span>
+          <span style={S.lockedNote}>from route</span>
+        </div>
+      ) : (
+        <div style={S.sources} data-testid="tc-sources">
+          {THORCHAIN_SOURCES.map((src) => {
+            const entry = inbound?.[src.id] ?? null;
+            const halted = entry?.halted === true;
+            const active = selected === src.id;
+            return (
+              <button
+                key={src.id}
+                type="button"
+                data-testid={`tc-source-${src.id}`}
+                data-halted={halted ? "true" : "false"}
+                data-active={active ? "true" : "false"}
+                disabled={halted}
+                onClick={() => handleSelect(src.id)}
+                style={{
+                  ...S.sourceBtn,
+                  ...(active ? S.sourceBtnActive : {}),
+                  ...(halted ? S.sourceBtnHalted : {}),
+                }}
+                title={halted ? pausedTitle : src.label}
+              >
+                <span style={S.sourceTicker}>{src.id}</span>
+                {halted ? <span style={S.sourcePaused}>paused</span> : <span style={{ fontSize: 9, color: "#475065" }}>{src.label}</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div style={S.sectionLabel}>2 · Destination (locked)</div>
       <div style={S.destRow} data-testid="tc-destination">
-        <span style={S.destBadge}>SOL.SOL</span>
+        <span style={S.destBadge}>{destBadge}</span>
         <input
           style={S.destInput}
           data-testid="tc-destination-input"
@@ -509,7 +557,7 @@ export default function THORChainDeposit({
 
       {selectedHalted ? (
         <div style={S.banner} data-testid="tc-paused-banner">
-          ⚠️ {selectedMeta.label} is paused by THORChain right now — deposits to this chain are halted. Choose another source or wait — this refreshes automatically.
+          {pausedText}
         </div>
       ) : null}
 

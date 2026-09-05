@@ -8,7 +8,8 @@ import { WalletProvider } from "./lib/wallet/WalletContext.jsx";
 import { createWalletDiscovery } from "./lib/wallet/walletDiscovery.js";
 import { createLaserEyesHandle } from "./lib/wallet/laserEyesHandle.js";
 import { createBtcBalanceFetcher } from "./lib/wallet/bitcoinBalance.js";
-import { LEGACY_UI, THORCHAIN, WARP_LIVE_SEND, selectRootCard } from "./lib/flags.ts";
+import { LEGACY_UI, THORCHAIN, WARP_LIVE_SEND, resolveConsoleUi, selectRootCard } from "./lib/flags.ts";
+import { resolveUiVariant } from "./lib/uiVariant.js";
 import { buildBanner } from "./lib/buildBanner.js";
 
 // BUILD MARKER — verify deployed build is current.
@@ -44,13 +45,31 @@ const discovery = createWalletDiscovery({
 // "v2"     = BridgeCard wrapped in WalletProvider (default).
 const rootCard = selectRootCard({ LEGACY_UI });
 
+// UI variant for the v2 card (Teleport Console vs the classic card). Pure
+// decision, tested in src/lib/uiVariant.test.js:
+//   - legacy flag  → the v1 Teleporter card (above, wins).
+//   - CONSOLE_UI env set → its value decides (console / classic).
+//   - env unset + x1scroll Vercel preview host (branch previews + the
+//     stable git-v2 alias) → the CONSOLE mounts (this PR's live preview).
+//   - env unset + any other host (localhost default builds, the production
+//     domain) → classic — the frozen browser harnesses keep measuring the
+//     classic flow unchanged on local default builds.
+const bridgeVariant =
+  rootCard === "legacy"
+    ? "legacy"
+    : resolveUiVariant({
+        LEGACY_UI,
+        CONSOLE_UI: resolveConsoleUi(import.meta.env),
+        hostname: typeof window !== "undefined" ? window.location.hostname : "",
+      });
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    {rootCard === "legacy" ? (
+    {bridgeVariant === "legacy" ? (
       <Teleporter />
     ) : (
       <WalletProvider discovery={discovery}>
-        <BridgeCard flags={{ THORCHAIN }} />
+        <BridgeCard variant={bridgeVariant} flags={{ THORCHAIN }} />
       </WalletProvider>
     )}
   </React.StrictMode>
