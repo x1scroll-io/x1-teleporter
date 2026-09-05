@@ -8,7 +8,8 @@
  *
  * Design:
  *   - One Coingecko simple-price batch call covers every token the balance
- *     line can show (usd-coin, tether, dai, wrapped-solana). USDC.x is the
+ *     line can show (usd-coin, tether, dai, wrapped-solana + the native
+ *     source assets bitcoin, dogecoin, litecoin, ripple). USDC.x is the
  *     Warp-wrapped twin of Solana USDC (1:1) and wSOL.X of Solana WSOL, so
  *     they share the underlying id — no separate fetch, no drift.
  *   - DI-able: `getPricesUSD({ fetchPrice })` accepts an injected fetcher so
@@ -27,6 +28,12 @@ export const COINGECKO_IDS = Object.freeze({
   WSOL: "wrapped-solana",
   "USDC.x": "usd-coin", // Warp-wrapped twin of Solana USDC — same asset
   "wSOL.X": "wrapped-solana", // Warp-wrapped twin of Solana WSOL — same asset
+  // Native source assets (BTC/DOGE/LTC/XRP — the console's native-source
+  // BAL readout shows their live USD worth like every other source).
+  BTC: "bitcoin",
+  DOGE: "dogecoin",
+  LTC: "litecoin",
+  XRP: "ripple",
 });
 
 /** How long a price snapshot stays fresh (ms). */
@@ -83,8 +90,10 @@ export async function defaultPriceFetch(ids) {
  * @param {{fetchPrice?: (ids: string[]) => Promise<Object<string, number>|null>,
  *          now?: number, force?: boolean}} [opts]
  * @returns {Promise<Object<string, number>|null>} { USDC: 1.0, USDT: 1.0,
- *   DAI: 1.0, WSOL: 150.5, "USDC.x": 1.0, "wSOL.X": 150.5 } — null when the
- *   fetch fails entirely (callers then show balances without USD).
+ *   DAI: 1.0, WSOL: 150.5, "USDC.x": 1.0, "wSOL.X": 150.5, BTC: 97000,
+ *   DOGE: 0.16, LTC: 100, XRP: 2.5 } — null when the whole fetch fails
+ *   entirely (callers then show balances without USD; a missing single id
+ *   maps to null, never a throw).
  */
 export async function getPricesUSD({ fetchPrice = defaultPriceFetch, now = Date.now(), force = false } = {}) {
   if (!force && cache.prices && now - cache.at < PRICE_CACHE_MS) {

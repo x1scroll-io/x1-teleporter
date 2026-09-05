@@ -39,17 +39,40 @@ export function balanceFromMempoolAddress(data) {
 }
 
 /**
+ * Parse ONLY the confirmed (chain) side of a mempool.space address-response
+ * into a satoshi balance — the SPENDABLE balance. Pending mempool deltas are
+ * excluded: a just-sent (or just-received) unconfirmed tx is NOT spendable
+ * yet, so spendable reads (a send form's MAX fill) must never count it.
+ * Pure — exported for direct unit testing.
+ *
+ * @param {{chain_stats?: {funded_txo_sum?: number, spent_txo_sum?: number},
+ *          mempool_stats?: {funded_txo_sum?: number, spent_txo_sum?: number}}} data
+ * @returns {number} confirmed balance in satoshis (≥ 0; a drained address is 0)
+ */
+export function confirmedFromMempoolAddress(data) {
+  const chain = data?.chain_stats ?? {};
+  const funded = Number(chain.funded_txo_sum ?? 0);
+  const spent = Number(chain.spent_txo_sum ?? 0);
+  return Math.max(0, funded - spent);
+}
+
+/**
  * Create a balance fetcher for a payment address.
  *
- * @param {{fetcher?: (url: string, init?: object) => Promise<{ok: boolean, json: () => Promise<object>}>, apiUrl?: string}} [options]
+ * @param {{fetcher?: (url: string, init?: object) => Promise<{ok: boolean, json: () => Promise<object>}>, apiUrl?: string, spendableOnly?: boolean}} [options]
  *   - fetcher: injected HTTP fetch (defaults to global fetch). Tests mock it.
  *   - apiUrl: mempool.space base URL (defaults to the public mainnet API).
+ *   - spendableOnly: when true, resolve the CONFIRMED balance only (pending
+ *     mempool deltas excluded) — the spendable amount a MAX fill may use.
+ *     Default false keeps the historical total (confirmed + pending) for the
+ *     wallet layer's connect-time reads and existing callers.
  * @returns {(address: string) => Promise<number>} resolves satoshis; rejects
  *   with a descriptive error on transport or HTTP failure.
  */
 export function createBtcBalanceFetcher({
   fetcher = (typeof globalThis !== "undefined" ? globalThis.fetch : undefined),
   apiUrl = MEMPOOL_SPACE_API,
+  spendableOnly = false,
 } = {}) {
   if (typeof fetcher !== "function") {
     throw new Error("createBtcBalanceFetcher: no fetch implementation available");
@@ -69,7 +92,11 @@ export function createBtcBalanceFetcher({
       throw new Error(`fetchBtcBalance: mempool.space responded ${response?.status ?? "unknown"}`);
     }
     const data = await response.json();
-    return balanceFromMempoolAddress(data);
+    // Spendable reads (a send form's MAX) count CONFIRMED funds only;
+    // the wallet layer's total reads keep confirmed + pending.
+    return spendableOnly
+      ? confirmedFromMempoolAddress(data)
+      : balanceFromMempoolAddress(data);
   };
 }
 

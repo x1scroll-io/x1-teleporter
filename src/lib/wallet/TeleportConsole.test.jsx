@@ -52,6 +52,22 @@ function connectedState({ evm = false, solana = false, evmProvider = null, solPr
   return state;
 }
 
+/** Deterministic native-family session addresses (one per family). */
+const NATIVE_ADDRESSES = {
+  bitcoin: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
+  litecoin: "LbTjMGN7gELw4KbeyQf6cTCq859hD18guE",
+  dogecoin: "DQyfNhuqN9mseL9YmgW8Sh7GNDjUn6oC1R",
+  xrp: "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+};
+
+/** Build a WalletContext state with ONLY a connected native-family session
+ *  (the source wallet for a native-source BAL readout — no EVM/Solana). */
+function nativeOnlyState(family) {
+  const state = createInitialState();
+  state[family] = { status: "connected", address: NATIVE_ADDRESSES[family], provider: null, error: undefined };
+  return state;
+}
+
 /** No-op balance deps keep the console hermetic (no RPC, no Coingecko). */
 const NOOP_BALANCES = {
   priceFetcher: async () => null,
@@ -672,6 +688,169 @@ test("MAX + balance: the source balance shows under Amount; MAX fills the amount
     assert.equal(container.querySelector('[data-testid="amount"]').value, "25.5", "MAX fills the amount");
   } finally {
     qf.restore();
+    unmount();
+  }
+});
+
+// ── NATIVE-SOURCE BAL/MAX (dead-button catalog #2): BTC/DOGE/LTC/XRP sources
+//    now read the connected source-family session through the wallet layer's
+//    OWN public-chain fetchers — BAL shows spendable human units, MAX fills
+//    them. All four families ride the same wiring; each gets a subtest. ─────
+
+test("native BAL/MAX: every native source reads its connected family session's balance (base units → human) and MAX fills it", async () => {
+  const families = [
+    // chain id (picker option), wallet family (session/fetcher), base units,
+    // human, symbol, usd price → display checks
+    { chain: "btc", family: "bitcoin", asset: "BTC", base: 1_250_000, human: "0.0125", price: 60000, usd: "750.00" },
+    { chain: "ltc", family: "litecoin", asset: "LTC", base: 82_500_000, human: "0.825", price: 100, usd: "82.50" },
+    { chain: "doge", family: "dogecoin", asset: "DOGE", base: 123_456_789_000, human: "1234.56789", price: 0.16, usd: "197.53" },
+    { chain: "xrp", family: "xrp", asset: "XRP", base: 12_345_678, human: "12.345678", price: 2.5, usd: "30.86" },
+  ];
+  for (const f of families) {
+    const fetcherKey = `${f.family}BalanceFetcher`;
+    const fetcherCalls = [];
+    const { container, unmount } = renderConsole({
+      initialState: nativeOnlyState(f.family),
+      formProps: {
+        balancesDeps: {
+          ...NOOP_BALANCES,
+          [fetcherKey]: async (addr) => {
+            fetcherCalls.push(addr);
+            return f.base; // base units (sats / drops)
+          },
+          priceFetcher: async () => ({ [f.asset]: f.price }),
+        },
+      },
+    });
+    try {
+      setSelect(container.querySelector('[data-testid="from-chain"]'), f.chain);
+      await flush();
+      // The read went through the family's OWN fetcher with the session's address.
+      assert.deepEqual(fetcherCalls, [NATIVE_ADDRESSES[f.family]], `${f.asset}: the family fetcher read the connected session address`);
+      const bal = container.querySelector('[data-testid="source-balance"]');
+      assert.ok(bal && bal.textContent.includes(`BAL ${f.human} ${f.asset}`) && bal.textContent.includes(`$${f.usd}`),
+        `${f.asset} BAL readout, got: ${bal?.textContent}`);
+      // MAX is enabled and fills exactly the spendable balance shown.
+      const max = container.querySelector('[data-testid="max-button"]');
+      assert.equal(max.disabled, false, `${f.asset}: MAX enabled with a positive balance`);
+      click(max);
+      assert.equal(container.querySelector('[data-testid="amount"]').value, f.human, `${f.asset}: MAX fills the spendable balance`);
+    } finally {
+      unmount();
+    }
+  }
+});
+
+test("native BAL: no source wallet connected → the honest 'BAL —' + MAX disabled, no read attempted", async () => {
+  let called = false;
+  const { container, unmount } = renderConsole({
+    initialState: connectedState({}), // no wallets at all
+    formProps: {
+      balancesDeps: {
+        ...NOOP_BALANCES,
+        bitcoinBalanceFetcher: async () => { called = true; return 1; },
+      },
+    },
+  });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "btc");
+    await flush();
+    const bal = container.querySelector('[data-testid="source-balance"]');
+    assert.ok(bal && bal.textContent.includes("BAL —"), `honest empty readout, got: ${bal?.textContent}`);
+    assert.equal(container.querySelector('[data-testid="max-button"]').disabled, true, "MAX disabled");
+    assert.equal(container.querySelector('[data-testid="balance-retry"]'), null, "no retry — nothing was attempted");
+    assert.equal(called, false, "no fetcher call without a session");
+  } finally {
+    unmount();
+  }
+});
+
+test("native BAL fail-soft: a fetcher failure shows 'BAL —' + the ↻ retry; the retry re-reads and recovers", async () => {
+  let calls = 0;
+  const flaky = async () => {
+    calls += 1;
+    if (calls === 1) throw new Error("mempool.space down (test)");
+    return 2_500_000; // 0.025 BTC
+  };
+  const { container, unmount } = renderConsole({
+    initialState: nativeOnlyState("bitcoin"),
+    formProps: {
+      balancesDeps: {
+        ...NOOP_BALANCES,
+        bitcoinBalanceFetcher: flaky,
+        priceFetcher: async () => null, // no USD — still shows the balance
+      },
+    },
+  });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "btc");
+    await flush();
+    const bal = container.querySelector('[data-testid="source-balance"]');
+    assert.ok(bal && bal.textContent.includes("BAL —"), `fail-soft readout, got: ${bal?.textContent}`);
+    const retry = container.querySelector('[data-testid="balance-retry"]');
+    assert.ok(retry, "the ↻ retry affordance appears after a failed read");
+    assert.equal(container.querySelector('[data-testid="max-button"]').disabled, true, "MAX stays disabled on a dead readout");
+    // Retry re-reads with the now-healthy fetcher and the readout recovers.
+    click(retry);
+    await flush();
+    assert.equal(calls, 2, "the retry re-ran the read");
+    const recovered = container.querySelector('[data-testid="source-balance"]');
+    assert.ok(recovered && recovered.textContent.includes("BAL 0.025 BTC"), `recovered readout, got: ${recovered?.textContent}`);
+    assert.equal(container.querySelector('[data-testid="balance-retry"]'), null, "retry gone after a successful read");
+    assert.equal(container.querySelector('[data-testid="max-button"]').disabled, false, "MAX enabled again");
+  } finally {
+    unmount();
+  }
+});
+
+test("native BAL regression: an EVM source still reads the EVM wallet — the native fetcher is never called, even with a BTC session connected", async () => {
+  let nativeCalled = false;
+  const { container, unmount } = renderConsole({
+    initialState: (() => {
+      const state = connectedState({ evm: true, solana: true, evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+      state.bitcoin = { status: "connected", address: NATIVE_ADDRESSES.bitcoin, provider: null, error: undefined };
+      return state;
+    })(),
+    formProps: {
+      balancesDeps: {
+        ...NOOP_BALANCES,
+        evmBalanceFetcher: async () => 25.5,
+        bitcoinBalanceFetcher: async () => { nativeCalled = true; return 1; },
+        priceFetcher: async () => ({ USDC: 1 }),
+      },
+    },
+  });
+  try {
+    await flush();
+    const bal = container.querySelector('[data-testid="source-balance"]');
+    assert.ok(bal && bal.textContent.includes("BAL 25.5 USDC"), `EVM readout unchanged, got: ${bal?.textContent}`);
+    assert.equal(nativeCalled, false, "the native fetcher never fires on an EVM source");
+    assert.equal(container.querySelector('[data-testid="balance-retry"]'), null, "no retry on a healthy EVM read");
+  } finally {
+    unmount();
+  }
+});
+
+test("X1 BAL regression: the reverse (X1 source) readout is unchanged with the native wiring in place", async () => {
+  const { container, unmount } = renderConsole({
+    evmProvider: makeEvmProvider(),
+    solProvider: makeSolAdapter(),
+    formProps: {
+      balancesDeps: {
+        ...NOOP_BALANCES,
+        solBalanceFetcher: async () => ({ "USDC.x": 10 }),
+        priceFetcher: async () => ({ "USDC.x": 1 }),
+      },
+    },
+  });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "x1");
+    await flush();
+    const bal = container.querySelector('[data-testid="source-balance"]');
+    assert.ok(bal && bal.textContent.includes("BAL 10 USDC.x"), `X1 readout unchanged, got: ${bal?.textContent}`);
+    click(container.querySelector('[data-testid="max-button"]'));
+    assert.equal(container.querySelector('[data-testid="amount"]').value, "10", "MAX fills the X1 balance");
+  } finally {
     unmount();
   }
 });
