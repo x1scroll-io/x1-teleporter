@@ -1,0 +1,21 @@
+{
+  "step": "pancakeswap-bsc-step2-swap-request",
+  "artifact": {
+    "dex": "pancakeswap",
+    "chain": "bsc",
+    "swapRequest": {
+      "to": "0x1b81d678ffb9c0263b24a97847620c99d213eb14",
+      "data": "0x414bf3890000000000000000000000008ac76a51cc950d9822d68b83fe1ad97b32cd580d00000000000000000000000055d398326f99059ff775485246999027b319795500000000000000000000000000000000000000000000000000000000000001f40000000000000000000000004634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f600000000000000000000000000000000000000000000000000000000f48657000000000000000000000000000000000000000000000000008ac7230489e800000000000000000000000000000000000000000000000000008a0600ab5cd6d56e0000000000000000000000000000000000000000000000000000000000000000",
+      "value": "0x0",
+      "chain": "bsc",
+      "kind": "swap-exactInputSingle"
+    },
+    "minOutRaw": "9945637563091309934",
+    "slippageBps": 50
+  },
+  "sha256": "2dded78dda8e5a27e858b9c9a0417970e32c5594e6863d4b5ca415ff8d91427c",
+  "calldataSha256": "361e2d89e4a7dde8a0b31b24d6236e4cda8a69240fec27c88a935838d9b1830a",
+  "meta": {
+    "note": "The guarded swap-call REQUEST (SwapRouter.exactInputSingle — the direct periphery path). 🔴 The execute leg never signs/broadcasts: submit() throws DexDirectLiveTestGateError — READY FOR LIVE ANCHOR (Mr. Esters fires the first live swap with a funded wallet + real ATA/allowance to the router)."
+  }
+}

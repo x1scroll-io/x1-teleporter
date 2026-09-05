@@ -1,0 +1,134 @@
+{
+  "step": "raydium-clmm-step2-swap-ix",
+  "artifact": {
+    "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+    "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+    "userPubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "quote": {
+      "amountInRaw": "100000000",
+      "amountOutRaw": "10322981",
+      "amountOutMinRaw": "10271366",
+      "feeAmount": "40000",
+      "appliedFeeRate": 400,
+      "endTick": -22706,
+      "allTrade": true,
+      "outHuman": 10.322981,
+      "tickArrays": [
+        "9KnMQWpQ8bA7fydP4jsZN6s4waqA7GtA3Wt36zJuozav",
+        "FVGpZaheYCfMD17pAsMzWX5uVuDzbkmMLtTHmzz2ykgi",
+        "7i3tVrschaU3vghoATjkEiRFjT4HrUzmoTgNzroSvFvt",
+        "7KGRHr8gSwVqmJVv3sdnUEmKM3jRC551SMCt9ZxmCXsb"
+      ]
+    },
+    "ix": {
+      "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "discriminator": "2b04ed0b1ac91e62",
+      "keys": [
+        {
+          "pubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "pubkey": "3h2e43PunVA5K34vwKCLHWhZF4aZpyaC9RmxvshGAQpL",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "KHc1hKunyrAeMYBPbww84hp2DZs2qPLkqsKKAJhXuaV",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "4Rrj7pgmDgJ7c52D2RFZY7WGee1QdJeN2iHHNJGeYLGf",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "4ct7br2vTPzfdmY3S5HLtTxcGSBfn6pnw98hsS6v359A",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "5it83u57VRrVgc51oNV19TTmAJuffPx5GtGwQr7gQNUo",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "3Y695CuQ8AP4anbwAqiEBeQF9KxqHFr8piEwvw3UePnQ",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "So11111111111111111111111111111111111111112",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "4NFvUKqknMpoe6CWTzK758B8ojVLzURL5pC6MtiaJ8TQ",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "9KnMQWpQ8bA7fydP4jsZN6s4waqA7GtA3Wt36zJuozav",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "FVGpZaheYCfMD17pAsMzWX5uVuDzbkmMLtTHmzz2ykgi",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "7i3tVrschaU3vghoATjkEiRFjT4HrUzmoTgNzroSvFvt",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "7KGRHr8gSwVqmJVv3sdnUEmKM3jRC551SMCt9ZxmCXsb",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "dataBase64": "KwTtCxrJHmIA4fUFAAAAAIa6nAAAAAAAUTsBAAEAAAAAAAAAAAAAAAE=",
+      "dataHex": "2b04ed0b1ac91e6200e1f5050000000086ba9c0000000000513b010001000000000000000000000001"
+    },
+    "transaction": {
+      "blockhash": "96BfNwYAmZ29CRUHtMGVj6K3wESXTCVbFUVZHSXKfuXP",
+      "feePayer": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+      "instructionCount": 1,
+      "serializedBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAcTDemPkGJ7C08djOeZ2XzHRO9CYCPEyaz5lQkfwWtbo8grMZNgv6LOy5LEsKRgQJoPBCgDP2ATALiz/Pmc82AuhyWuMJhY0Y2Fd11NrZGy+ZY+PWnbpT1P4mW2aZ5HW7EZNcQvBHoAoKAOLl5QL9TKvFI7eXmrESNJk9CnefzNEmkyBSFJ4pSpRME4lUaIjxQxjDLdZ8uuB1W5vDHGv1VkDzLxOcrgrVni48bMp+4XaRJtZ8C49Nsv1T/QqTnaHsKARildPC6PKo6OKLQa0xoWwGf+aWRp/JlxldXK+/VaFshjqjM4QRs4yClpH3S/myKoKLfhVdecGBVJpd0p9CyjhV3UAp17/UT6xa7RQS/6f8CTZnfuJC2vqxSlGJ/zfL6Ge606vG3w2Xw7MQELndURYhXnzoUs6/gF7/OQ1wfFG4PXQcRziqnfKaWKcbxGRIRefiY/logwUxR6yBftM/P+uwSvOnbXLmAnKVdhXiLhCXwvkZJPSxJoyGBoXJh2EQD2J/h1kZHXDyshRTJ1cBKA+75w9IwihSFNbCJrm2AsTU2l1cqeBM9dtZC3FLov4yyxWRM/wcGStyJX/QfTnLBAHsb6evO+2606PWXzaqvJdDGxu+TC0vbg5HymAgNFL11hBUpTWpkpIQZNJOhxYNo4fHw1td28kruB5B+oQEEFRI0Gm4hX/quBhPtof2NGGMA12sQ53BrrO1WYoPAAAAAAAQbd9uHXZaGT2cvhRs7reawctIXtX1s3kTqM9YV+/wCpBt324e51j94YQl285GzN2rYa/E2DuQ0n/r35KNihi/x4MXRlbGVwb3J0ZXIteGRleC1zd2FwLWxlZy12MgAAQgENEgAMAQsFAwYCERIPEA4ECQoHCCkrBO0LGskeYgDh9QUAAAAAhrqcAAAAAABROwEAAQAAAAAAAAAAAAAAAQ=="
+    }
+  },
+  "sha256": "501719f581163f4a50b64cdbb0135351b1066754e9fb0bfe84d5f299842b3912",
+  "dataSha256": "aa5008598ea1353d46ffc7809f6f41e7eadcdf9a2b280405d6ed7c08d5885a1e",
+  "txSha256": "5b81c05f06a7dd62020874170697c55ff89f4775f5a0830175f18d9c5c371ef7",
+  "meta": {
+    "note": "The Raydium CLMM swap_v2 instruction + unsigned tx (disc 2b04ed0b1ac91e62). LIVE-READ-ONLY SIMULATED on mainnet during capture (sigVerify:false): parsed to the user-ATA initialization check — wire construction correct. 🔴 submit() throws DexDirectLiveTestGateError — READY FOR LIVE ANCHOR."
+  }
+}

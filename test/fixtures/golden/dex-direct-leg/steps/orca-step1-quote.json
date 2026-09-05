@@ -1,0 +1,21 @@
+{
+  "step": "orca-step1-quote",
+  "artifact": {
+    "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+    "programId": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+    "inputMint": "So11111111111111111111111111111111111111112",
+    "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amountInRaw": "100000000",
+    "amountOutRaw": "10322982",
+    "feeAmount": "40000",
+    "allTrade": true,
+    "appliedFeeRate": 400,
+    "endTickIndex": -22706,
+    "tickSpacing": 4,
+    "capturedAt": "2026-09-05T20:38:52.054Z"
+  },
+  "sha256": "36466fe09006d4d2214771422fc6cb41d9e5957a93309c497d3eb9b13053b937",
+  "meta": {
+    "note": "The Orca Whirlpool DEX-direct quote from the FROZEN live pool state (whirlpool + 3 tick arrays — 2026-09-05 capture) — numerically identical to @orca-so/whirlpools-sdk computeSwap on the same state (see the summary). quote-level REAL — swap-execution pending Mr. Esters' live anchor."
+  }
+}
