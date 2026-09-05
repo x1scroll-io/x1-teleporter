@@ -47,9 +47,11 @@
 
 import { CHAINS, TOKENS, X1_REVERSE_MIN } from "./teleportConstants.js";
 import { quoteFees, FEE_RATES, LIFI_INTEGRATOR_ACCOUNT } from "./fees.ts";
+// Token identity (decimals) + the Warp-twin relation read from the canonical
+// registry — see docs/TOKEN-RESOLVER.md.
+import { requireToken, resolveTwin } from "./tokenResolver.js";
 
-const USDC_DECIMALS = 6;
-const WSOL_DECIMALS = 9;
+const USDC_DECIMALS = requireToken("USDC", "sol").decimals; // 6 — canonical fallback (tokenResolver); WSOL_DECIMALS was dead code (dropped)
 
 /** Warp's per-token fee on the X1 side (bridge_out burn) — the mirror of
  *  warpBridge.js X1_WARP_FEES (single source of truth for the quote math;
@@ -59,10 +61,10 @@ const WSOL_DECIMALS = 9;
  *  wSOL.X: 25 bps (verified on-chain). ETH.X + cbBTC.X: 25 bps, 8 decimals
  *  (live config api.bridge.mainnet.x1.xyz/config, fetched 2026-09-03). */
 const X1_WARP_FEES = {
-  "USDC.x": { kind: "flat", amountUsd: 1, decimals: 6 },
-  "wSOL.X": { kind: "pct", bps: 25, decimals: 9 },
-  "ETH.X": { kind: "pct", bps: 25, decimals: 8 },
-  "cbBTC.X": { kind: "pct", bps: 25, decimals: 8 },
+  "USDC.x": { kind: "flat", amountUsd: 1, decimals: requireToken("USDC.x", "x1").decimals },
+  "wSOL.X": { kind: "pct", bps: 25, decimals: requireToken("wSOL.X", "x1").decimals },
+  "ETH.X": { kind: "pct", bps: 25, decimals: requireToken("ETH.X", "x1").decimals },
+  "cbBTC.X": { kind: "pct", bps: 25, decimals: requireToken("cbBTC.X", "x1").decimals },
 };
 
 /** The DEFAULT Warp fee shape for an UNKNOWN X1 token: 25 bps pct — flat $1
@@ -82,16 +84,12 @@ export function x1WarpFeeShape(token) {
 /** Resolve the Solana-side FROM token for the stage-2 LiFi leg from the X1
  *  source token (the twin the Warp burn releases on Solana): USDC.x releases
  *  USDC (6 dec); wSOL.X releases WSOL (9 dec); ETH.X releases ETH (8 dec);
- *  cbBTC.X releases cbBTC (8 dec) — twins per the live Warp config. Unknown
- *  tokens fall back to USDC (back-compat: the only legacy callers predate the
- *  ETH/cbBTC rails; no unknown-token reverse leg is executable today). */
+ *  cbBTC.X releases cbBTC (8 dec) — twins per the canonical warp-twin
+ *  relation (tokenResolver.resolveTwin). Unknown tokens fall back to USDC
+ *  (back-compat: the only legacy callers predate the ETH/cbBTC rails; no
+ *  unknown-token reverse leg is executable today). */
 export function reverseSolanaToken(token) {
-  const twin = {
-    "wSOL.X": "WSOL",
-    "ETH.X": "ETH",
-    "cbBTC.X": "cbBTC",
-  }[token];
-  return twin || "USDC";
+  return resolveTwin(token) || "USDC";
 }
 
 /**
@@ -144,14 +142,15 @@ export function computeReverseLegs({ amount, token = "USDC.x" }) {
 }
 
 /** Coingecko simple-price ids for the reverse SOURCE tokens (the Solana-side
- *  landing token of the X1 burn — USDC, WSOL, ETH or cbBTC). Fallback ONLY:
- *  the LiFi quote's fromToken.priceUSD is the primary price source. */
-const COINGECKO_IDS = {
-  USDC: "usd-coin",
-  WSOL: "wrapped-solana",
-  ETH: "ethereum",
-  cbBTC: "coinbase-wrapped-btc",
-};
+ *  landing token of the X1 burn — USDC, WSOL, ETH or cbBTC). Derived from the
+ *  canonical rows' coingeckoId (tokenResolver) — never written by hand.
+ *  Fallback ONLY: the LiFi quote's fromToken.priceUSD is the primary price
+ *  source. */
+const COINGECKO_IDS = Object.fromEntries(
+  ["USDC", "WSOL", "ETH", "cbBTC"]
+    .map((s) => [s, requireToken(s, "sol").coingeckoId])
+    .filter(([, id]) => id != null),
+);
 
 /**
  * Resolve the LIVE USD price for the reverse SOURCE token — never hardcoded

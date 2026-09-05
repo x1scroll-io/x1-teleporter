@@ -36,13 +36,17 @@ import {
 } from "@solana/spl-token";
 import { simulateSolanaTx, guardedSendSolanaTx } from "./lib/simulateTx.js";
 import { FEE_RATES } from "./lib/fees.ts";
+// TOKEN IDENTITY (mints, decimals) reads from the canonical registry — see
+// docs/TOKEN-RESOLVER.md. requireToken throws at import time if a pinned
+// entry ever goes missing (loud config failure, never a silent null mint).
+import { requireToken } from "./lib/tokenResolver.js";
 
 // ── CONSTANTS ──
 export const WARP_PROGRAM_ID = new PublicKey(
   "6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD"
 );
 export const USDC_MINT = new PublicKey(
-  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+  requireToken("USDC", "sol").address // canonical Solana USDC (tokenResolver)
 );
 
 // X1-side: USDC.x is a Token-2022 mint; the recipient ATA must EXIST on X1
@@ -95,7 +99,7 @@ export const WARP_ACCOUNTS = {
   feeCollectorAta: new PublicKey("6ob9XW6f6mweGu5sGh3JwW2Vp6UNQApjuPvrubXMQXyi"),
 };
 
-const USDC_DECIMALS = 6;
+const USDC_DECIMALS = requireToken("USDC", "sol").decimals; // 6 — canonical (tokenResolver)
 export const ONE_USDC = 1_000_000n;
 // 0.50% = 50 basis points (fee-model v2, 2026-09-02 — was 100bps at the old
 // 1% rate). Sourced from src/lib/fees.ts (Step 1.3C) so the on-chain skim and
@@ -699,7 +703,7 @@ export async function runStage2({
 //   - USDC.x is a TOKEN-2022 mint (B69chRz), so ATAs + token program differ
 //   - account 9 = feeCollector's USDC.x ATA, account 10 = Token-2022 program
 // ════════════════════════════════════════════════════════════════════════════
-export const X1_USDCX_MINT = new PublicKey("B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq");
+export const X1_USDCX_MINT = new PublicKey(requireToken("USDC.x", "x1").address); // X1 USDC.x — canonical (tokenResolver)
 const X1_FEE_COLLECTOR = new PublicKey("7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2Jig7j");
 
 // ── WSOL / wSOL.X — the SOL rail (ground truth: live Warp config
@@ -711,8 +715,8 @@ const X1_FEE_COLLECTOR = new PublicKey("7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2J
 //   Solana lock BOTH charge the pct fee (verified on-chain: a live wSOL.X
 //   burn debited 0.11 wSOL.X gross → 0.000275 to the fee collector = exactly
 //   25 bps of the gross, net release 0.109725).
-export const WSOL_MINT = new PublicKey("So11111111111111111111111111111111111111112"); // Solana native wSOL (spl-token v1)
-export const X1_WSOLX_MINT = new PublicKey("JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8"); // X1 wrapped wSOL.X (Token-2022)
+export const WSOL_MINT = new PublicKey(requireToken("WSOL", "sol").address); // Solana native wSOL (spl-token v1) — canonical (tokenResolver)
+export const X1_WSOLX_MINT = new PublicKey(requireToken("wSOL.X", "x1").address); // X1 wrapped wSOL.X (Token-2022) — canonical (tokenResolver)
 
 // ── ETH / ETH.X + cbBTC / cbBTC.X — the ETH + BTC rails (ground truth: the
 //    SAME live Warp config https://api.bridge.mainnet.x1.xyz/config, Sep 2026) ──
@@ -724,10 +728,10 @@ export const X1_WSOLX_MINT = new PublicKey("JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6o
 // the 2026-09-03 capture (config dailyVolume 0, no live burns — see the
 // synthetic-labeled ETH.X golden fixture), so these entries pin the CONFIG
 // fee shape, not an observed burn.
-export const ETH_MINT = new PublicKey("7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs"); // Solana ETH (Wormhole) — 8 dec, 25bps (live config)
-export const X1_ETHX_MINT = new PublicKey("4wxJFFnRSCgFgS8GvWH9iHgSjFsKbQpXkBG5Y826cbvw"); // X1 wrapped ETH.X (Token-2022)
-export const CBBTC_MINT = new PublicKey("cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij"); // Solana cbBTC — 8 dec, 25bps (live config)
-export const X1_CBBTCX_MINT = new PublicKey("s47zmcZNFkZkdJqgZxZSBvXb8wRx89HgVGXt5Pf791K"); // X1 wrapped cbBTC.X (Token-2022)
+export const ETH_MINT = new PublicKey(requireToken("ETH", "sol").address); // Solana ETH (Wormhole) — 8 dec, 25bps (live config) — canonical (tokenResolver)
+export const X1_ETHX_MINT = new PublicKey(requireToken("ETH.X", "x1").address); // X1 wrapped ETH.X (Token-2022) — canonical (tokenResolver)
+export const CBBTC_MINT = new PublicKey(requireToken("cbBTC", "sol").address); // Solana cbBTC — 8 dec, 25bps (live config) — canonical (tokenResolver)
+export const X1_CBBTCX_MINT = new PublicKey(requireToken("cbBTC.X", "x1").address); // X1 wrapped cbBTC.X (Token-2022) — canonical (tokenResolver)
 // Warp fee-collector token accounts (per-token, from the live config):
 export const X1_WSOLX_FEE_ACCOUNT = new PublicKey("9Tdid7tM1bKv8hMyiTDLfB2LhfCGoaBv5GoezQzW2VP9"); // X1 wSOL.X fee collector ATA
 const SOL_WSOL_FEE_ACCOUNT = new PublicKey("GxfLqeziL8wrUF31H1thWVAHkqzPodoqbwZeoDTRAkyU"); // Solana wSOL fee collector ATA
@@ -747,10 +751,10 @@ export const SOL_CBBTC_FEE_ACCOUNT = new PublicKey("6WFfCbyw2TRfJuGSNZp2VCtcFXqA
  *  UI: USDC→USDC.x flat $1; ETH/BTC/SOL/OTHER 0.25%). The program carves
  *  the fee OUT of the gross inside bridge_out (verified on-chain). */
 export const X1_WARP_FEES = {
-  "USDC.x": { kind: "flat", amountBase: 1_000_000n, decimals: 6 },
-  "wSOL.X": { kind: "pct", bps: 25, decimals: 9 },
-  "ETH.X": { kind: "pct", bps: 25, decimals: 8 },
-  "cbBTC.X": { kind: "pct", bps: 25, decimals: 8 },
+  "USDC.x": { kind: "flat", amountBase: 1_000_000n, decimals: requireToken("USDC.x", "x1").decimals },
+  "wSOL.X": { kind: "pct", bps: 25, decimals: requireToken("wSOL.X", "x1").decimals },
+  "ETH.X": { kind: "pct", bps: 25, decimals: requireToken("ETH.X", "x1").decimals },
+  "cbBTC.X": { kind: "pct", bps: 25, decimals: requireToken("cbBTC.X", "x1").decimals },
 };
 
 /** The DEFAULT Warp fee shape for an UNKNOWN X1 token: 25 bps pct — flat $1
@@ -768,10 +772,10 @@ export function x1WarpFeeFor(token) {
  *  same rule: flat $1 for USDC ONLY; WSOL/ETH/cbBTC charge 25 bps pct;
  *  unknown tokens default to the pct (SOL_WARP_FEE_PCT_DEFAULT). */
 export const SOL_WARP_FEES = {
-  USDC: { kind: "flat", amountBase: 1_000_000n, decimals: 6 },
-  WSOL: { kind: "pct", bps: 25, decimals: 9 },
-  ETH: { kind: "pct", bps: 25, decimals: 8 },
-  cbBTC: { kind: "pct", bps: 25, decimals: 8 },
+  USDC: { kind: "flat", amountBase: 1_000_000n, decimals: requireToken("USDC", "sol").decimals },
+  WSOL: { kind: "pct", bps: 25, decimals: requireToken("WSOL", "sol").decimals },
+  ETH: { kind: "pct", bps: 25, decimals: requireToken("ETH", "sol").decimals },
+  cbBTC: { kind: "pct", bps: 25, decimals: requireToken("cbBTC", "sol").decimals },
 };
 
 /** The DEFAULT Warp fee shape for an UNKNOWN Solana-side token: 25 bps pct. */
@@ -797,10 +801,10 @@ export function solWarpFeeFor(token) {
  *  the token is wrapped (accounts 6+7 = the program itself, exactly as the
  *  USDC.x burn tx the code was built from). */
 export const X1_REVERSE_TOKENS = {
-  "USDC.x": { mint: X1_USDCX_MINT, decimals: 6, feeAccount: new PublicKey("4uRFjqVU5ZKkp7hQLx3Lm3YeWFts17ER8a5HLUE18ayG") },
-  "wSOL.X": { mint: X1_WSOLX_MINT, decimals: 9, feeAccount: X1_WSOLX_FEE_ACCOUNT },
-  "ETH.X": { mint: X1_ETHX_MINT, decimals: 8, feeAccount: X1_ETHX_FEE_ACCOUNT }, // live config — 25bps pct fee (no live burn yet: synthetic-labeled fixture)
-  "cbBTC.X": { mint: X1_CBBTCX_MINT, decimals: 8, feeAccount: X1_CBBTCX_FEE_ACCOUNT }, // live config — 25bps pct fee
+  "USDC.x": { mint: X1_USDCX_MINT, decimals: requireToken("USDC.x", "x1").decimals, feeAccount: new PublicKey("4uRFjqVU5ZKkp7hQLx3Lm3YeWFts17ER8a5HLUE18ayG") },
+  "wSOL.X": { mint: X1_WSOLX_MINT, decimals: requireToken("wSOL.X", "x1").decimals, feeAccount: X1_WSOLX_FEE_ACCOUNT },
+  "ETH.X": { mint: X1_ETHX_MINT, decimals: requireToken("ETH.X", "x1").decimals, feeAccount: X1_ETHX_FEE_ACCOUNT }, // live config — 25bps pct fee (no live burn yet: synthetic-labeled fixture)
+  "cbBTC.X": { mint: X1_CBBTCX_MINT, decimals: requireToken("cbBTC.X", "x1").decimals, feeAccount: X1_CBBTCX_FEE_ACCOUNT }, // live config — 25bps pct fee
 };
 
 /** The forward (Sol→X1) token map — the Solana-side SOURCE token (locked by
@@ -811,14 +815,14 @@ export const X1_FORWARD_TOKENS = {
   "USDC.x": {
     sourceMint: USDC_MINT,
     destMint: X1_USDCX_MINT,
-    decimals: 6,
+    decimals: requireToken("USDC", "sol").decimals, // source-side (Solana USDC) — canonical (tokenResolver)
     feeAccount: WARP_ACCOUNTS.feeCollectorAta, // 6ob9XW… (live USDC lock tx)
     minBase: 10n * ONE_USDC, // Warp's $10 floor in USDC base units
   },
   "wSOL.X": {
     sourceMint: WSOL_MINT,
     destMint: X1_WSOLX_MINT,
-    decimals: 9,
+    decimals: requireToken("WSOL", "sol").decimals, // source-side (Solana WSOL) — canonical (tokenResolver)
     feeAccount: SOL_WSOL_FEE_ACCOUNT, // GxfLqezi… (live config)
     minBase: 100_000_000n, // config minAmount for wSOL (0.1 WSOL)
   },
@@ -901,7 +905,7 @@ export async function assertX1FeePayer(connection, userPubkey) {
 // (NOT InvalidMint, which is 2). Indistinguishable from a broken account
 // list, which is exactly what the v2 armed-preview user hit. Preflight the
 // balance so the failure is actionable instead of cryptic.
-export const X1_USDC_DECIMALS = 6;
+export const X1_USDC_DECIMALS = requireToken("USDC.x", "x1").decimals; // 6 — canonical (tokenResolver)
 
 /**
  * X1UsdcBalanceError — thrown when the user's X1 USDC.x ATA cannot cover
