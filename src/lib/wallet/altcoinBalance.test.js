@@ -11,6 +11,7 @@ import {
   BLOCKCYPHER_DOGE_API,
   LITECOIN_SPACE_API,
   balanceFromBlockcypher,
+  balanceFromBlockcypherConfirmed,
   createDogeBalanceFetcher,
   createLtcBalanceFetcher,
   formatDogeBalance,
@@ -56,6 +57,15 @@ test("LTC: pending mempool deltas are included", async () => {
   assert.equal(await fetchBalance(LTC_ADDRESS), 1_400);
 });
 
+test("LTC spendableOnly: confirmed chain stats only — pending excluded (the MAX-fill read)", async () => {
+  const fetcher = mockFetcher({
+    chain_stats: { funded_txo_sum: 1_000, spent_txo_sum: 0 },
+    mempool_stats: { funded_txo_sum: 500, spent_txo_sum: 100 },
+  });
+  const fetchBalance = createLtcBalanceFetcher({ fetcher, spendableOnly: true });
+  assert.equal(await fetchBalance(LTC_ADDRESS), 1_000, "spendable = confirmed only");
+});
+
 test("LTC: transport + HTTP failures reject with a descriptive error", async () => {
   const boom = async () => {
     throw new Error("network down");
@@ -87,12 +97,30 @@ test("DOGE: balance = final_balance (confirmed + pending), never negative", () =
   assert.equal(balanceFromBlockcypher(null), 0);
 });
 
+test("DOGE confirmed (spendable) parse: the `balance` field only — pending excluded", () => {
+  const data = { balance: 100, unconfirmed_balance: 50, final_balance: 150 };
+  assert.equal(balanceFromBlockcypher(data), 150, "total read includes pending");
+  assert.equal(balanceFromBlockcypherConfirmed(data), 100, "spendable read is confirmed-only");
+  assert.equal(balanceFromBlockcypherConfirmed({ final_balance: 150 }), 0, "no confirmed field → 0");
+  assert.equal(balanceFromBlockcypherConfirmed(null), 0);
+});
+
 test("DOGE: fetcher hits the /addrs/{addr}/balance endpoint and parses sats", async () => {
   const fetcher = mockFetcher({ address: DOGE_ADDRESS, balance: 1_000, unconfirmed_balance: 200, final_balance: 1_200 });
   const fetchBalance = createDogeBalanceFetcher({ fetcher });
   const sats = await fetchBalance(DOGE_ADDRESS);
 
   assert.equal(sats, 1_200);
+  assert.equal(fetcher.calls.length, 1);
+  assert.equal(fetcher.calls[0][0], `${BLOCKCYPHER_DOGE_API}/addrs/${DOGE_ADDRESS}/balance`);
+});
+
+test("DOGE spendableOnly: the confirmed `balance` field only — pending excluded (the MAX-fill read)", async () => {
+  const fetcher = mockFetcher({ address: DOGE_ADDRESS, balance: 1_000, unconfirmed_balance: 200, final_balance: 1_200 });
+  const fetchBalance = createDogeBalanceFetcher({ fetcher, spendableOnly: true });
+  const sats = await fetchBalance(DOGE_ADDRESS);
+
+  assert.equal(sats, 1_000, "spendable = confirmed only");
   assert.equal(fetcher.calls.length, 1);
   assert.equal(fetcher.calls[0][0], `${BLOCKCYPHER_DOGE_API}/addrs/${DOGE_ADDRESS}/balance`);
 });

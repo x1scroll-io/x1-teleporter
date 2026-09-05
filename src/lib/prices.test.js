@@ -91,6 +91,10 @@ test("getPricesUSD maps Coingecko ids onto every balance-line symbol", async () 
     tether: 1.0,
     dai: 1.0,
     "wrapped-solana": 150.5,
+    bitcoin: 97_000,
+    dogecoin: 0.16,
+    litecoin: 100,
+    ripple: 2.5,
   });
   resetPriceCache();
   const prices = await getPricesUSD({ fetchPrice: fp, now: 1000, force: true });
@@ -101,9 +105,13 @@ test("getPricesUSD maps Coingecko ids onto every balance-line symbol", async () 
     WSOL: 150.5,
     "USDC.x": 1.0, // Warp twin of Solana USDC — same id, same price
     "wSOL.X": 150.5, // Warp twin of Solana WSOL — same id, same price
+    BTC: 97_000,
+    DOGE: 0.16,
+    LTC: 100,
+    XRP: 2.5,
   });
   // one batch call with the deduped id set
-  assert.deepEqual(fp.calls[0], ["usd-coin", "tether", "dai", "wrapped-solana"]);
+  assert.deepEqual(fp.calls[0], ["usd-coin", "tether", "dai", "wrapped-solana", "bitcoin", "dogecoin", "litecoin", "ripple"]);
 });
 
 test("getPricesUSD caches within the TTL — one fetch across many calls", async () => {
@@ -163,6 +171,6 @@ test("usdValue: null-in → null-out (no USD when balance or price missing)", ()
   assert.equal(usdValue(null, null), null);
 });
 
-test("COINGECKO_IDS covers the exact symbols the balance line renders", () => {
-  assert.deepEqual(Object.keys(COINGECKO_IDS).sort(), ["DAI", "USDC", "USDC.x", "USDT", "WSOL", "wSOL.X"]);
+test("COINGECKO_IDS covers the exact symbols the balance readouts render", () => {
+  assert.deepEqual(Object.keys(COINGECKO_IDS).sort(), ["BTC", "DAI", "DOGE", "LTC", "USDC", "USDC.x", "USDT", "WSOL", "XRP", "wSOL.X"]);
 });

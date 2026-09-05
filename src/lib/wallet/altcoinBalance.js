@@ -21,7 +21,7 @@
  * Signing is hard-stopped (Pro lane, later step).
  */
 
-import { balanceFromMempoolAddress } from "./bitcoinBalance.js";
+import { balanceFromMempoolAddress, confirmedFromMempoolAddress } from "./bitcoinBalance.js";
 
 /** LitecoinSpace public API base URL (mempool.space-compatible JSON). */
 export const LITECOIN_SPACE_API = "https://litecoinspace.org/api";
@@ -42,17 +42,36 @@ export function balanceFromBlockcypher(data) {
 }
 
 /**
+ * Parse ONLY the confirmed side of a BlockCypher DOGE balance response into
+ * satoshis — the SPENDABLE balance. BlockCypher's `balance` field is the
+ * confirmed balance; `final_balance` adds pending, so spendable reads (a
+ * send form's MAX fill) use `balance` and never count unconfirmed funds.
+ * Pure — exported for direct unit testing.
+ *
+ * @param {{balance?: number, unconfirmed_balance?: number, final_balance?: number}} data
+ * @returns {number} confirmed balance in satoshis (≥ 0; a drained address is 0)
+ */
+export function balanceFromBlockcypherConfirmed(data) {
+  const confirmed = Number(data?.balance ?? 0);
+  return Math.max(0, Number.isFinite(confirmed) ? confirmed : 0);
+}
+
+/**
  * Create a Litecoin balance fetcher for an address.
  *
- * @param {{fetcher?: (url: string, init?: object) => Promise<{ok: boolean, json: () => Promise<object>}>, apiUrl?: string}} [options]
+ * @param {{fetcher?: (url: string, init?: object) => Promise<{ok: boolean, json: () => Promise<object>}>, apiUrl?: string, spendableOnly?: boolean}} [options]
  *   - fetcher: injected HTTP fetch (defaults to global fetch). Tests mock it.
  *   - apiUrl: LitecoinSpace base URL (defaults to the public mainnet API).
+ *   - spendableOnly: when true, resolve the CONFIRMED balance only (pending
+ *     mempool deltas excluded) — the spendable amount a MAX fill may use.
+ *     Default false keeps the historical total for existing callers.
  * @returns {(address: string) => Promise<number>} resolves satoshis; rejects
  *   with a descriptive error on transport or HTTP failure.
  */
 export function createLtcBalanceFetcher({
   fetcher = typeof globalThis !== "undefined" ? globalThis.fetch : undefined,
   apiUrl = LITECOIN_SPACE_API,
+  spendableOnly = false,
 } = {}) {
   if (typeof fetcher !== "function") {
     throw new Error("createLtcBalanceFetcher: no fetch implementation available");
@@ -72,23 +91,30 @@ export function createLtcBalanceFetcher({
       throw new Error(`fetchLtcBalance: LitecoinSpace responded ${response?.status ?? "unknown"}`);
     }
     const data = await response.json();
-    // LitecoinSpace is mempool.space-compatible — reuse the pure parser.
-    return balanceFromMempoolAddress(data);
+    // LitecoinSpace is mempool.space-compatible — reuse the pure parsers.
+    // Spendable reads (a send form's MAX) count CONFIRMED funds only.
+    return spendableOnly
+      ? confirmedFromMempoolAddress(data)
+      : balanceFromMempoolAddress(data);
   };
 }
 
 /**
  * Create a Dogecoin balance fetcher for an address.
  *
- * @param {{fetcher?: (url: string, init?: object) => Promise<{ok: boolean, json: () => Promise<object>}>, apiUrl?: string}} [options]
+ * @param {{fetcher?: (url: string, init?: object) => Promise<{ok: boolean, json: () => Promise<object>}>, apiUrl?: string, spendableOnly?: boolean}} [options]
  *   - fetcher: injected HTTP fetch (defaults to global fetch). Tests mock it.
  *   - apiUrl: BlockCypher DOGE base URL (defaults to the public API).
+ *   - spendableOnly: when true, resolve the CONFIRMED balance only (the
+ *     `balance` field — pending excluded) — the spendable amount a MAX fill
+ *     may use. Default false keeps final_balance for existing callers.
  * @returns {(address: string) => Promise<number>} resolves satoshis; rejects
  *   with a descriptive error on transport or HTTP failure.
  */
 export function createDogeBalanceFetcher({
   fetcher = typeof globalThis !== "undefined" ? globalThis.fetch : undefined,
   apiUrl = BLOCKCYPHER_DOGE_API,
+  spendableOnly = false,
 } = {}) {
   if (typeof fetcher !== "function") {
     throw new Error("createDogeBalanceFetcher: no fetch implementation available");
@@ -108,7 +134,10 @@ export function createDogeBalanceFetcher({
       throw new Error(`fetchDogeBalance: BlockCypher responded ${response?.status ?? "unknown"}`);
     }
     const data = await response.json();
-    return balanceFromBlockcypher(data);
+    // Spendable reads (a send form's MAX) count CONFIRMED funds only.
+    return spendableOnly
+      ? balanceFromBlockcypherConfirmed(data)
+      : balanceFromBlockcypher(data);
   };
 }
 

@@ -10,6 +10,7 @@ import assert from "node:assert/strict";
 import {
   MEMPOOL_SPACE_API,
   balanceFromMempoolAddress,
+  confirmedFromMempoolAddress,
   createBtcBalanceFetcher,
   formatBtcBalance,
 } from "./bitcoinBalance.js";
@@ -43,6 +44,25 @@ test("a drained address (fully spent) reports 0, never negative", () => {
   assert.equal(balanceFromMempoolAddress(data), 0);
 });
 
+test("confirmed (spendable) parse counts ONLY the confirmed chain side — pending mempool deltas excluded", () => {
+  const data = {
+    chain_stats: { funded_txo_sum: 1_000_000, spent_txo_sum: 400_000 },
+    mempool_stats: { funded_txo_sum: 50_000, spent_txo_sum: 10_000 },
+  };
+  assert.equal(balanceFromMempoolAddress(data), 640_000, "total read includes pending");
+  assert.equal(confirmedFromMempoolAddress(data), 600_000, "spendable read is confirmed-only");
+});
+
+test("confirmed (spendable) parse: drained/missing stats → 0, never negative", () => {
+  const drained = {
+    chain_stats: { funded_txo_sum: 100, spent_txo_sum: 150 },
+    mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 0 },
+  };
+  assert.equal(confirmedFromMempoolAddress(drained), 0);
+  assert.equal(confirmedFromMempoolAddress({}), 0);
+  assert.equal(confirmedFromMempoolAddress(null), 0);
+});
+
 test("missing stats objects are tolerated (empty response → 0)", () => {
   assert.equal(balanceFromMempoolAddress({}), 0);
   assert.equal(balanceFromMempoolAddress(null), 0);
@@ -60,6 +80,23 @@ test("createBtcBalanceFetcher hits the address endpoint and parses sats", async 
   assert.equal(fetcher.calls.length, 1);
   const [url] = fetcher.calls[0];
   assert.equal(url, `${MEMPOOL_SPACE_API}/address/${PAYMENT_ADDRESS}`);
+});
+
+test("createBtcBalanceFetcher spendableOnly: pending mempool deltas are excluded (confirmed only)", async () => {
+  const fetcher = mockFetcher({
+    chain_stats: { funded_txo_sum: 1_000_000, spent_txo_sum: 400_000 },
+    mempool_stats: { funded_txo_sum: 50_000, spent_txo_sum: 10_000 },
+  });
+  const fetchBalance = createBtcBalanceFetcher({ fetcher, spendableOnly: true });
+  assert.equal(await fetchBalance(PAYMENT_ADDRESS), 600_000, "spendable = confirmed only");
+
+  // Same body WITHOUT the option keeps the historical total read.
+  const fetcher2 = mockFetcher({
+    chain_stats: { funded_txo_sum: 1_000_000, spent_txo_sum: 400_000 },
+    mempool_stats: { funded_txo_sum: 50_000, spent_txo_sum: 10_000 },
+  });
+  const fetchBalanceTotal = createBtcBalanceFetcher({ fetcher: fetcher2 });
+  assert.equal(await fetchBalanceTotal(PAYMENT_ADDRESS), 640_000, "default stays confirmed + pending");
 });
 
 test("the address is URL-encoded in the request path", async () => {

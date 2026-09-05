@@ -76,6 +76,9 @@ import { solanaSessionCanSign } from "../lib/wallet/sessionProviders.js";
 import { useWalletContext } from "../lib/wallet/WalletContext.jsx";
 import { WALLET_FAMILIES, FAMILY_LABELS } from "../lib/wallet/families.js";
 import { resolveEvmProvider } from "../lib/wallet/sessionProviders.js";
+import { createBtcBalanceFetcher } from "../lib/wallet/bitcoinBalance.js";
+import { createLtcBalanceFetcher, createDogeBalanceFetcher } from "../lib/wallet/altcoinBalance.js";
+import { createXrpBalanceFetcher } from "../lib/wallet/xrpBalance.js";
 import {
   fetchEvmTokenBalance,
   fetchSvmTokenBalances,
@@ -224,6 +227,8 @@ const CONSOLE_CSS = `
 .tc-quote-val{color:#b9c9dc;font-weight:600;font-size:13px;text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.92),0 0 4px rgba(1,4,9,.5),0 1px 3px rgba(1,4,9,.9)}
 .tc-quote-hi{color:#3fd3e8;font-weight:800;font-size:17px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-shadow:1px 0 0 rgba(1,4,9,.92),-1px 0 0 rgba(1,4,9,.92),0 1px 0 rgba(1,4,9,.92),0 -1px 0 rgba(1,4,9,.92),0 0 2px rgba(1,4,9,.95),0 0 5px rgba(1,4,9,.55),0 1px 3px rgba(1,4,9,.9),0 0 12px rgba(63,211,232,.3)}
 .tc-refresh{background:rgba(63,211,232,.05);border:1px solid rgba(0,240,255,.45);color:#7ff3ff;text-shadow:1px 0 0 rgba(1,4,9,.9),-1px 0 0 rgba(1,4,9,.9),0 1px 0 rgba(1,4,9,.9),0 -1px 0 rgba(1,4,9,.9),0 0 2px rgba(1,4,9,.92),0 0 6px rgba(0,240,255,.4);border-radius:6px;font-size:11px;padding:3px 10px;cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.1em;box-shadow:inset 0 1px 0 rgba(255,255,255,.1)}
+.tc-bal-retry{background:rgba(63,211,232,.06);border:1px solid rgba(0,240,255,.4);color:#7ff3ff;text-shadow:0 0 2px rgba(1,4,9,.9);border-radius:999px;font-size:11px;line-height:1;padding:3px 7px;cursor:pointer;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+.tc-bal-retry:hover{background:rgba(63,211,232,.18)}
 .tc-steps{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .tc-step{font-size:10px;padding:3px 9px;border-radius:999px;color:#9fd8e6;border:1px solid rgba(63,211,232,.3);background:rgba(63,211,232,.06);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.06em;text-shadow:0 0 2px rgba(1,4,9,.9),0 0 4px rgba(1,4,9,.55)}
 .tc-note{font-size:11px;color:#6e93ad;margin-top:6px;line-height:1.5;text-shadow:0 0 2px rgba(1,4,9,.85),0 1px 2px rgba(1,4,9,.7)}
@@ -538,6 +543,10 @@ export default function TeleportConsole({
   const [connecting, setConnecting] = useState(false);
   const [seqVisible, setSeqVisible] = useState(false);
   const [sourceBalance, setSourceBalance] = useState(null); // { balance, symbol, usd } | null
+  // True when the LATEST balance read failed (transport/HTTP) — the readout
+  // shows "BAL —" plus a cheap ↻ retry instead of a silent dead read. Cleared
+  // at the start of every read and on reset.
+  const [balanceFailed, setBalanceFailed] = useState(false);
   // Native-rail hop (the THORChain engine path — deposit → tracking): the
   // submit payload from the deposit step, fed to the progress tracker.
   const [hop, setHop] = useState(null); // { inboundTxid, sourceChain, destination, expectedAmountOut } | null
@@ -560,6 +569,7 @@ export default function TeleportConsole({
     setReverseStage(0); setReleaseNote(null); setPolling(false); setHandoffReason(null);
     setRefreshLeft(QUOTE_REFRESH_SECONDS);
     setBalanceRefresh((n) => n + 1);
+    setBalanceFailed(false);
     setHop(null);
   }, []);
 
@@ -606,25 +616,69 @@ export default function TeleportConsole({
     setAmount(v); setQuote(null); setError(null); setPhase("idle");
   }, []);
 
-  // ── Source-balance read (the "BAL" readout + MAX). Live ladder reads, the
-  //    same fetchers/fallbacks the site uses. Fail-soft: "—", never blocks. ─
+  // ── Source-balance read (the "BAL" readout + MAX). Live reads, the same
+  //    fetchers/fallbacks the site uses. Fail-soft: "—", never blocks.
+  //    NATIVE sources (BTC/DOGE/LTC/XRP — the deposit-address rail) read the
+  //    connected source-family session's address through the wallet layer's
+  //    OWN public-chain fetchers (mempool.space / LitecoinSpace / BlockCypher
+  //    / XRPL — bitcoinBalance/altcoinBalance/xrpBalance), spendable-only
+  //    (confirmed, never pending) so BAL + MAX can never count funds that
+  //    aren't spendable yet. No native session connected → no read (the
+  //    honest "BAL —"); a failed read is a dead readout + the cheap ↻
+  //    retry, never a block. ─
   const balanceDeps = formProps.balancesDeps || {};
   const evmBalanceFetcher = balanceDeps.evmBalanceFetcher || fetchEvmTokenBalance;
   const svmBalanceFetcher = balanceDeps.solBalanceFetcher || fetchSvmTokenBalances;
   const priceFetcher = balanceDeps.priceFetcher || getPricesUSD;
   const resolveEvmProviderFn = balanceDeps.resolveEvmProviderFn || resolveEvmProvider;
+  // Per-family NATIVE fetchers — DI-able for tests, the REAL wallet-layer
+  // fetchers by default (spendable/confirmed reads). Held in a ref so the
+  // per-render defaults never churn the read effect's dependency list; the
+  // effect re-runs on route/session/refresh changes and always sees the
+  // latest fetchers.
+  const nativeFetchersRef = useRef(null);
+  nativeFetchersRef.current = {
+    bitcoin: balanceDeps.bitcoinBalanceFetcher || createBtcBalanceFetcher({ spendableOnly: true }),
+    litecoin: balanceDeps.litecoinBalanceFetcher || createLtcBalanceFetcher({ spendableOnly: true }),
+    dogecoin: balanceDeps.dogecoinBalanceFetcher || createDogeBalanceFetcher({ spendableOnly: true }),
+    // The XRPL account_info Balance is already the confirmed/spendable read.
+    xrp: balanceDeps.xrpBalanceFetcher || createXrpBalanceFetcher(),
+  };
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       setSourceBalance(null);
+      setBalanceFailed(false);
+      // Which source does the readout read? Forward: the EVM source wallet
+      // (LiFi/Warp rail) OR the connected NATIVE source-family session
+      // (BTC/DOGE/LTC/XRP — the deposit-address rail; the send itself is
+      // out-of-band, but a connected source wallet makes the read live);
+      // reverse: the X1 (Solana session) balance. No matching session → no
+      // read — the honest "BAL —".
+      const nativeFamily = direction === "forward" && nativeMeta ? nativeMeta.family : null;
+      const nativeAddr = nativeFamily ? sessions[nativeFamily]?.address : null;
       const evmAddr = evmSession?.address;
       const solAddr = solSession?.address;
-      if (!evmAddr && !solAddr) return;
+      if (!evmAddr && !solAddr && !nativeAddr) return;
       let priceMap = null;
       try { priceMap = await priceFetcher(); } catch { priceMap = null; }
       try {
-        if (direction === "forward" && evmAddr && TOKENS[from]?.[token]) {
+        if (nativeFamily && nativeAddr) {
+          // Native source: the wallet layer's public-chain fetcher for the
+          // family resolves base units (sats/drops); the readout divides by
+          // the chain's own decimals. Spendable-only fetchers (confirmed,
+          // not pending) keep BAL and the MAX fill honest.
+          const fetcher = nativeFetchersRef.current?.[nativeFamily];
+          if (!fetcher) { if (!cancelled) setBalanceFailed(true); return; }
+          const baseUnits = await fetcher(nativeAddr);
+          if (cancelled) return;
+          const human = baseUnits / 10 ** nativeMeta.decimals;
+          const price = priceMap?.[nativeMeta.asset];
+          setSourceBalance(Number.isFinite(human) && human >= 0
+            ? { balance: human, symbol: nativeMeta.asset, usd: price != null ? human * price : null }
+            : null);
+        } else if (direction === "forward" && evmAddr && TOKENS[from]?.[token]) {
           const provider = await resolveEvmProviderFn(evmSession);
           const bal = await evmBalanceFetcher({ provider, wallet: evmAddr, token: TOKENS[from][token] });
           if (cancelled) return;
@@ -638,16 +692,18 @@ export default function TeleportConsole({
           setSourceBalance(bal == null ? null : { balance: bal, symbol: token, usd: price != null ? bal * price : null });
         }
       } catch {
-        if (!cancelled) setSourceBalance(null); // fail-soft
+        if (!cancelled) { setSourceBalance(null); setBalanceFailed(true); } // fail-soft: "BAL —" + ↻ retry
       }
     };
     load();
     return () => { cancelled = true; };
-  }, [direction, from, token, evmSession, solSession, balanceRefresh, evmBalanceFetcher, svmBalanceFetcher, priceFetcher, resolveEvmProviderFn]);
+  }, [direction, from, token, evmSession, solSession, sessions, nativeMeta, balanceRefresh, evmBalanceFetcher, svmBalanceFetcher, priceFetcher, resolveEvmProviderFn]);
 
   const maxFromBalance = () => {
     if (!sourceBalance || !(sourceBalance.balance > 0)) return;
-    const decimals = TOKENS[from]?.[token]?.decimals ?? (token === "wSOL.X" ? 9 : 6);
+    // Native assets carry their own base-unit decimals (BTC/LTC/DOGE 8, XRP
+    // 6 — NATIVE_CHAINS); EVM/X1 tokens read their registered decimals.
+    const decimals = nativeMeta?.decimals ?? TOKENS[from]?.[token]?.decimals ?? (token === "wSOL.X" ? 9 : 6);
     const trimmed = sourceBalance.balance.toFixed(Math.min(decimals, 6)).replace(/\.?0+$/, "");
     changeAmount(trimmed);
   };
@@ -1446,8 +1502,11 @@ export default function TeleportConsole({
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <span className="tc-label" style={{ marginBottom: 0 }}>Amount</span>
                         <span style={{ flex: 1 }} />
-                        <span className="tc-sub" style={{ marginTop: 0 }} data-testid="source-balance">
+                        <span className="tc-sub" style={{ marginTop: 0, display: "inline-flex", alignItems: "center", gap: 6 }} data-testid="source-balance">
                           {sourceBalance ? <>BAL {formatBalance(sourceBalance.balance)} {sourceBalance.symbol}{sourceBalance.usd != null ? ` ($${sourceBalance.usd.toFixed(2)})` : ""}</> : "BAL —"}
+                          {balanceFailed && (
+                            <button type="button" data-testid="balance-retry" className="tc-bal-retry" title="Balance read failed — retry" aria-label="Retry balance read" onClick={() => setBalanceRefresh((n) => n + 1)}>↻</button>
+                          )}
                         </span>
                         <button type="button" className="tc-max" data-testid="max-button" onClick={maxFromBalance} disabled={!sourceBalance || !(sourceBalance.balance > 0)}>
                           MAX
