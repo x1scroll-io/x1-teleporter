@@ -20,6 +20,9 @@
 
 import { CHAINS, TOKENS } from "./teleportConstants.js";
 import { quoteFees, LIFI_INTEGRATOR_ACCOUNT } from "./fees.ts";
+// The Warp-twin relation (which Solana token a given X1 destination lands as)
+// reads from the canonical registry — see docs/TOKEN-RESOLVER.md.
+import { resolveTwin } from "./tokenResolver.js";
 
 /**
  * Build the LiFi quote query params for the EVM→X1 hop (routeType "x1").
@@ -44,7 +47,12 @@ export function buildLifiQuoteParams({ from, token, amount, fromAddress, toAddre
   // LiFi leg: USDC.x ← Solana USDC (6 dec); wSOL.X ← Solana WSOL (9 dec —
   // LiFi quotes EVM→SOL WSOL directly, Sep 2026, so no Jupiter swap is
   // needed; the Warp leg then locks WSOL and the guardians mint wSOL.X).
-  const solanaLanding = destToken === "wSOL.X" ? "WSOL" : "USDC";
+  // The landing token is the canonical warp-twin of the X1 destination, but
+  // ONLY for destinations that are actually forward-bridgeable today (the
+  // listed x1 set: USDC.x/wSOL.X). Non-bridgeable destTokens (ETH.X/cbBTC.X
+  // are engine/reverse rails, not forward destinations) keep the legacy
+  // USDC@6 decode — byte-identical to the pre-resolver behavior.
+  const solanaLanding = TOKENS.x1[destToken] ? resolveTwin(destToken) || "USDC" : "USDC";
   const rawAmount = BigInt(Math.floor(amount * 10 ** decimals)).toString();
   const qs = new URLSearchParams({
     fromChain,
@@ -91,10 +99,10 @@ export function deriveQuoteFromLifi({ data, from, token, amount, destToken = "US
     throw new Error("Malformed quote response — no estimate.toAmount");
   }
   // LiFi delivers the Solana-side landing token — USDC (6 dec) or WSOL
-  // (9 dec when the X1 destination is wSOL.X). (Forward destinations are
-  // USDC.x/wSOL.X today — TOKENS.x1 keys the picker; the decode below keeps
-  // its legacy USDC fallback for unknown destTokens.)
-  const solanaLanding = destToken === "wSOL.X" ? "WSOL" : "USDC";
+  // (9 dec when the X1 destination is wSOL.X). Forward destinations are the
+  // listed x1 set (USDC.x/wSOL.X — TOKENS.x1 keys the picker); anything else
+  // keeps the legacy USDC@6 decode (byte-identical to pre-resolver behavior).
+  const solanaLanding = TOKENS.x1[destToken] ? resolveTwin(destToken) || "USDC" : "USDC";
   const outDecimals = TOKENS.sol[solanaLanding].decimals;
   const out = parseFloat(data.estimate.toAmount) / 10 ** outDecimals;
   // POLICY quote: x1-class fees are computed on what LiFi DELIVERED (the
