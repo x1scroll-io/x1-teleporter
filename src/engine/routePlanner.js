@@ -85,6 +85,17 @@
  * (their deterministic artifacts are pinned by the Phase-4 oracle,
  * test/fixtures/golden/dex-leg/); live lanes keep their existing gated
  * paths until a later phase wires runners.
+ *
+ * Phase-6 scope (this file): the DEX-DIRECT FALLBACK routes join the
+ * planner as planDexDirect — the per-DEX direct legs (Uniswap v3 on EVM,
+ * PancakeSwap v3 on BNB, Raydium CPMM/CLMM + Orca Whirlpool on Solana) for
+ * when an AGGREGATOR path (LiFi / Jupiter) is down or for fee comparison.
+ * Each plans a single-leg route (direction "swap", via "dexDirect"). The
+ * planner also exposes the FALLBACK registry (DEX_DIRECT_FALLBACKS) — the
+ * ordered aggregator→direct candidate lists per chain the rail layer can
+ * consult — but the DEFAULT routing stays UNCHANGED (aggregators first;
+ * direct legs are candidates, guarded on execute — DexDirectLiveTestGateError
+ * until Mr. Esters' live anchor).
  */
 import { createLeg } from "./legContract.js";
 import { createJupiterSwapLeg } from "./legs/dex/jupiterSwapLeg.js";
@@ -103,6 +114,10 @@ import { createRangoQuoteLeg } from "./legs/rango/rangoQuoteLeg.js";
 import { createRangoExecuteLeg } from "./legs/rango/rangoExecuteLeg.js";
 import { createWanchainQuoteLeg } from "./legs/wanchain/wanchainQuoteLeg.js";
 import { createWanchainExecuteLeg } from "./legs/wanchain/wanchainExecuteLeg.js";
+import { createUniswapSwapLeg } from "./legs/dexDirect/uniswapSwapLeg.js";
+import { createPancakeSwapSwapLeg } from "./legs/dexDirect/pancakeswapSwapLeg.js";
+import { createRaydiumSwapLeg } from "./legs/dexDirect/raydiumSwapLeg.js";
+import { createOrcaSwapLeg } from "./legs/dexDirect/orcaSwapLeg.js";
 
 /** The forward route's leg ids in execution order (the planner contract). */
 export const FORWARD_LEG_IDS = Object.freeze([
@@ -481,8 +496,10 @@ export function composeRoute(firstRoute, secondRoute, opts = {}) {
  * Phase 2), "thorchain" (source → SOL.SOL deposit route, two legs — Phase 3),
  * the Phase-4 DEX swap routes (plan({direction: "swap", via:
  * "jupiter"|"xdex"|"lifi"}) — single-leg swap routes), the "rango"
- * (source → SOL aggregator route, two legs — Phase 5), and "wanchain"
- * (the XFlows v3 lane, two legs — coverage-gated; see planWanchain).
+ * (source → SOL aggregator route, two legs — Phase 5), "wanchain"
+ * (the XFlows v3 lane, two legs — coverage-gated; see planWanchain), and
+ * the Phase-6 DEX-direct fallbacks (plan({direction: "swap", via:
+ * "dexDirect", dex: "uniswap"|"pancakeswap"|"raydium"|"orca"})).
  * Unknown directions /
  * vias return null — those lanes keep their existing paths.
  */
@@ -496,6 +513,7 @@ export function plan({ direction = "forward", ...opts } = {}) {
     if (opts.via === "jupiter") return planJupiterSwap();
     if (opts.via === "xdex") return planXdexSwap();
     if (opts.via === "lifi") return planLifiEvmSwap(opts);
+    if (opts.via === "dexDirect") return planDexDirect(opts);
     return null;
   }
   return null;
@@ -511,6 +529,101 @@ export function legsForStage(route, stageKey) {
   const ids = route?.stages?.[stageKey]?.legIds || [];
   const byId = new Map((route?.legs || []).map((l) => [l.id, l]));
   return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
+// ── Phase 6 — the DEX-DIRECT fallback routes ────────────────────────────────
+
+/** The dexDirect leg factories. */
+export function buildDexDirectLegs() {
+  return {
+    uniswap: createUniswapSwapLeg(),
+    pancakeswap: createPancakeSwapSwapLeg(),
+    raydium: createRaydiumSwapLeg(),
+    orca: createOrcaSwapLeg(),
+  };
+}
+
+/** The dexDirect swap route's leg ids (all single-leg). */
+export const DEX_DIRECT_LEG_IDS = Object.freeze({
+  uniswap: Object.freeze(["uniswap-swap"]),
+  pancakeswap: Object.freeze(["pancakeswap-swap"]),
+  raydium: Object.freeze(["raydium-swap"]),
+  orca: Object.freeze(["orca-swap"]),
+});
+
+/** Stage grouping of each dexDirect route (one stage — the swap). */
+export const DEX_DIRECT_STAGES = Object.freeze({
+  uniswap: Object.freeze({ swap: Object.freeze({ label: "Uniswap v3 swap (DEX-direct, EVM)", legIds: DEX_DIRECT_LEG_IDS.uniswap }) }),
+  pancakeswap: Object.freeze({ swap: Object.freeze({ label: "PancakeSwap v3 swap (DEX-direct, BNB)", legIds: DEX_DIRECT_LEG_IDS.pancakeswap }) }),
+  raydium: Object.freeze({ swap: Object.freeze({ label: "Raydium swap (DEX-direct, Solana)", legIds: DEX_DIRECT_LEG_IDS.raydium }) }),
+  orca: Object.freeze({ swap: Object.freeze({ label: "Orca swap (DEX-direct, Solana)", legIds: DEX_DIRECT_LEG_IDS.orca }) }),
+});
+
+/** The default dexDirect dex per chain family. */
+export const DEX_DIRECT_DEFAULT_DEX = Object.freeze({
+  eth: "uniswap",
+  arb: "uniswap",
+  bas: "uniswap",
+  opt: "uniswap",
+  pol: "uniswap",
+  bsc: "pancakeswap",
+  sol: "orca", // Solana direct default: Orca (the deepest live-verified fixture); raydium via ctx.dex
+});
+
+/**
+ * The FALLBACK registry — the ordered candidate lists per chain the rail
+ * layer can prefer when an aggregator path is down. DEFAULT ROUTING IS
+ * UNCHANGED: the aggregators (LiFi / Jupiter) stay first; the dexDirect
+ * legs are FALLBACK CANDIDATES (and their executes are guarded stubs —
+ * DexDirectLiveTestGateError — until Mr. Esters fires each live anchor).
+ */
+export const DEX_DIRECT_FALLBACKS = Object.freeze({
+  evm: Object.freeze({
+    // LiFi (aggregator) first — the dexDirect leg is the no-aggregator fallback.
+    eth: Object.freeze(["lifi", "uniswap"]),
+    arb: Object.freeze(["lifi", "uniswap"]),
+    bas: Object.freeze(["lifi", "uniswap"]),
+    opt: Object.freeze(["lifi", "uniswap"]),
+    pol: Object.freeze(["lifi", "uniswap"]),
+    bsc: Object.freeze(["lifi", "pancakeswap"]),
+    // avax/sonic: LiFi-only (no verified direct DEX deployment in this scaffold).
+    avax: Object.freeze(["lifi"]),
+    sonic: Object.freeze(["lifi"]),
+  }),
+  svm: Object.freeze({
+    // Jupiter (aggregator) first — the direct legs are the no-aggregator fallbacks.
+    sol: Object.freeze(["jupiter", "orca", "raydium"]),
+    x1: Object.freeze(["xdex"]),
+  }),
+});
+
+/**
+ * Plan a DEX-direct swap route (the Phase-6 fallback family).
+ *
+ * @param {{dex?: string, chain?: string}} opts dex: "uniswap" |
+ *   "pancakeswap" | "raydium" | "orca"; chain: the CHAINS key (defaults per
+ *   DEX_DIRECT_DEFAULT_DEX). The raydium leg serves both cpmm and clmm —
+ *   the run ctx selects via ctx.dex: "cpmm"|"clmm" at build time.
+ * @returns {object} the planned route { id, direction, sourceChain,
+ *   destChain, legs, stages }.
+ */
+export function planDexDirect({ dex, chain = null } = {}) {
+  const legs = buildDexDirectLegs();
+  const leg = legs[dex];
+  if (!leg) {
+    throw new Error(`planDexDirect: unknown dex "${dex}" (uniswap | pancakeswap | raydium | orca)`);
+  }
+  const effChain = chain ?? (dex === "pancakeswap" ? "bsc" : dex === "orca" || dex === "raydium" ? "sol" : "eth");
+  return {
+    id: `swap-${effChain}-${effChain}-dexdirect-${dex}`,
+    direction: "swap",
+    via: "dexDirect",
+    dex,
+    sourceChain: effChain,
+    destChain: effChain,
+    legs: [leg],
+    stages: DEX_DIRECT_STAGES[dex],
+  };
 }
 
 /**
@@ -550,4 +663,11 @@ export const RoutePlanner = Object.freeze({
   RANGO_STAGES,
   WANCHAIN_LEG_IDS,
   WANCHAIN_STAGES,
+  planDexDirect,
+  DEX_DIRECT_LEG_IDS,
+  DEX_DIRECT_STAGES,
+  DEX_DIRECT_FALLBACKS,
+  DEX_DIRECT_DEFAULT_DEX,
+  buildDexDirectLegs,
+
 });

@@ -1,0 +1,101 @@
+{
+  "step": "raydium-cpmm-step2-swap-ix",
+  "artifact": {
+    "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+    "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+    "userPubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "quote": {
+      "amountInRaw": "100000000",
+      "tradeFeeRaw": "250000",
+      "outRaw": "68530663519451",
+      "amountOutMinRaw": "68188010201853",
+      "slippageBps": 50,
+      "outHuman": 68530.663519451
+    },
+    "ix": {
+      "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+      "discriminator": "8fbe5adac41e33de",
+      "keys": [
+        {
+          "pubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "pubkey": "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "4Rrj7pgmDgJ7c52D2RFZY7WGee1QdJeN2iHHNJGeYLGf",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "FstC1rnYUN9dP8KmtZRrkF4zaZvkaEvYwcY5V8CdgHKq",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "AQrpuddRvJeVvbBbtQrUdV8YFeh3om9eyBQX2h5ojKh2",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "7jzdRNd8rutdT38CKGkSeuaBmQDyucFJfbh6WEfwnDss",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "DvjbEsdca43oQcw2h3HW1CT7N3x5vRcr3QrvTUHnXvgV",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "31mbs1syFfZioCsu3pQGpsWAQwNGSWgsnYtnrFbwtBBT",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "dataBase64": "j75a2sQeM94A4fUFAAAAAP1CIEIEPgAA",
+      "dataHex": "8fbe5adac41e33de00e1f50500000000fd422042043e0000"
+    },
+    "transaction": {
+      "blockhash": "96BfNwYAmZ29CRUHtMGVj6K3wESXTCVbFUVZHSXKfuXP",
+      "feePayer": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+      "instructionCount": 1,
+      "serializedBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAYNDemPkGJ7C08djOeZ2XzHRO9CYCPEyaz5lQkfwWtbo8gd6c3wV93F1ovlKhzAmS+JBrw8MNaokxMptOK6jyN1XjLxOcrgrVni48bMp+4XaRJtZ8C49Nsv1T/QqTnaHsKAQC1hGhf2zY8LBHKHXulnJq6pV2m5RxPvy9rAskLokIVkKaz3lxaGS53BkoFxTvRezXMCqeeacMdimE0M1Z/YHovV4R6TPMPpl+evXGkm21Z6zv0Zlb8DVsQ/5dPyqeAJ3QyJvOmejyGxXBhbZkW8fYapxY1cN3JzWBomzz7DPnypKlqLTylZUoQlUKqT/VuVtazmqOuSDJOULkNpDCDsc7MhP7qL+ch/qR5HgZYow4PgC+p+mMegPgO6EGnPw/bzwBAu25D5ptE+Rt9jQq4FXHtO2yZKg8yVtPeVc4slXKbG+nrzvtutOj1l82qryXQxsbvkwtL24OR8pgIDRS9dYesA2fWykrQhSsfQN7TW8GRQuWRgDfNzBSu16E8vjppnBt324ddloZPZy+FGzut5rBy0he1fWzeROoz1hX7/AKl4MXRlbGVwb3J0ZXIteGRleC1zd2FwLWxlZy12MgAAQgEHDQALCAMCBgUEDAwKCQEYj75a2sQeM94A4fUFAAAAAP1CIEIEPgAA"
+    }
+  },
+  "sha256": "7c404894d3c891ff41a46634a91429e0a9d5bbb02abc0d056db84a4ce0bf6eea",
+  "dataSha256": "cf98ff925ce642505edc9011883cae1eb6e33dbef2abeeb03102c6c0ab633803",
+  "txSha256": "2aacb01da4862a7c7160d2498e532b756ff16d6d202ff086944ee1b72c98d651",
+  "meta": {
+    "note": "The Raydium CPMM swap_base_input instruction + unsigned tx (disc 8fbe5adac41e33de — the same discriminator family the XDEX leg anchored LIVE on X1). LIVE-READ-ONLY SIMULATED on mainnet during capture (sigVerify:false): parsed to the user-ATA initialization check — wire construction correct. 🔴 submit() throws DexDirectLiveTestGateError — READY FOR LIVE ANCHOR."
+  }
+}

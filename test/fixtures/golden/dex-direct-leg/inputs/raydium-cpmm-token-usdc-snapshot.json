@@ -1,0 +1,85 @@
+{
+  "pool": {
+    "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+    "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+    "configId": "D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2",
+    "poolCreator": "GccTQTfZtvQC4vamMdTdhMtgETiATFKtbZz3dZMNheHy",
+    "vaultA": "7jzdRNd8rutdT38CKGkSeuaBmQDyucFJfbh6WEfwnDss",
+    "vaultB": "AQrpuddRvJeVvbBbtQrUdV8YFeh3om9eyBQX2h5ojKh2",
+    "mintLp": "7J7QMtPvgrQVA5qomGBVwTgBuPySFf7uozy2Sy7qJWyk",
+    "mintA": "DvjbEsdca43oQcw2h3HW1CT7N3x5vRcr3QrvTUHnXvgV",
+    "mintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "mintProgramA": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "mintProgramB": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "observationId": "31mbs1syFfZioCsu3pQGpsWAQwNGSWgsnYtnrFbwtBBT",
+    "bump": 253,
+    "status": 0,
+    "lpDecimals": 9,
+    "mintDecimalA": 9,
+    "mintDecimalB": 6,
+    "lpAmount": "140995696975410",
+    "openTime": "1746795666",
+    "feeOn": 0,
+    "enableCreatorFee": false
+  },
+  "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+  "capturedAt": "2026-09-05T20:38:52.516Z",
+  "poolAccountLen": 637,
+  "config": {
+    "bump": 255,
+    "disableCreatePool": false,
+    "index": 0,
+    "tradeFeeRate": "2500",
+    "protocolFeeRate": "120000",
+    "fundFeeRate": "40000",
+    "createPoolFee": "150000000",
+    "protocolOwner": "ProCXqRcXJjoUd1RNoo28bSizAA6EEqt9wURZYPDc5u",
+    "fundOwner": "FUNDduJTA7XcckKHKfAoEnnhuSud2JUCUZv6opWEjrBU",
+    "creatorFeeRate": "500"
+  },
+  "authority": "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL",
+  "vaultA": {
+    "pubkey": "7jzdRNd8rutdT38CKGkSeuaBmQDyucFJfbh6WEfwnDss",
+    "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "mint": "DvjbEsdca43oQcw2h3HW1CT7N3x5vRcr3QrvTUHnXvgV",
+    "amountRaw": "160233553651154418"
+  },
+  "vaultB": {
+    "pubkey": "AQrpuddRvJeVvbBbtQrUdV8YFeh3om9eyBQX2h5ojKh2",
+    "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amountRaw": "233012035408"
+  },
+  "sample": {
+    "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "outputMint": "DvjbEsdca43oQcw2h3HW1CT7N3x5vRcr3QrvTUHnXvgV",
+    "amountInRaw": "100000000",
+    "slippageBps": 50,
+    "userPubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV"
+  },
+  "quote": {
+    "amountInRaw": "100000000",
+    "tradeFeeRaw": "250000",
+    "outRaw": "68530663519451",
+    "amountOutMinRaw": "68188010201853",
+    "slippageBps": 50,
+    "outHuman": 68530.663519451
+  },
+  "sim": {
+    "err": {
+      "InstructionError": [
+        0,
+        {
+          "Custom": 3012
+        }
+      ]
+    },
+    "logs": [
+      "Program log: Instruction: SwapBaseInput",
+      "Program log: AnchorError caused by account: output_token_account. Error Code: AccountNotInitialized. Error Number: 3012. Error Message: The program expected this account to be already initialized.",
+      "Program CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C consumed 6597 of 200000 compute units",
+      "Program CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C failed: custom program error: 0xbc4"
+    ],
+    "note": "simulateTransaction with sigVerify:false — read-only sandbox; nothing broadcast."
+  }
+}

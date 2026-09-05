@@ -1,0 +1,38 @@
+{
+  "step": "uniswap-arb-step1-quote",
+  "artifact": {
+    "dex": "uniswap",
+    "chain": "arb",
+    "fromToken": {
+      "symbol": "USDC",
+      "address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      "decimals": 6
+    },
+    "toToken": {
+      "symbol": "USDT",
+      "address": "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9",
+      "decimals": 6
+    },
+    "amountIn": "10000000",
+    "fee": 100,
+    "quoteRequest": {
+      "method": "eth_call",
+      "to": "0x61ffe014ba17989e743c5f6cb21bf9697530b21e",
+      "data": "0xc6a5026a000000000000000000000000af88d065e77c8cc2239327c5edb3a432268e5831000000000000000000000000fd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9000000000000000000000000000000000000000000000000000000000098968000000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000000",
+      "chain": "arb",
+      "from": null,
+      "kind": "quoter-quoteExactInputSingle"
+    },
+    "quote": {
+      "amountOut": "9996831",
+      "sqrtPriceX96After": "79219572299869473049673962648",
+      "initializedTicksCrossed": 1,
+      "gasEstimate": "96144"
+    }
+  },
+  "sha256": "bfe1b5db652fc2a53ac73ea9d2101ae3e6e3cd9c1eedae7845446ff8e064ee17",
+  "calldataSha256": "f4fa41d25e50e6003f94a124c6e968f031e10e7a7cd4985244e0f0f85d77629e",
+  "meta": {
+    "note": "The canonical DEX-direct EVM quote: QuoterV2.quoteExactInputSingle eth_call (static calldata) with the FROZEN LIVE RESPONSE parsed (amountOut etc.). calldataSha256 pins the canonical request bytes. quote-level REAL — swap-execution pending Mr. Esters' live anchor."
+  }
+}
