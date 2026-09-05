@@ -24,6 +24,7 @@ export const COINGECKO_IDS = Object.freeze({
   USDC: "usd-coin",
   USDT: "tether",
   DAI: "dai",
+  USDG: "global-dollar", // Paxos Global Dollar — Robinhood Chain's canonical stable (added 2026-09-05; id verified live)
   WSOL: "wrapped-solana",
   "USDC.x": "usd-coin", // Warp-wrapped twin of Solana USDC — same asset
   "wSOL.X": "wrapped-solana", // Warp-wrapped twin of Solana WSOL — same asset
