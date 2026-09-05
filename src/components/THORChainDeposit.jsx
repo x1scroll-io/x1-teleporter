@@ -15,6 +15,17 @@
  *     (createInboundAddressRefresher → /thorchain/inbound_addresses, no API
  *     key); halted chains grey out with "paused by THORChain". Vault
  *     addresses are never cached across sessions (in-memory only).
+ *   - DESTINATION-ROUTE HALTS (the SOL pool — THORChain network state, NOT
+ *     the user's fault): when the inbound snapshot marks the DESTINATION
+ *     chain (SOL) halted, the stage shows a CALM "temporarily paused —
+ *     resumes automatically" message instead of ever firing a doomed quote
+ *     (a halted SOL pool refuses every swap with "trading is halted"). The
+ *     quote gate disables while halted; the 60s inbound refresh is the auto
+ *     re-check — the moment SOL un-halts the message clears and the gate
+ *     re-enables on its own. Belt-and-braces: a quote error whose wire text
+ *     says the route is halted (the inbound snapshot can lag the network by
+ *     up to one refresh) is translated into the SAME calm paused state —
+ *     never a raw error wall.
  *
  * QUOTE GATE (Step 3.3 — the "get quote" moment BEFORE the address appears):
  *   Per docs/BRIEF.md: "Quote via THORChain's free aggregator API (key from
@@ -66,6 +77,27 @@ import {
 } from "../lib/thorchain/config.js";
 import { computeFee } from "../lib/fees.ts";
 import { THORCHAIN_DESTINATION_ASSET } from "../lib/thorchain/memo.js";
+
+/** The destination chain id the THORChain hop lands on ("SOL.SOL" → "SOL").
+ *  inbound_addresses entries are keyed by chain id — the SOL entry's `halted`
+ *  flag IS the destination-route halt state (a halted SOL pool refuses every
+ *  swap INTO SOL with "trading is halted"). */
+export const THORCHAIN_DEST_CHAIN = String(THORCHAIN_DESTINATION_ASSET).split(".")[0];
+
+/** Wire phrases that mean "THORChain's route is halted/paused" — matched on
+ *  quote-error messages so a halted destination pool renders the CALM paused
+ *  state instead of a raw error wall. Kept to the real THORNode/gateway
+ *  vocabulary (verified live 2026-09-05: "failed to simulate swap: ... trading
+ *  is halted, can't process swap: invalid request") — deliberately narrow so
+ *  unrelated quote errors keep their normal error + retry surface. */
+export const THORCHAIN_HALT_MESSAGE_RE =
+  /trading is (halted|paused)|swaps? (are|is) (halted|paused)|pool (is )?(halted|paused)|(?:halted|paused) (?:for|on) (?:chain|trading)/i;
+
+/** True when a quote-error message is THORChain telling us its route is
+ *  halted (network state, not a user error). */
+export function isThorchainHaltMessage(msg) {
+  return typeof msg === "string" && THORCHAIN_HALT_MESSAGE_RE.test(msg);
+}
 
 /** The four allowed sources, with UI metadata. `family` maps to the
  *  WalletContext session that can prefill the refund address. */
@@ -231,7 +263,8 @@ function feeLinesFor(sourceChain, labelOverrides = {}) {
  *   that must not name the rail. Every key defaults to THIS component's own
  *   copy, so the classic THORChain tab renders byte-identically without it:
  *   { subtitle ({label}), pausedBanner ({label}), pausedBy, noSolana,
- *     destBadge, feeLabels: { [feeComponentId]: label } }. `{label}` is the
+ *     destBadge, feeLabels: { [feeComponentId]: label }, destPaused ({label})
+ *     — the DESTINATION-route (SOL pool) halt message }. `{label}` is the
  *   selected source's human name (Bitcoin/Dogecoin/Litecoin/XRP).
  */
 export default function THORChainDeposit({
@@ -255,6 +288,11 @@ export default function THORChainDeposit({
   const [selected, setSelected] = useState(initialSource ?? "BTC");
   const [inbound, setInbound] = useState(null); // { BTC: entry, ... } | null
   const [inboundError, setInboundError] = useState(null);
+  // DESTINATION-ROUTE HALT (SOL pool halted — THORChain network state): set
+  // from the inbound snapshot's SOL entry, or from a halted-route quote
+  // error when the snapshot lags the network. While true the quote gate is
+  // disabled and the CALM paused message renders (never a raw quote error).
+  const [destHalted, setDestHalted] = useState(false);
   const [refund, setRefund] = useState("");
   const [txid, setTxid] = useState("");
   const [amountSent, setAmountSent] = useState(initialAmount ?? "");
@@ -292,6 +330,10 @@ export default function THORChainDeposit({
         const byChain = {};
         for (const e of entries) byChain[e.chain] = e;
         setInbound(byChain);
+        // The SOL entry's halted flag is the destination-route state — the
+        // 60s refresh is the auto re-check that clears the calm paused
+        // message the moment THORChain's SOL pool un-halts.
+        setDestHalted(byChain[THORCHAIN_DEST_CHAIN]?.halted === true);
         // A successful refresh clears the previous error — the banner
         // "surfaces and recovers on the next refresh" (spec).
         setInboundError(null);
@@ -335,6 +377,14 @@ export default function THORChainDeposit({
     setQuoteFetchedAt(null);
   }, []);
 
+  // A halted destination route must never show a deposit address: if the
+  // SOL halt lands while a quote is already displayed (refresh race), the
+  // stale quote + address are invalidated immediately — quotes expire and a
+  // halted route has no live quote.
+  useEffect(() => {
+    if (destHalted) invalidateQuote();
+  }, [destHalted, invalidateQuote]);
+
   const amountNum = Number(amountSent);
   const hasValidAmount = Number.isFinite(amountNum) && amountNum > 0;
 
@@ -375,6 +425,19 @@ export default function THORChainDeposit({
       setQuoteFetchedAt(Date.now());
     } else {
       setQuote(null);
+      // HALT TRANSLATION: THORChain's halted SOL pool refuses every swap
+      // with a "trading is halted" quote error. That is network state, not a
+      // user error — translate it into the SAME calm paused state the
+      // inbound SOL halt flag drives (banner + disabled gate + auto
+      // re-check), never a raw error wall. The inbound snapshot can lag the
+      // network by up to one refresh (60s); the next refresh clears the
+      // state when the pool is trading again.
+      if (isThorchainHaltMessage(res.message)) {
+        setQuoteStatus("idle");
+        setQuoteError(null);
+        setDestHalted(true);
+        return;
+      }
       setQuoteStatus("error");
       setQuoteError(res.message || "Quote unavailable.");
     }
@@ -444,12 +507,14 @@ export default function THORChainDeposit({
   }, []);
 
   const quoteOk = quoteStatus === "ok" && !!quote;
-  const canGetQuote = solConnected && !!solAddress && hasValidAmount && !selectedHalted;
+  const canGetQuote =
+    solConnected && !!solAddress && hasValidAmount && !selectedHalted && !destHalted;
   const canSubmit =
     solConnected &&
     !!solAddress &&
     !!selectedEntry &&
     !selectedHalted &&
+    !destHalted &&
     quoteOk &&
     txid.trim().length > 0;
 
@@ -496,6 +561,14 @@ export default function THORChainDeposit({
   const pausedText = copy.pausedBanner
     ? copy.pausedBanner.replace(/\{label\}/g, selectedMeta.label)
     : `⚠️ ${selectedMeta.label} is paused by THORChain right now — deposits to this chain are halted. Choose another source or wait — this refreshes automatically.`;
+  // The DESTINATION-route (SOL pool) halt message — the calm, honest copy for
+  // "the lane is down because THORChain's SOL pool is halted (their network
+  // state), not because of anything you did". Host surfaces that must not
+  // name the rail override it via copy.destPaused; the classic tab's default
+  // names the rail directly.
+  const destPausedText = copy.destPaused
+    ? copy.destPaused.replace(/\{label\}/g, selectedMeta.label)
+    : `⚠️ THORChain's SOL route is temporarily paused (network maintenance) — this resumes automatically, try again shortly. The deposit address appears the moment the route is live again — this panel re-checks automatically.`;
   const pausedTitle = copy.pausedBy ?? "paused by THORChain";
   const destBadge = copy.destBadge ?? "SOL.SOL";
 
@@ -558,6 +631,12 @@ export default function THORChainDeposit({
       {selectedHalted ? (
         <div style={S.banner} data-testid="tc-paused-banner">
           {pausedText}
+        </div>
+      ) : null}
+
+      {destHalted ? (
+        <div style={S.banner} data-testid="tc-dest-paused-banner">
+          {destPausedText}
         </div>
       ) : null}
 

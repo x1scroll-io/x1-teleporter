@@ -551,6 +551,111 @@ test("selecting a halted chain is impossible; a halted default chain shows the p
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// DESTINATION-ROUTE HALTS (the SOL pool — THORChain network state, NOT the
+// user's fault): the inbound snapshot's SOL entry drives a CALM paused
+// message + a disabled quote gate (never a doomed quote, never a raw error),
+// and the 60s refresh is the auto re-check that clears it when SOL un-halts.
+// ─────────────────────────────────────────────────────────────────────────────
+test("DEST HALT: inbound SOL halted → calm paused message (temporarily paused / resumes automatically / re-checks), quote gate disabled, no error, no address; auto-clears when SOL un-halts", async () => {
+  const factory = fakeRefresherFactory();
+  const fetcher = mockQuoteFetcher(); // would succeed if ever called
+  const { container, unmount } = render({ createInboundRefresher: factory, fetchQuote: fetcher });
+  try {
+    act(() =>
+      factory.instances[0].pushEntries([
+        ...DEFAULT_INBOUND,
+        { chain: "SOL", address: "solVaultHalted", halted: true },
+      ]),
+    );
+    const banner = container.querySelector('[data-testid="tc-dest-paused-banner"]');
+    assert.ok(banner, "calm destination-paused banner renders");
+    assert.match(banner.textContent, /temporarily paused/, "names the pause honestly");
+    assert.match(banner.textContent, /resumes automatically/, "says it recovers on its own");
+    assert.match(banner.textContent, /re-checks automatically/, "notes the auto re-check");
+    // No raw error anywhere (this is NOT the user's fault — no error wall).
+    assert.equal(container.querySelector('[data-testid="tc-quote-error"]'), null, "no quote error block");
+    // The quote gate is disabled while the destination route is halted — a
+    // doomed quote is never fired (a halted SOL pool refuses every swap).
+    change(container.querySelector('[data-testid="tc-amount-input"]'), "0.01");
+    const getQuoteBtn = container.querySelector('[data-testid="tc-get-quote"]');
+    assert.equal(getQuoteBtn.disabled, true, "quote disabled while the destination route is halted");
+    assert.equal(fetcher.calls.length, 0, "no quote fetch attempted while halted");
+    assert.equal(container.querySelector('[data-testid="tc-deposit-card"]'), null, "no deposit address while halted");
+    const submit = container.querySelector('[data-testid="tc-submit"]');
+    assert.equal(submit.disabled, true, "submit blocked while halted");
+
+    // ── The 60s inbound refresh is the auto re-check: SOL un-halts → the
+    //    calm message clears and the gate re-enables WITHOUT user action. ──
+    act(() => factory.instances[0].pushEntries(DEFAULT_INBOUND));
+    assert.equal(container.querySelector('[data-testid="tc-dest-paused-banner"]'), null, "banner clears when SOL un-halts");
+    assert.equal(getQuoteBtn.disabled, false, "quote gate re-enables on its own");
+    await getQuote(container, "0.01");
+    assert.ok(container.querySelector('[data-testid="tc-deposit-address"]'), "address appears once the route is live again");
+  } finally {
+    unmount();
+  }
+});
+
+test("DEST HALT backstop: a halted-route quote error (inbound snapshot lagging the network) is translated to the CALM paused state — never a raw error wall — and the next refresh clears it", async () => {
+  const factory = fakeRefresherFactory();
+  // The REAL wire message a halted SOL pool returns (live-verified
+  // 2026-09-05 via the deployed proxy + the Liquify gateway):
+  const fetcher = mockQuoteFetcher({
+    fail: "failed to simulate swap: failed to simulate handler: trading is halted, can't process swap: invalid request",
+  });
+  const { container, unmount } = render({ createInboundRefresher: factory, fetchQuote: fetcher });
+  try {
+    // The inbound snapshot is STALE (SOL absent/not flagged — the network
+    // halted between refreshes), so the gate is open and the user quotes.
+    act(() => factory.instances[0].pushEntries(DEFAULT_INBOUND));
+    await getQuote(container, "0.01");
+
+    // The halted-route error became the CALM paused state — not a red error.
+    const banner = container.querySelector('[data-testid="tc-dest-paused-banner"]');
+    assert.ok(banner, "calm paused banner replaces the raw error");
+    assert.match(banner.textContent, /resumes automatically/);
+    assert.equal(container.querySelector('[data-testid="tc-quote-error"]'), null, "no raw quote-error block");
+    assert.ok(!container.textContent.includes("trading is halted"), "the raw wire error never renders");
+    assert.equal(container.querySelector('[data-testid="tc-deposit-card"]'), null, "no address for a halted route");
+    const getQuoteBtn = container.querySelector('[data-testid="tc-get-quote"]');
+    assert.equal(getQuoteBtn.disabled, true, "gate disabled after the halt translation");
+
+    // The next refresh confirms SOL is trading → the calm state clears and a
+    // fresh quote succeeds (the auto re-check resolved the race).
+    fetcher.respond = async () => ({ ok: true, quote: { ...QUOTE_FIXTURE } });
+    act(() =>
+      factory.instances[0].pushEntries([
+        ...DEFAULT_INBOUND,
+        { chain: "SOL", address: "solVaultLive", halted: false },
+      ]),
+    );
+    assert.equal(container.querySelector('[data-testid="tc-dest-paused-banner"]'), null, "clears once the snapshot shows SOL trading");
+    await getQuote(container, "0.01");
+    assert.ok(container.querySelector('[data-testid="tc-deposit-address"]'), "fresh quote succeeds after un-halt");
+  } finally {
+    unmount();
+  }
+});
+
+test("DEST HALT: an unrelated quote error keeps the normal error + Retry surface (only real halt language is translated)", async () => {
+  const factory = fakeRefresherFactory();
+  const fetcher = mockQuoteFetcher({ fail: "quote endpoint error: chain halted" });
+  const { container, unmount } = render({ createInboundRefresher: factory, fetchQuote: fetcher });
+  try {
+    act(() => factory.instances[0].pushEntries(DEFAULT_INBOUND));
+    await getQuote(container, "0.01");
+
+    assert.equal(container.querySelector('[data-testid="tc-dest-paused-banner"]'), null, "no calm-halt banner for a non-halt error");
+    const err = container.querySelector('[data-testid="tc-quote-error"]');
+    assert.ok(err, "normal error surface kept");
+    assert.match(err.textContent, /chain halted/);
+    assert.ok(container.querySelector('[data-testid="tc-quote-retry"]'), "Retry kept");
+  } finally {
+    unmount();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SUBMIT HOOK — expectedAmountOut now comes from the FRESH QUOTE (3.3)
 // ─────────────────────────────────────────────────────────────────────────────
 test("submit hook emits {inboundTxid, sourceChain, destination, expectedAmountOut} with the QUOTE's expectedAmountOut", async () => {

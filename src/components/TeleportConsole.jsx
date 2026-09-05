@@ -119,6 +119,11 @@ const DEPOSIT_NEUTRAL_COPY = Object.freeze({
   subtitle: "Send native {label} to the deposit address below — it arrives in your wallet, then hops to X1 as USDC.x.",
   pausedBanner: "⚠️ {label} deposits are paused right now — pick another source or wait; this refreshes automatically.",
   pausedBy: "paused right now",
+  // The DESTINATION-route halt (the SOL pool the deposit lands on is paused
+  // on the bridge network's side — their maintenance, NOT the user's fault):
+  // calm + honest, no rail name, and it promises the automatic re-check the
+  // 60s inbound refresh performs.
+  destPaused: "⚠️ The {label} → Solana leg is temporarily paused by the bridge network (maintenance) — it resumes automatically, nothing to fix on your end. This panel re-checks by itself and the deposit address appears the moment the route is live.",
   noSolana: "Connect your Solana/X1 wallet first — the deposit destination is your wallet address and can't be typed. Use CONNECT WALLET above to connect one.",
   destBadge: "Solana/X1 wallet",
   feeLabels: { "thorchain-affiliate": "Network protocol fee" },
