@@ -11,7 +11,9 @@
  * ABI library) and the response is 4 × 32-byte words (amountOut,
  * sqrtPriceX96After, initializedTicksCrossed, gasEstimate). LIVE-VERIFIED
  * on eth/arb/opt/pol + bsc (2026-09-05 — see the dex-direct fixtures): the
- * eth USDC→USDT fee-100 quote returns amountOut 9997036 (10 USDC in) etc.
+ * eth USDC→USDT fee-100 quote returns amountOut 9997027 (10 USDC in — the
+ * frozen 2026-09-05 capture; re-verified 2026-09-06: 9997212 — quotes are
+ * market data, the oracle pins the CONSTRUCTION).
  *
  * EXECUTE PATH (GUARDED — the swap-call REQUEST the lane would sign): the
  * v3 SwapRouter exactInputSingle —
@@ -46,6 +48,64 @@ export function word(value) {
   const hex = typeof value === "bigint" ? value.toString(16) : BigInt(value).toString(16);
   if (hex.length > 64) throw new Error("word: value does not fit in 32 bytes");
   return "0".repeat(WORD - hex.length) + hex;
+}
+
+/**
+ * validateExactInputSingleSwapRequest — the SKILL-ALIGNED pre-broadcast
+ * check for a dexDirect EVM swap-call request artifact. This is the
+ * official Uniswap swap-integration skill's "Pre-Broadcast Validation"
+ * discipline adapted to the direct v3 SwapRouter periphery path (the
+ * Trading API's validateSwapBeforeBroadcast guards an API-built tx; a
+ * direct leg validates its OWN construction):
+ *   1. the request targets the canonical v3 SwapRouter for its chain;
+ *   2. data is non-empty hex of exactly selector + 8 static words;
+ *   3. the selector is exactInputSingle;
+ *   4. amountOutMinimum (word 7) is positive — a quote must have landed
+ *      (a request shaped before the quote carries the 0 placeholder and
+ *      must never be signed);
+ *   5. deadline (word 5) is in the future — pass minDeadline (e.g.
+ *      now + 30 min) to enforce freshness at the live anchor;
+ *   6. value is 0 (exactInputSingle on the v3 SwapRouter is non-payable).
+ * Pure. Throws with a precise reason; returns { ok: true } when valid.
+ */
+export function validateExactInputSingleSwapRequest(request, { router, minDeadline = null, requirePositiveMinOut = true } = {}) {
+  if (!request || typeof request !== "object") {
+    throw new Error("validateExactInputSingleSwapRequest: a request artifact is required");
+  }
+  if (request.kind !== "swap-exactInputSingle") {
+    throw new Error(`validateExactInputSingleSwapRequest: not an exactInputSingle request (kind "${request.kind}")`);
+  }
+  const wantRouter = evmAddress(router);
+  const gotRouter = evmAddress(request.to);
+  if (gotRouter !== wantRouter) {
+    throw new Error(`validateExactInputSingleSwapRequest: request targets ${gotRouter} — expected the canonical SwapRouter ${wantRouter}`);
+  }
+  const data = request.data;
+  if (typeof data !== "string" || !/^0x[0-9a-fA-F]+$/.test(data)) {
+    throw new Error("validateExactInputSingleSwapRequest: data is not hex");
+  }
+  const EXPECTED_LEN = 2 + 8 + 8 * 64; // 0x + selector + 8 × 32-byte words
+  if (data.length !== EXPECTED_LEN) {
+    throw new Error(`validateExactInputSingleSwapRequest: data is ${(data.length - 2) / 2} bytes — expected 260 bytes (selector + 8-word struct)`);
+  }
+  if (!data.toLowerCase().startsWith(EXACT_INPUT_SINGLE_SELECTOR)) {
+    throw new Error("validateExactInputSingleSwapRequest: data selector is not exactInputSingle");
+  }
+  // strip 0x + the 8-hex selector, then group the 8 × 32-byte words
+  const words = data.slice(10).match(/.{64}/g);
+  const amountOutMinimum = BigInt("0x" + words[6]);
+  if (requirePositiveMinOut && amountOutMinimum <= 0n) {
+    throw new Error("validateExactInputSingleSwapRequest: amountOutMinimum is 0 — no quote has landed; re-quote before any live anchor");
+  }
+  const deadline = BigInt("0x" + words[4]);
+  const floor = minDeadline ?? Math.floor(Date.now() / 1000);
+  if (deadline <= BigInt(floor)) {
+    throw new Error(`validateExactInputSingleSwapRequest: deadline ${deadline} is not after ${floor} — a live anchor must pass a fresh deadline (now + ~30 min)`);
+  }
+  if (request.value !== undefined && request.value !== "0x0" && BigInt(request.value) !== 0n) {
+    throw new Error("validateExactInputSingleSwapRequest: exactInputSingle is non-payable — value must be 0");
+  }
+  return { ok: true };
 }
 
 /** eth_call REQUEST for the quoter — the canonical quote artifact the stage
