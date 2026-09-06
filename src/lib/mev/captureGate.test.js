@@ -15,7 +15,9 @@ import assert from "node:assert/strict";
 import {
   captureGate,
   runCaptureScan,
+  runRouteCaptureScan,
   formatCaptureReport,
+  formatRouteCaptureReport,
   assertCaptureGateOpen,
   CaptureGateClosedError,
   CAPTURE_GATE_CLOSED_MESSAGE,
@@ -109,4 +111,90 @@ test("capture gate: formatCaptureReport renders the gated-off opportunity line f
 test("capture gate: bad inputs fail closed through the scan (no silent detection)", () => {
   assert.throws(() => runCaptureScan({ buyQuotes: [], sellQuotes: [] }), /buyQuotes are required/);
   assert.throws(() => runCaptureScan({ buyQuotes: [{ dex: "a", amountIn: "1", amountOut: "1" }], sellQuotes: [{ dex: "b", amountIn: "0", amountOut: "1" }] }), /non-positive amountIn/);
+});
+
+// ── MULTI-HOP route-choice observation (the framing correction) ────────────
+
+test("capture gate: runRouteCaptureScan RUNS the route analyzer while gated OFF and reports (gated OFF)", () => {
+  const { analysis, gate, report } = runRouteCaptureScan({
+    id: "test-multihop-ape",
+    legs: [
+      {
+        hop: 1,
+        from: "USDC",
+        to: "USDT",
+        chain: "eth",
+        venueChosen: "lifi",
+        usdPerOutUnit: 1 / 1e6,
+        quotes: [
+          { venue: "lifi", amountIn: "2500000000", amountOut: "2493955555" },
+          { venue: "uniswap", amountIn: "2500000000", amountOut: "2495210000" },
+        ],
+      },
+      {
+        hop: 2,
+        from: "USDC",
+        to: "EXOTIC",
+        chain: "sol",
+        venueChosen: "raydium-cpmm",
+        usdPerOutUnit: 1 / 5.15e11,
+        quotes: [
+          { venue: "jupiter", amountIn: "2495210000", amountOut: "1282515834808065" },
+          { venue: "raydium-cpmm", amountIn: "2495210000", amountOut: "1280319724902352" },
+        ],
+      },
+    ],
+  });
+  assert.equal(analysis.kind, "route-capture-analysis");
+  assert.equal(analysis.wouldCapture, true, "the accumulated route-level value is positive");
+  assert.equal(analysis.legs.length, 2);
+  assert.equal(gate.label, "gated OFF");
+  assert.equal(gate.executable, false);
+  assert.match(report, /route capture opportunity/);
+  assert.match(report, /across 2 hops/);
+  assert.match(report, /gated OFF/);
+});
+
+test("capture gate: runRouteCaptureScan reports the honest no-capture line for single-venue routes", () => {
+  const { analysis, report } = runRouteCaptureScan({
+    id: "test-single-venue",
+    legs: [
+      {
+        hop: 1,
+        from: "USDC",
+        to: "USDC",
+        chain: "eth",
+        venueChosen: "lifi",
+        usdPerOutUnit: 1 / 1e6,
+        quotes: [{ venue: "lifi", amountIn: "2500000000", amountOut: "2489000000" }],
+      },
+    ],
+  });
+  assert.equal(analysis.wouldCapture, false);
+  assert.match(report, /route capture scan:/);
+  assert.match(report, /single-venue route/);
+  assert.match(report, /gated OFF/);
+});
+
+test("capture gate: formatRouteCaptureReport renders the gated-off multi-hop line", () => {
+  const { analysis } = runRouteCaptureScan({
+    id: "test-format",
+    legs: [
+      {
+        hop: 1,
+        from: "SOL",
+        to: "USDC",
+        chain: "sol",
+        venueChosen: "orca",
+        usdPerOutUnit: 1 / 1e6,
+        quotes: [
+          { venue: "orca", amountIn: "5000000000", amountOut: "101950000" },
+          { venue: "jupiter", amountIn: "5000000000", amountOut: "101951000" },
+        ],
+      },
+    ],
+  });
+  const line = formatRouteCaptureReport(analysis);
+  assert.match(line, /\[mev-route-capture\] test-format/);
+  assert.match(line, /gated OFF/);
 });

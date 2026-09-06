@@ -1,0 +1,173 @@
+{
+  "capturedAt": "2026-09-06T23:21:12.243Z",
+  "round": 3,
+  "routeId": "sol-ape-2500-up",
+  "legend": "SOL → USDC → EXOTIC(sol) @ ~$2,550. Aggregator-UP routing (jupiter both legs — the DEX_DIRECT_FALLBACKS default). Contrast: when the aggregator is up AND best, route-choice value ≈ 0.",
+  "legs": [
+    {
+      "hop": 1,
+      "from": "SOL",
+      "to": "USDC",
+      "chain": "sol",
+      "kind": "swap",
+      "venueChosen": "jupiter",
+      "usdPerOutUnit": 0.000001,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "jupiter",
+          "pool": "jupiter-SOL-USDC",
+          "amountIn": "25000000000",
+          "amountOut": "2661094508",
+          "feeBps": null,
+          "source": "REAL-live-jupiter-quote",
+          "capturedAt": "2026-09-06T23:21:10.416Z",
+          "context": null,
+          "state": null
+        },
+        {
+          "venue": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+          "amountIn": "25000000000",
+          "amountOut": "2660192134",
+          "feeBps": 4,
+          "source": "REAL-live-whirlpool-state-walk",
+          "capturedAt": "2026-09-06T23:21:10.416Z",
+          "context": null,
+          "state": {
+            "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+            "programId": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+            "tickCurrent": -22402
+          }
+        },
+        {
+          "venue": "raydium",
+          "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+          "amountIn": "25000000000",
+          "amountOut": "2660023033",
+          "feeBps": 4,
+          "source": "REAL-live-raydium-clmm-state-walk",
+          "capturedAt": "2026-09-06T23:21:10.416Z",
+          "context": null,
+          "state": {
+            "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+            "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+            "tickCurrent": -22403
+          }
+        }
+      ]
+    },
+    {
+      "hop": 2,
+      "from": "USDC",
+      "to": "EXOTIC(sol)",
+      "chain": "sol",
+      "kind": "swap",
+      "venueChosen": "jupiter",
+      "usdPerOutUnit": 1.933078412562375e-12,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "jupiter",
+          "pool": "jupiter-USDC-EXOTIC(sol)",
+          "amountIn": "2661094508",
+          "amountOut": "1376609707452379",
+          "feeBps": null,
+          "source": "REAL-live-jupiter-quote",
+          "capturedAt": "2026-09-06T23:21:12.243Z",
+          "context": null,
+          "state": null
+        },
+        {
+          "venue": "raydium-cpmm",
+          "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+          "amountIn": "2661094508",
+          "amountOut": "1374291754992186",
+          "feeBps": 25,
+          "source": "REAL-live-raydium-cpmm-state-walk",
+          "capturedAt": "2026-09-06T23:21:12.243Z",
+          "context": null,
+          "state": {
+            "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+            "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+            "vaultBUsdc": "267614471899",
+            "vaultAExotic": "139997098757513680"
+          }
+        }
+      ]
+    }
+  ],
+  "routeUsd": {
+    "journeyUnit": "SOL",
+    "journeyAmountRaw": "25000000000",
+    "notes": "SOL → USDC → EXOTIC(sol) @ ~$2,550. Aggregator-UP routing (jupiter both legs — the DEX_DIRECT_FALLBACKS default). Contrast: when the aggregator is up AND best, route-choice value ≈ 0."
+  },
+  "analysis": {
+    "kind": "route-capture-analysis",
+    "routeId": "sol-ape-2500-up",
+    "legs": [
+      {
+        "hop": 1,
+        "from": "SOL",
+        "to": "USDC",
+        "chain": "sol",
+        "kind": "swap",
+        "venueChosen": "jupiter",
+        "venueBest": "jupiter",
+        "routeChosen": "jupiter:jupiter-SOL-USDC",
+        "routeBest": "jupiter:jupiter-SOL-USDC",
+        "singleVenue": false,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": 0,
+        "deltaOutRaw": "0",
+        "gapUsd": 0,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": 0,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      },
+      {
+        "hop": 2,
+        "from": "USDC",
+        "to": "EXOTIC(sol)",
+        "chain": "sol",
+        "kind": "swap",
+        "venueChosen": "jupiter",
+        "venueBest": "jupiter",
+        "routeChosen": "jupiter:jupiter-USDC-EXOTIC(sol)",
+        "routeBest": "jupiter:jupiter-USDC-EXOTIC(sol)",
+        "singleVenue": false,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": 0,
+        "deltaOutRaw": "0",
+        "gapUsd": 0,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": 0,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      }
+    ],
+    "routeGapBps": 0,
+    "routeNetBps": 0,
+    "routeGapUsd": 0,
+    "routeNetUsd": 0,
+    "routeUsdPartial": false,
+    "wouldCapture": false,
+    "whyNot": "already-optimal: every multi-venue leg was already routed through its best venue — the engine left nothing on the table",
+    "economical": false,
+    "optimalRoute": [
+      {
+        "hop": 1,
+        "venue": "jupiter"
+      },
+      {
+        "hop": 2,
+        "venue": "jupiter"
+      }
+    ]
+  }
+}

@@ -118,7 +118,7 @@ import { createUniswapSwapLeg } from "./legs/dexDirect/uniswapSwapLeg.js";
 import { createPancakeSwapSwapLeg } from "./legs/dexDirect/pancakeswapSwapLeg.js";
 import { createRaydiumSwapLeg } from "./legs/dexDirect/raydiumSwapLeg.js";
 import { createOrcaSwapLeg } from "./legs/dexDirect/orcaSwapLeg.js";
-import { runCaptureScan, captureGate } from "../lib/mev/captureGate.js";
+import { runCaptureScan, runRouteCaptureScan, captureGate } from "../lib/mev/captureGate.js";
 
 /** The forward route's leg ids in execution order (the planner contract). */
 export const FORWARD_LEG_IDS = Object.freeze([
@@ -646,12 +646,22 @@ export function planDexDirect({ dex, chain = null } = {}) {
 //      submit() throws DexDirectLiveTestGateError: wallet-sign-only at any
 //      gate value). DEAD-GATED: the route carries the capture gate state;
 //      execution is Mr. Esters' arm alone (captureGate.js).
+//   3. observeRouteCapture + planCaptureRouteJourney — the MULTI-HOP
+//      route-choice seams (the framing correction, 2026-09-06 — see
+//      src/lib/mev/routeAnalyzer.js): observeRouteCapture runs the route
+//      analyzer over a planned multi-hop route's per-leg venue quotes
+//      ("route capture opportunity: X bps across N hops (gated OFF)");
+//      planCaptureRouteJourney folds composeRoute over the optimal
+//      sub-path's leg routes (best venue per leg) — the same existing
+//      engine legs, dead-gated, atomic:false (a journey, not a same-block
+//      pair).
 //
 // The observation itself (detector over fetched quotes → the "capture
-// opportunity: X bps (gated OFF)" report line) is runCaptureScan — re-
-// exported below so the routing layer records what WOULD be capturable the
-// moment it holds multi-venue quotes for a planned swap (pure observation
-// at every gate state; the detector NEVER returns an executable trade).
+// opportunity: X bps (gated OFF)" report line) is runCaptureScan /
+// runRouteCaptureScan — re-exported below so the routing layer records what
+// WOULD be capturable the moment it holds multi-venue quotes for a planned
+// route (pure observation at every gate state; the detector NEVER returns an
+// executable trade).
 
 /**
  * The same-chain capture venue lists per chain — DERIVED from the
@@ -772,6 +782,91 @@ export function observeCaptureForSwap(args) {
   return runCaptureScan(args);
 }
 
+// ── MULTI-HOP route-choice capture (the framing correction — 2026-09-06) ──
+//
+// The single-pair round trip proved ~0 on deep stables; the multi-hop model
+// (routeAnalyzer.js) measures the ONE-WAY route-choice value across a whole
+// journey — per-leg venue deltas (best venue vs routed venue) accumulated to
+// volatile/exotic destinations. Two seams:
+//
+//   1. observeRouteCapture(route) — the OBSERVATION hook: given a planned
+//      multi-hop route whose legs already carry per-venue quotes, run the
+//      route analyzer and record "route capture opportunity: X bps across N
+//      hops (gated OFF)". Pure observation at every gate state.
+//   2. planCaptureRouteJourney({ legRoutes }) — the CONSTRUCTOR: folds
+//      composeRoute over the caller-chosen per-leg routes (the optimal
+//      sub-path's legs — one existing engine route per hop). No hand-rolled
+//      calldata: the legs are the repo's actual swap/bridge legs (submit()
+//      throws DexDirectLiveTestGateError / RangoLiveTestGateError etc. —
+//      wallet-sign-only at any gate value). DEAD-GATED: carries the capture
+//      gate state; atomic:false with an honest note (a multi-hop journey is
+//      NOT a same-block round trip — the value is route-choice improvement
+//      realized leg by leg, not an atomic arb).
+
+/**
+ * observeRouteCapture — the multi-hop routing hook's observation call:
+ * given a planned route's per-leg venue quotes, run the route analyzer and
+ * return { analysis, gate, report }. PURE OBSERVATION at every gate state.
+ *
+ * @param {object} route the analyzed route { id, legs: [{hop, from, to,
+ *   chain?, kind?, venueChosen, quotes, usdPerOutUnit?}] } — see
+ *   routeAnalyzer.analyzeRoute (the caller maps its planned legs + fetched
+ *   venue quotes into that shape)
+ * @returns {{analysis: object, gate: object, report: string}}
+ */
+export function observeRouteCapture(route) {
+  return runRouteCaptureScan(route);
+}
+
+/**
+ * planCaptureRouteJourney — the multi-hop capture-route CONSTRUCTOR
+ * (dead-gated). Folds composeRoute over an ordered list of per-leg ROUTES
+ * (one existing planner route per hop — e.g. the optimal sub-path the
+ * analyzer selected: planCaptureSide(venue) for DEX hops, planForward /
+ * planThorchain / … for bridge hops). The legs are the SAME LegContract
+ * objects the repo already builds — no hand-rolled calldata.
+ *
+ * 🔴 GATE: the returned route is DEAD-GATED regardless of flag state — its
+ * legs' submit() throws the existing live-test gates (no autonomous
+ * broadcast exists in the repo), and the route carries the capture gate
+ * state (captureGate() — MEV_CAPTURE_ENABLED, default false).
+ * atomic:false — an honest note: this is a JOURNEY (route-choice
+ * improvement realized leg by leg), NOT an atomic same-block round trip.
+ *
+ * @param {object} opts { legRoutes: [route, …] (ordered, ≥2), id?,
+ *   optimal? (annotation: the legRoutes are the analyzer's optimal
+ *   sub-path) }
+ * @returns {object} the composed capture journey route
+ */
+export function planCaptureRouteJourney({ legRoutes, id = null, optimal = false } = {}) {
+  if (!Array.isArray(legRoutes) || legRoutes.length < 2) {
+    throw new Error("planCaptureRouteJourney: legRoutes are required (an ordered array of ≥2 planned routes)");
+  }
+  for (const r of legRoutes) {
+    if (!r?.legs?.length) throw new Error("planCaptureRouteJourney: every legRoute must be a planned route with legs");
+  }
+  const [first, ...rest] = legRoutes;
+  const composed = rest.reduce(
+    (acc, legRoute, i) => composeRoute(acc, legRoute, { stagePrefix: `hop${i + 2}` }),
+    first,
+  );
+  return {
+    ...composed,
+    id: id || `capture-journey-${legRoutes.map((r) => r.id).join("+")}`,
+    composedOf: Object.freeze(legRoutes.map((r) => r.id)), // all N source routes (composeRoute's own composedOf is binary)
+    capture: Object.freeze({
+      kind: "multi-hop-route-choice",
+      atomic: false,
+      atomicNote:
+        "a multi-hop journey is NOT a same-block round trip — the capturable value is route-choice improvement " +
+        "(best venue per hop vs the routed venue), realized leg by leg across the journey, not an atomic arb",
+      legCount: legRoutes.length,
+      optimal: Boolean(optimal),
+      gate: captureGate(),
+    }),
+  };
+}
+
 /**
  * The RoutePlanner surface: plan a route, read its legs/stages. Plans the
  * forward route (Phase 1), the reverse route (Phase 2), the THORChain
@@ -821,4 +916,6 @@ export const RoutePlanner = Object.freeze({
   planCaptureSide,
   planCaptureSwapPair,
   observeCaptureForSwap,
+  observeRouteCapture,
+  planCaptureRouteJourney,
 });
