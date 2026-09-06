@@ -20,9 +20,36 @@
  * quoter eth_calls — the frozen dex-direct fixtures).
  *
  * QUOTE: QuoterV2.quoteExactInputSingle eth_call (read-only — the REAL
- * quote; live-verified: eth USDC→USDT fee-100 → 9,997,036 per 10 USDC).
+ * quote; live-verified: eth USDC→USDT fee-100 → 9,997,027 per 10 USDC —
+ * the frozen 2026-09-05 capture).
  * EXECUTE: SwapRouter.exactInputSingle request artifact — GUARDED (submit()
  * throws DexDirectLiveTestGateError — "READY FOR LIVE ANCHOR").
+ *
+ * SKILL CROSS-CHECK (official Uniswap swap-integration skill v1.5.0,
+ * reviewed 2026-09-06 against this construction):
+ *   • ROUTER — this leg deliberately uses the v3-periphery SwapRouter, NOT
+ *     the Universal Router. The skill's approval-target table endorses the
+ *     LEGACY DIRECT-APPROVE flow for backend/automated systems (approve
+ *     the token to the router once; no Permit2 EIP-712 per-swap signing) —
+ *     exactly the SwapRouter path. Universal Router would force Permit2
+ *     (approve → Permit2 + per-swap signature/allowance) + command-encoded
+ *     calldata + PER-CHAIN router addresses for zero benefit on a
+ *     single-hop v3 swap. ⚠️ The old UR v1 address 0x3fC91A3a…7FAD (this
+ *     module used to export it) is DEPRECATED/superseded per the skill —
+ *     the current UR (2.0) is per-chain (eth 0x66a9893cc07d91d95644aedd0
+ *     5d03f95e1dba8af; code presence re-verified 2026-09-06). Nothing here
+ *     targets either.
+ *   • QUOTE — QuoterV2 eth_call is kept over the skill's Trading API: the
+ *     API needs a key and builds txs through Uniswap's gateway — this leg
+ *     IS the independent no-aggregator fallback (documented decision).
+ *   • PRE-BROADCAST — the skill's validation discipline is encoded as
+ *     validateUniswapSwapRequest (router target / calldata shape /
+ *     positive min-out / fresh deadline); the live anchor validates there
+ *     before signing.
+ *   • LIVE-ANCHOR APPROVAL — the ONE approval tx a live swap needs is
+ *     fromToken.approve(UNISWAP_V3_SWAP_ROUTER, amount) (exact-amount —
+ *     the lifiApproval discipline). Never approve to a Universal Router
+ *     for this leg.
  *
  * ctx (build): { chain, fromToken (TOKENS symbol), toToken, amount (raw),
  *   fee? (default from DEFAULT_FEE_TIERS / ctx), slippageBps?,
@@ -34,16 +61,28 @@ import {
   shapeQuoterCall,
   parseQuoterResponse,
   shapeExactInputSingleCall,
+  validateExactInputSingleSwapRequest,
   DEFAULT_FEE_TIERS,
 } from "./evmV3.js";
 import { DexDirectLiveTestGateError, DEX_DIRECT_LIVE_TEST_GATE_MESSAGE } from "./liveTestGate.js";
 
-/** Canonical Uniswap v3 deployments (same addresses on every deployed
- *  chain). */
+/** Canonical Uniswap v3 deployments (same addresses on every chain the
+ *  canonical deployment covers — verified eth_getCode 2026-09-05 and
+ *  re-verified 2026-09-06 on eth/arb/opt/pol/bas). See the module header
+ *  for the SwapRouter-vs-Universal-Router decision and the live-anchor
+ *  approval target (spender = UNISWAP_V3_SWAP_ROUTER). */
 export const UNISWAP_V3_FACTORY = "0x1F98431c8aD98523631AE4a59f267346ea31F984";
 export const UNISWAP_V3_QUOTER_V2 = "0x61fFE014bA17989E743c5F6cB21bF9697530B21e";
 export const UNISWAP_V3_SWAP_ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
-export const UNISWAP_UNIVERSAL_ROUTER = "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD";
+
+/** The skill-aligned pre-broadcast validator bound to the canonical v3
+ *  SwapRouter (see evmV3.validateExactInputSingleSwapRequest). A live
+ *  anchor validates its swap-call request HERE before Mr. Esters signs:
+ *  router target, calldata shape (selector + 8 words), positive min-out
+ *  (a quote must have landed), fresh deadline, non-payable value. */
+export function validateUniswapSwapRequest(request, options = {}) {
+  return validateExactInputSingleSwapRequest(request, { router: UNISWAP_V3_SWAP_ROUTER, ...options });
+}
 
 /** Chains with the canonical v3 deployment (verified eth_getCode 2026-09-05;
  *  the leg builds any of them; the app's served set is eth/arb/bas/opt/pol). */
@@ -81,6 +120,16 @@ export function shapeUniswapSwapArtifact({ chain, fromSymbol, toSymbol, amount, 
   const chainRecord = CHAINS[chain];
   const recipientAddr = recipient ?? null; // a real flow passes the session wallet
   const deadlineVal = deadline ?? 4102444800; // synthetic DI fixture default (2030) — a real flow passes now+30min
+
+  // 🔴 BURN-RECIPIENT GUARD (wire-level): a quote-pinned swap-call request
+  // must name its recipient. Shaping one to the zero address would send the
+  // output to 0x0 on a live anchor — refuse instead of shaping the footgun.
+  if (quoteHex && !recipientAddr) {
+    throw new Error(
+      "shapeUniswapSwapArtifact: refusing to shape a swap-call request to the zero address — " +
+        "a quote-pinned request must name its recipient (a real flow passes the session wallet)"
+    );
+  }
 
   const quoteRequest = shapeQuoterCall({
     quoter,

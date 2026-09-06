@@ -68,6 +68,16 @@ export function shapePancakeSwapArtifact({ chain = PANCAKESWAP_CHAIN, fromSymbol
   if (!/^[0-9]+$/.test(amountStr)) throw new Error("shapePancakeSwapArtifact: amount must be raw base units");
   const deadlineVal = deadline ?? 4102444800; // synthetic DI fixture default (2030)
 
+  // 🔴 BURN-RECIPIENT GUARD (wire-level — mirrors the Uniswap leg): a
+  // quote-pinned swap-call request must name its recipient. Shaping one to
+  // the zero address would send the output to 0x0 on a live anchor.
+  if (quoteHex && !recipient) {
+    throw new Error(
+      "shapePancakeSwapArtifact: refusing to shape a swap-call request to the zero address — " +
+        "a quote-pinned request must name its recipient (a real flow passes the session wallet)"
+    );
+  }
+
   const quoteRequest = shapeQuoterCall({
     quoter,
     tokenIn: pair.from.address,

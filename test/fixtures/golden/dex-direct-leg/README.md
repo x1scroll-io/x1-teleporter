@@ -92,3 +92,44 @@ router allowance for the EVM legs). Nothing here signs or broadcasts.
   inputs (the engine must reproduce them byte-for-byte).
 - `dex-direct-summary.json` — the capture summary (evidence hashes, the
   SDK cross-check records, the simulation results).
+
+## Skill cross-check (official Uniswap swap-integration skill v1.5.0 — 2026-09-06)
+
+The Uniswap leg was reviewed against the official skill (SKILL.md +
+references/advanced-patterns.md). Findings, corrections, and the decisions
+we deliberately do NOT adopt:
+
+| Skill guidance | Verdict for this leg |
+|---|---|
+| Trading API (quote/swap via `trade-api.gateway.uniswap.org`) for backend scripts | **Not adopted** — needs an API key and builds txs through Uniswap's gateway; this leg IS the independent no-aggregator fallback (works when LiFi AND the gateway are down). QuoterV2 eth_call is the canonical on-chain quote. |
+| Universal Router (2.0, per-chain addresses) for smart-contract/direct integration | **Not adopted** — would force Permit2 (approve → Permit2 + per-swap EIP-712 signature/allowance) + command-encoded calldata + per-chain router addresses for a single-hop v3 swap. The skill's own approval-target table endorses LEGACY DIRECT-APPROVE for backend/automated systems: approve the token to the router once, swap with no signatures — exactly the v3 SwapRouter path this leg uses. |
+| Permit2 signature flow | **Not adopted** (frontend-with-user-signing pattern). Live anchor: ONE approval tx — `fromToken.approve(UNISWAP_V3_SWAP_ROUTER 0xE592…, exactAmount)`. Never approve to a Universal Router for this leg. |
+| Pre-broadcast validation discipline | **Adopted** — encoded as `validateUniswapSwapRequest` (router target, calldata shape selector+8 words, positive min-out, fresh deadline, non-payable value); the live anchor validates there before signing. |
+
+Corrections applied (all simulation-verifiable; golden artifacts unchanged
+byte-for-byte — the golden tests re-prove it):
+1. **Removed the deprecated `UNISWAP_UNIVERSAL_ROUTER` export** — it pointed
+   at Universal Router v1 `0x3fC91A3a…7FAD`, which the skill explicitly
+   marks deprecated/superseded (the current UR 2.0 is per-chain; eth
+   `0x66a9893c…`, code presence re-verified 2026-09-06). Dead export,
+   zero consumers — a live-anchor hazard if ever used. The module header
+   now documents the SwapRouter-vs-UR decision instead.
+2. **Burn-recipient guard** — a quote-pinned swap request without a
+   `recipient` now throws instead of shaping a swap-call request that would
+   send the output to the zero address on a live anchor (Uniswap + PCS legs).
+3. **`validateUniswapSwapRequest`** (evmV3 generic +
+   Uniswap-bound) — the skill's pre-broadcast checks adapted to the direct
+   SwapRouter artifact; unit-tested against the frozen request (accept) and
+   wire hazards (wrong router / truncated calldata / zero min-out / stale
+   deadline / wrong kind — all reject).
+4. Comment accuracy — the eth quote figure in module comments now matches
+   the frozen fixture capture (9,997,027, not 9,997,036).
+
+Live re-verification 2026-09-06 (read-only, public RPCs — no funds, no
+broadcast, no fixture rewrite): canonical factory/QuoterV2/SwapRouter code
+presence re-confirmed on eth/arb/opt/pol/bas; the frozen quoter calldata
+still quotes on `latest` on every chain (eth 9,997,212 vs frozen 9,997,027
+— normal pool drift; the oracle pins the CONSTRUCTION, quotes are market
+data and are refreshed before live use). The execute stubs remain GUARDED
+(`submit()` throws `DexDirectLiveTestGateError`) — swap-execution is
+READY FOR LIVE ANCHOR, Mr. Esters fires the first live swap.

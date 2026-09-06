@@ -7,7 +7,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { createUniswapSwapLeg } from "../src/engine/legs/dexDirect/uniswapSwapLeg.js";
+import {
+  createUniswapSwapLeg,
+  validateUniswapSwapRequest,
+  UNISWAP_V3_QUOTER_V2,
+} from "../src/engine/legs/dexDirect/uniswapSwapLeg.js";
 import { createPancakeSwapSwapLeg } from "../src/engine/legs/dexDirect/pancakeswapSwapLeg.js";
 import { createRaydiumSwapLeg } from "../src/engine/legs/dexDirect/raydiumSwapLeg.js";
 import { createOrcaSwapLeg } from "../src/engine/legs/dexDirect/orcaSwapLeg.js";
@@ -29,6 +33,7 @@ import {
   solInput,
   EVM_ADDRESS,
   SOLANA_ADDRESS,
+  SYNTHETIC_DEADLINE,
 } from "./golden/dexDirectBuilders.mjs";
 import { RoutePlanner } from "../src/engine/routePlanner.js";
 import { createLeg, runLeg } from "../src/engine/legContract.js";
@@ -217,4 +222,113 @@ test("dexDirect: createLeg contract shape is respected by the four legs", () => 
     assert.equal(typeof leg.phases.build, "function");
     assert.equal(typeof leg.phases.submit, "function");
   }
+});
+
+// ── skill cross-check (official Uniswap swap-integration skill v1.5.0) ────
+// The pre-broadcast validator (skill's validation discipline adapted to the
+// direct SwapRouter periphery path) + the wire-level guards this review
+// added. See the uniswapSwapLeg.js header for the full comparison notes.
+
+test("dexDirect: the deprecated Universal Router v1 export is gone (skill: 0x3fC91A3a… is deprecated; UR is per-chain)", async () => {
+  const uniModule = await import("../src/engine/legs/dexDirect/uniswapSwapLeg.js");
+  assert.equal("UNISWAP_UNIVERSAL_ROUTER" in uniModule, false, "the deprecated UR v1 constant must not be exported");
+  // the canonical constants the leg actually targets stay
+  assert.equal(uniModule.UNISWAP_V3_SWAP_ROUTER, "0xE592427A0AEce92De3Edee1F18E0157C05861564");
+  assert.equal(typeof uniModule.validateUniswapSwapRequest, "function");
+});
+
+test("dexDirect: validateUniswapSwapRequest accepts the frozen quote-pinned swap request (router/calldata/min-out/deadline)", async () => {
+  const input = evmInput("uni-eth");
+  const leg = createUniswapSwapLeg();
+  const built = await leg.phases.build({
+    chain: "eth",
+    fromToken: "USDC",
+    toToken: "USDT",
+    amount: input.amountIn,
+    fee: input.fee,
+    recipient: EVM_ADDRESS,
+    deadline: SYNTHETIC_DEADLINE,
+    quoteHex: input.responseHex,
+  });
+  const res = validateUniswapSwapRequest(built.artifact.swapRequest);
+  assert.deepEqual(res, { ok: true });
+});
+
+test("dexDirect: validateUniswapSwapRequest rejects wire hazards a live anchor must never sign", async () => {
+  const input = evmInput("uni-eth");
+  const leg = createUniswapSwapLeg();
+  const built = await leg.phases.build({
+    chain: "eth",
+    fromToken: "USDC",
+    toToken: "USDT",
+    amount: input.amountIn,
+    fee: input.fee,
+    recipient: EVM_ADDRESS,
+    deadline: SYNTHETIC_DEADLINE,
+    quoteHex: input.responseHex,
+  });
+  const { swapRequest } = built.artifact;
+  // wrong router target (e.g. the quoter, or a deprecated UR) — must refuse
+  assert.throws(() => validateUniswapSwapRequest({ ...swapRequest, to: UNISWAP_V3_QUOTER_V2 }), /canonical SwapRouter/);
+  // truncated calldata — must refuse
+  assert.throws(() => validateUniswapSwapRequest({ ...swapRequest, data: swapRequest.data.slice(0, -64) }), /expected 260 bytes/);
+  // a pre-quote request (min-out 0 placeholder) — must refuse
+  const preQuote = await leg.phases.build({
+    chain: "eth",
+    fromToken: "USDC",
+    toToken: "USDT",
+    amount: input.amountIn,
+    fee: input.fee,
+    recipient: EVM_ADDRESS,
+    deadline: SYNTHETIC_DEADLINE,
+  });
+  assert.throws(() => validateUniswapSwapRequest(preQuote.artifact.swapRequest), /no quote has landed/);
+  // stale deadline (fixture default 2030 vs an enforced now+30m AFTER 2030) — must refuse
+  assert.throws(
+    () => validateUniswapSwapRequest(swapRequest, { minDeadline: SYNTHETIC_DEADLINE + 1 }),
+    /fresh deadline/,
+  );
+  // wrong kind — must refuse
+  assert.throws(() => validateUniswapSwapRequest({ ...swapRequest, kind: "quoter-quoteExactInputSingle" }), /not an exactInputSingle request/);
+});
+
+test("dexDirect: quote-pinned swap requests without a recipient are refused (never shape a burn-recipient swap)", async () => {
+  const uniInput = evmInput("uni-eth");
+  const uniModule = await import("../src/engine/legs/dexDirect/uniswapSwapLeg.js");
+  assert.throws(
+    () =>
+      uniModule.shapeUniswapSwapArtifact({
+        chain: "eth",
+        fromSymbol: "USDC",
+        toSymbol: "USDT",
+        amount: uniInput.amountIn,
+        fee: uniInput.fee,
+        quoteHex: uniInput.responseHex,
+      }),
+    /zero address/,
+  );
+  const pcsInput = evmInput("pcs-bsc-f100");
+  const pcsModule = await import("../src/engine/legs/dexDirect/pancakeswapSwapLeg.js");
+  assert.throws(
+    () =>
+      pcsModule.shapePancakeSwapArtifact({
+        chain: "bsc",
+        fromSymbol: "USDC",
+        toSymbol: "USDT",
+        amount: pcsInput.amountIn,
+        fee: pcsInput.fee,
+        quoteHex: pcsInput.responseHex,
+      }),
+    /zero address/,
+  );
+  // construction-only shape (no quote, no recipient) still emits NO swap request — the capture path
+  const art = uniModule.shapeUniswapSwapArtifact({
+    chain: "eth",
+    fromSymbol: "USDC",
+    toSymbol: "USDT",
+    amount: uniInput.amountIn,
+    fee: uniInput.fee,
+  });
+  assert.equal(art.swapRequest, undefined);
+  assert.equal(art.quote, undefined);
 });
