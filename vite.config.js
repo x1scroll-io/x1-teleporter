@@ -32,6 +32,29 @@ const gitRef = process.env.VERCEL_GIT_COMMIT_REF;
 const warpLiveSend =
   gitRef !== undefined && WARP_ARMED_BRANCHES.has(gitRef) ? "true" : "false";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MEV_CAPTURE_ENABLED build pin — same allowlist discipline as WARP_LIVE_SEND.
+//
+// The MEV/price-gap capture engine (src/lib/mev/) reads VITE_MEV_CAPTURE_ENABLED
+// (flags.ts). Like WARP_LIVE_SEND, the value is PINNED here at build time,
+// keyed off the PROVEN deployment fact (VERCEL_GIT_COMMIT_REF), so a Vercel
+// env-injection quirk can never silently arm it and no random branch preview
+// can ever compile it true.
+//
+// SAFETY BOUNDARY (non-negotiable): arming is DELIBERATE. Only the branches
+// in MEV_ARMED_BRANCHES may compile MEV_CAPTURE_ENABLED:true — currently just
+// `v2` (mirror of WARP_ARMED_BRANCHES). `main` (production) and every other
+// branch compile it false. AND EVEN WHEN ARMED the capture path is
+// wallet-sign-only by STRUCTURE, not just by flag: the capture leg COMPOSES
+// the repo's existing swap legs (dexDirect / aggregator), every one of which
+// throws DexDirectLiveTestGateError on submit() — no autonomous broadcast
+// exists at any flag value. The gate only ever turns DETECTION REPORTING into
+// "the engine may build a signable capture artifact for Mr. Esters' wallet".
+// ─────────────────────────────────────────────────────────────────────────────
+const MEV_ARMED_BRANCHES = new Set(["v2"]);
+const mevCaptureEnabled =
+  gitRef !== undefined && MEV_ARMED_BRANCHES.has(gitRef) ? "true" : "false";
+
 export default defineConfig({
   plugins: [react()],
   // @solana/web3.js references Buffer/global as browser globals. We polyfill
@@ -46,6 +69,10 @@ export default defineConfig({
     // `define` value takes precedence over its own import.meta.env handling,
     // so this is deterministic regardless of Vercel env injection.
     "import.meta.env.VITE_WARP_LIVE_SEND": JSON.stringify(warpLiveSend),
+    // Pin the MEV capture gate at build time (see the MEV block above).
+    // Default false everywhere except the MEV_ARMED_BRANCHES allowlist (v2),
+    // and even armed it is wallet-sign-only (structural — no broadcast path).
+    "import.meta.env.VITE_MEV_CAPTURE_ENABLED": JSON.stringify(mevCaptureEnabled),
   },
   resolve: {
     alias: {

@@ -56,6 +56,12 @@ export {
   plan,
   legById,
   legsForStage,
+  CAPTURE_CANDIDATES,
+  CAPTURE_SCAN_CHAINS,
+  captureCandidatesForChain,
+  planCaptureSide,
+  planCaptureSwapPair,
+  observeCaptureForSwap,
 } from "./routePlanner.js";
 export { runForwardEvmStage, ensureEvmChain } from "./runners/forwardEvmStage.js";
 export { runForwardSvmStage } from "./runners/forwardSvmStage.js";

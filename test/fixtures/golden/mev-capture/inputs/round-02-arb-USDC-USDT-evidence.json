@@ -1,0 +1,129 @@
+{
+  "chain": "arb",
+  "pair": {
+    "from": "USDC",
+    "to": "USDT"
+  },
+  "decimals": 6,
+  "amountIn": "2500000000",
+  "amountInHuman": "2500",
+  "buy": [
+    {
+      "ok": true,
+      "dex": "uniswap",
+      "pool": "uniswap-arb-USDC-USDT-f100",
+      "chain": "arb",
+      "from": "USDC",
+      "to": "USDT",
+      "amountIn": "2500000000",
+      "amountOut": "2499670966",
+      "fee": 100,
+      "feeBps": 1,
+      "gasEstimate": "96128",
+      "sqrtPriceX96After": "79226893986317059517608673229",
+      "quoteRequest": {
+        "to": "0x61ffe014ba17989e743c5f6cb21bf9697530b21e",
+        "data": "0xc6a5026a000000000000000000000000af88d065e77c8cc2239327c5edb3a432268e5831000000000000000000000000fd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9000000000000000000000000000000000000000000000000000000009502f90000000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x0000000000000000000000000000000000000000000000000000000094fdf3b60000000000000000000000000000000000000000fffef360f651c3b39500bfcd00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000017780",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:02:26.470Z",
+      "rpc": "https://arbitrum-rpc.publicnode.com"
+    },
+    {
+      "ok": true,
+      "dex": "uniswap",
+      "pool": "uniswap-arb-USDC-USDT-f500",
+      "chain": "arb",
+      "from": "USDC",
+      "to": "USDT",
+      "amountIn": "2500000000",
+      "amountOut": "2498140158",
+      "fee": 500,
+      "feeBps": 5,
+      "gasEstimate": "104862",
+      "sqrtPriceX96After": "79212685292769151137999481919",
+      "quoteRequest": {
+        "to": "0x61ffe014ba17989e743c5f6cb21bf9697530b21e",
+        "data": "0xc6a5026a000000000000000000000000af88d065e77c8cc2239327c5edb3a432268e5831000000000000000000000000fd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9000000000000000000000000000000000000000000000000000000009502f90000000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x0000000000000000000000000000000000000000000000000000000094e697fe0000000000000000000000000000000000000000fff33292243c39d7133bec3f0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000001999e",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:02:26.492Z",
+      "rpc": "https://arbitrum-rpc.publicnode.com"
+    },
+    {
+      "ok": false,
+      "dex": "lifi",
+      "reason": "lifi HTTP 404",
+      "source": "aggregator-skip"
+    }
+  ],
+  "sell": [
+    {
+      "ok": true,
+      "dex": "uniswap",
+      "pool": "uniswap-arb-USDT-USDC-f100",
+      "chain": "arb",
+      "from": "USDT",
+      "to": "USDC",
+      "amountIn": "2499670966",
+      "amountOut": "2499497997",
+      "fee": 100,
+      "feeBps": 1,
+      "gasEstimate": "97130",
+      "sqrtPriceX96After": "79226958200994170928787753897",
+      "quoteRequest": {
+        "to": "0x61ffe014ba17989e743c5f6cb21bf9697530b21e",
+        "data": "0xc6a5026a000000000000000000000000fd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9000000000000000000000000af88d065e77c8cc2239327c5edb3a432268e58310000000000000000000000000000000000000000000000000000000094fdf3b600000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x0000000000000000000000000000000000000000000000000000000094fb500d0000000000000000000000000000000000000000ffff00fa0bfb8496db4a0ba900000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000017b6a",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:02:26.547Z",
+      "rpc": "https://arbitrum-rpc.publicnode.com"
+    },
+    {
+      "ok": true,
+      "dex": "uniswap",
+      "pool": "uniswap-arb-USDT-USDC-f500",
+      "chain": "arb",
+      "from": "USDT",
+      "to": "USDC",
+      "amountIn": "2499670966",
+      "amountOut": "2498291337",
+      "fee": 500,
+      "feeBps": 5,
+      "gasEstimate": "135921",
+      "sqrtPriceX96After": "79236246956433470649091223802",
+      "quoteRequest": {
+        "to": "0x61ffe014ba17989e743c5f6cb21bf9697530b21e",
+        "data": "0xc6a5026a000000000000000000000000fd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9000000000000000000000000af88d065e77c8cc2239327c5edb3a432268e58310000000000000000000000000000000000000000000000000000000094fdf3b600000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x0000000000000000000000000000000000000000000000000000000094e8e68900000000000000000000000000000000000000010006aff27cf7c02746d3f0fa000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000212f1",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:02:26.567Z",
+      "rpc": "https://arbitrum-rpc.publicnode.com"
+    },
+    {
+      "ok": false,
+      "dex": "lifi",
+      "reason": "lifi HTTP 404",
+      "source": "aggregator-skip"
+    }
+  ],
+  "capturedAt": "2026-09-06T17:02:26.615Z",
+  "round": 2,
+  "detection": {
+    "wouldCapture": false,
+    "gapBps": 6,
+    "grossRoundTripBps": -2,
+    "netRoundTripBps": -2,
+    "netValueAfterCostsRaw": "-511549",
+    "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+    "route": [
+      "uniswap(uniswap-arb-USDC-USDT-f100)",
+      "uniswap(uniswap-arb-USDT-USDC-f100)"
+    ],
+    "exact": true
+  }
+}

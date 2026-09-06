@@ -118,6 +118,7 @@ import { createUniswapSwapLeg } from "./legs/dexDirect/uniswapSwapLeg.js";
 import { createPancakeSwapSwapLeg } from "./legs/dexDirect/pancakeswapSwapLeg.js";
 import { createRaydiumSwapLeg } from "./legs/dexDirect/raydiumSwapLeg.js";
 import { createOrcaSwapLeg } from "./legs/dexDirect/orcaSwapLeg.js";
+import { runCaptureScan, captureGate } from "../lib/mev/captureGate.js";
 
 /** The forward route's leg ids in execution order (the planner contract). */
 export const FORWARD_LEG_IDS = Object.freeze([
@@ -626,6 +627,151 @@ export function planDexDirect({ dex, chain = null } = {}) {
   };
 }
 
+// ── MEV capture — the same-chain cross-DEX price-gap hook (Phase 7) ────────
+//
+// The capture engine (src/lib/mev/) detects capturable price gaps when the
+// routing layer sees the SAME token pair quoted on MULTIPLE venues on the
+// SAME chain (the DEX_DIRECT_FALLBACKS candidates above + the aggregators).
+// The planner owns the two seams the engine needs:
+//
+//   1. captureCandidatesForChain(chain) — the same-chain VENUE LIST a
+//      quote-fetching layer consults when a swap route is planned (which
+//      venues to fetch for the capture scan, in fallback priority order).
+//      Pure read of the existing DEX_DIRECT_FALLBACKS registry — DEFAULT
+//      ROUTING UNCHANGED.
+//   2. planCaptureSwapPair(...) — the atomic capture-route CONSTRUCTOR: it
+//      COMPOSES two existing swap legs (buy on the cheap venue, sell on the
+//      expensive venue) via composeRoute. No hand-rolled calldata — the
+//      legs are the repo's actual dexDirect / aggregator swap legs (their
+//      submit() throws DexDirectLiveTestGateError: wallet-sign-only at any
+//      gate value). DEAD-GATED: the route carries the capture gate state;
+//      execution is Mr. Esters' arm alone (captureGate.js).
+//
+// The observation itself (detector over fetched quotes → the "capture
+// opportunity: X bps (gated OFF)" report line) is runCaptureScan — re-
+// exported below so the routing layer records what WOULD be capturable the
+// moment it holds multi-venue quotes for a planned swap (pure observation
+// at every gate state; the detector NEVER returns an executable trade).
+
+/**
+ * The same-chain capture venue lists per chain — DERIVED from the
+ * DEX_DIRECT_FALLBACKS registry (the engine's own candidate ordering,
+ * aggregators first). Chains with FEWER than two venues cannot host a
+ * cross-venue capture (the detector reports single-route and moves on).
+ */
+export const CAPTURE_CANDIDATES = Object.freeze({
+  evm: Object.freeze({
+    eth: Object.freeze([...DEX_DIRECT_FALLBACKS.evm.eth]),
+    arb: Object.freeze([...DEX_DIRECT_FALLBACKS.evm.arb]),
+    bas: Object.freeze([...DEX_DIRECT_FALLBACKS.evm.bas]),
+    opt: Object.freeze([...DEX_DIRECT_FALLBACKS.evm.opt]),
+    pol: Object.freeze([...DEX_DIRECT_FALLBACKS.evm.pol]),
+    bsc: Object.freeze([...DEX_DIRECT_FALLBACKS.evm.bsc]),
+    avax: Object.freeze([...DEX_DIRECT_FALLBACKS.evm.avax]),
+    sonic: Object.freeze([...DEX_DIRECT_FALLBACKS.evm.sonic]),
+  }),
+  svm: Object.freeze({
+    sol: Object.freeze([...DEX_DIRECT_FALLBACKS.svm.sol]),
+    x1: Object.freeze([...DEX_DIRECT_FALLBACKS.svm.x1]),
+  }),
+});
+
+/** The chains the capture scan can consult (served same-chain swap chains). */
+export const CAPTURE_SCAN_CHAINS = Object.freeze(["eth", "arb", "bas", "opt", "pol", "bsc", "sol"]);
+
+/**
+ * captureCandidatesForChain — the same-chain venue list for a chain (the
+ * routing hook's candidate query). Returns [] for unknown chains.
+ *
+ * @param {string} chain a CHAINS key ("eth" | "arb" | "bsc" | "sol" | …)
+ * @returns {string[]} venue vias in fallback priority order (lifi/uniswap,
+ *   lifi/pancakeswap, jupiter/orca/raydium, …)
+ */
+export function captureCandidatesForChain(chain) {
+  const family = CAPTURE_CANDIDATES.evm[chain] ? CAPTURE_CANDIDATES.evm : CAPTURE_CANDIDATES.svm;
+  const list = family?.[chain];
+  return list ? [...list] : [];
+}
+
+/** Plan one side of a capture pair from its via/dex spec. */
+export function planCaptureSide({ via, dex = null, chain = null } = {}) {
+  if (via === "dexDirect") {
+    if (!dex) throw new Error("planCaptureSide: a dexDirect side needs dex (uniswap | pancakeswap | raydium | orca)");
+    return planDexDirect({ dex, chain: chain ?? undefined });
+  }
+  if (via === "lifi") return planLifiEvmSwap({ chain: chain ?? "eth" });
+  if (via === "jupiter") return planJupiterSwap();
+  if (via === "xdex") return planXdexSwap();
+  throw new Error(`planCaptureSide: unknown swap via "${via}" (dexDirect | lifi | jupiter | xdex)`);
+}
+
+/**
+ * planCaptureSwapPair — the atomic capture-route CONSTRUCTOR (dead-gated).
+ *
+ * Composes TWO existing swap legs into one capture route via composeRoute:
+ * the BUY leg (X→Y on the venue where Y is cheapest) then the SELL leg
+ * (Y→X on the venue where Y is most expensive). The legs are the SAME
+ * LegContract objects the repo already builds (dexDirect / lifi / jupiter)
+ * — no hand-rolled calldata; the runner supplies each leg's ctx (pair,
+ * amounts) at run time exactly like any other composed swap route.
+ *
+ * 🔴 GATE: the returned route is DEAD-GATED regardless of flag state — its
+ * legs' submit() throws DexDirectLiveTestGateError (no autonomous broadcast
+ * exists in the repo), and the route carries the capture gate state
+ * (captureGate() — MEV_CAPTURE_ENABLED, default false) so callers and
+ * tests can assert the gate. assertCaptureGateOpen() (captureGate.js) is
+ * the separate execution guard for any future runner: it throws while the
+ * gate is closed. Execution is Mr. Esters' arm alone.
+ *
+ * @param {object} opts { chain, pair: {from, to}, buy: {via, dex?},
+ *   sell: {via, dex?} } — chain defaults "eth"; pair is annotation only
+ *   (the legs read the pair from ctx at run time, like every planner route).
+ * @returns {object} the composed capture route
+ */
+export function planCaptureSwapPair({ chain = "eth", pair = null, buy, sell } = {}) {
+  if (!buy || !sell) throw new Error("planCaptureSwapPair: buy and sell sides are required ({via, dex?})");
+  const buyRoute = planCaptureSide({ ...buy, chain });
+  const sellRoute = planCaptureSide({ ...sell, chain });
+  const from = pair?.from ?? "?";
+  const to = pair?.to ?? "?";
+  const buyName = buy.via === "dexDirect" ? buy.dex : buy.via;
+  const sellName = sell.via === "dexDirect" ? sell.dex : sell.via;
+  const route = composeRoute(buyRoute, sellRoute, {
+    id: `capture-${chain}-${from}-${to}-${buyName}-${sellName}`,
+    direction: "capture",
+    sourceChain: chain,
+    destChain: chain,
+    stagePrefix: "capture",
+  });
+  return {
+    ...route,
+    capture: Object.freeze({
+      kind: "same-chain-cross-venue-price-gap",
+      chain,
+      pair: pair ? Object.freeze({ from, to }) : null,
+      buy: Object.freeze({ via: buy.via, dex: buy.dex ?? null }),
+      sell: Object.freeze({ via: sell.via, dex: sell.dex ?? null }),
+      atomic: true,
+      gate: captureGate(),
+    }),
+  };
+}
+
+/**
+ * observeCaptureForSwap — the routing hook's observation call: given the
+ * same-chain multi-venue quotes the engine already fetched for a swap
+ * (the DEX_DIRECT_FALLBACKS / CAPTURE_CANDIDATES path), run the capture
+ * scan and return { detection, gate, report }. PURE OBSERVATION at every
+ * gate state — the engine records what WOULD be capturable and moves on.
+ *
+ * @param {object} args { chain, pair: {from, to}, buyQuotes, sellQuotes,
+ *   gasCostQuoteUnits? } — see runCaptureScan in captureGate.js
+ * @returns {{detection: object, gate: object, report: string}}
+ */
+export function observeCaptureForSwap(args) {
+  return runCaptureScan(args);
+}
+
 /**
  * The RoutePlanner surface: plan a route, read its legs/stages. Plans the
  * forward route (Phase 1), the reverse route (Phase 2), the THORChain
@@ -669,5 +815,10 @@ export const RoutePlanner = Object.freeze({
   DEX_DIRECT_FALLBACKS,
   DEX_DIRECT_DEFAULT_DEX,
   buildDexDirectLegs,
-
+  CAPTURE_CANDIDATES,
+  CAPTURE_SCAN_CHAINS,
+  captureCandidatesForChain,
+  planCaptureSide,
+  planCaptureSwapPair,
+  observeCaptureForSwap,
 });
