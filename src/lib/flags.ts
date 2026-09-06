@@ -35,6 +35,7 @@ export function resolveFlags(env: Env): {
   REVERSE_ENABLED: boolean;
   LEGACY_UI: boolean;
   WARP_LIVE_SEND: boolean;
+  MEV_CAPTURE_ENABLED: boolean;
   CONSOLE_UI: boolean;
 } {
   const on = (names: string[]): boolean => {
@@ -52,6 +53,7 @@ export function resolveFlags(env: Env): {
     ANYSWAP: on(["NEXT_PUBLIC_FLAG_ANYSWAP", "VITE_FLAG_ANYSWAP"]),
     REVERSE_ENABLED: on(["NEXT_PUBLIC_FLAG_REVERSE_ENABLED", "VITE_FLAG_REVERSE_ENABLED"]),
     WARP_LIVE_SEND: on(["NEXT_PUBLIC_FLAG_WARP_LIVE_SEND", "VITE_WARP_LIVE_SEND"]),
+    MEV_CAPTURE_ENABLED: on(["NEXT_PUBLIC_FLAG_MEV_CAPTURE_ENABLED", "VITE_MEV_CAPTURE_ENABLED"]),
     LEGACY_UI: on(["NEXT_PUBLIC_FLAG_LEGACY_UI", "VITE_FLAG_LEGACY_UI"]),
     CONSOLE_UI: on(["NEXT_PUBLIC_FLAG_CONSOLE_UI", "VITE_FLAG_CONSOLE_UI"]),
   };
@@ -119,6 +121,24 @@ export const REVERSE_ENABLED: boolean = flags.REVERSE_ENABLED;
  * Set VITE_WARP_LIVE_SEND=true in Vercel Preview only when the live hop is ready.
  */
 export const WARP_LIVE_SEND: boolean = flags.WARP_LIVE_SEND;
+
+/**
+ * MEV_CAPTURE_ENABLED — env-driven gate for the MEV/price-gap CAPTURE
+ * ENGINE (the same-chain cross-DEX price-gap detector — src/lib/mev/).
+ * DEFAULT: false, always, everywhere except a branch whose build pins it
+ * true (vite.config.js MEV_ARMED_BRANCHES — mirrors WARP_LIVE_SEND).
+ *
+ * WHAT THE GATE MEANS (read src/lib/mev/captureGate.js): while false the
+ * detector RUNS (read-only quote observation + gap math) and the engine
+ * reports "capture opportunity: X bps (gated OFF)" — nothing is ever
+ * executable. When true (v2 builds only, via the vite define) the capture
+ * ROUTE CONSTRUCTOR may compose the two existing DEX swap legs, but it
+ * still only produces artifacts for Mr. Esters' wallet to sign — the
+ * composed legs are the repo's existing dexDirect/aggregator swap legs
+ * whose submit() throws (DexDirectLiveTestGateError): no autonomous
+ * broadcast exists at any flag value. The live arm is Mr. Esters' alone.
+ */
+export const MEV_CAPTURE_ENABLED: boolean = flags.MEV_CAPTURE_ENABLED;
 
 /**
  * Whether the app mounts the legacy v1 Teleporter card instead of the v2

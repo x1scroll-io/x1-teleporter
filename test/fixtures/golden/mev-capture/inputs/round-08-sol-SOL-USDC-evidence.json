@@ -1,0 +1,133 @@
+{
+  "chain": "sol",
+  "pair": {
+    "from": "SOL",
+    "to": "USDC"
+  },
+  "decimals": {
+    "from": 9,
+    "to": 6
+  },
+  "amountIn": "5000000000",
+  "amountInHuman": "5 SOL",
+  "buy": [
+    {
+      "dex": "orca",
+      "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+      "chain": "sol",
+      "from": "SOL",
+      "to": "USDC",
+      "amountIn": "5000000000",
+      "amountOut": "529454799",
+      "feeBps": 4,
+      "allTrade": true,
+      "endTickIndex": -22451,
+      "source": "REAL-live-whirlpool-state-walk",
+      "capturedAt": "2026-09-06T17:04:19.010Z",
+      "state": {
+        "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+        "programId": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "tickCurrent": -22451,
+        "tickArrays": {
+          "below": 4,
+          "above": 4
+        }
+      }
+    },
+    {
+      "dex": "raydium",
+      "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+      "chain": "sol",
+      "from": "SOL",
+      "to": "USDC",
+      "amountIn": "5000000000",
+      "amountOut": "529408495",
+      "feeBps": 4,
+      "allTrade": true,
+      "endTick": -22452,
+      "source": "REAL-live-raydium-clmm-state-walk",
+      "capturedAt": "2026-09-06T17:04:19.010Z",
+      "state": {
+        "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+        "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+        "tickCurrent": -22452,
+        "tickArrays": 7
+      }
+    },
+    {
+      "dex": "jupiter",
+      "pool": "jupiter-sol-USDC",
+      "chain": "sol",
+      "from": "SOL",
+      "to": "USDC",
+      "amountIn": "5000000000",
+      "amountOut": "529480665",
+      "feeBps": null,
+      "allTrade": true,
+      "source": "REAL-live-jupiter-quote",
+      "capturedAt": "2026-09-06T17:04:19.033Z",
+      "routePlan": 1,
+      "priceImpactPct": "0.0000204306619117809420493479"
+    }
+  ],
+  "sell": [
+    {
+      "dex": "orca",
+      "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+      "chain": "sol",
+      "from": "USDC",
+      "to": "SOL",
+      "amountIn": "529480665",
+      "amountOut": "4996226296",
+      "feeBps": 4,
+      "allTrade": true,
+      "endTickIndex": -22451,
+      "source": "REAL-live-whirlpool-state-walk",
+      "capturedAt": "2026-09-06T17:04:19.033Z"
+    },
+    {
+      "dex": "raydium",
+      "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+      "chain": "sol",
+      "from": "USDC",
+      "to": "SOL",
+      "amountIn": "529480665",
+      "amountOut": "4996576912",
+      "feeBps": 4,
+      "allTrade": true,
+      "endTick": -22452,
+      "source": "REAL-live-raydium-clmm-state-walk",
+      "capturedAt": "2026-09-06T17:04:19.033Z"
+    },
+    {
+      "dex": "jupiter",
+      "pool": "jupiter-USDC-sol",
+      "chain": "sol",
+      "from": "USDC",
+      "to": "SOL",
+      "amountIn": "529480665",
+      "amountOut": "4999916578",
+      "feeBps": null,
+      "allTrade": true,
+      "source": "REAL-live-jupiter-quote",
+      "capturedAt": "2026-09-06T17:04:19.060Z",
+      "routePlan": 1,
+      "priceImpactPct": "0"
+    }
+  ],
+  "capturedAt": "2026-09-06T17:04:19.060Z",
+  "round": 8,
+  "detection": {
+    "wouldCapture": false,
+    "gapBps": 0,
+    "grossRoundTripBps": 0,
+    "netRoundTripBps": 0,
+    "netValueAfterCostsRaw": "-93422",
+    "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+    "route": [
+      "jupiter(jupiter-sol-USDC)",
+      "jupiter(jupiter-USDC-sol)"
+    ],
+    "exact": true
+  }
+}
