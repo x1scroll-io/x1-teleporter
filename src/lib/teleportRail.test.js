@@ -96,6 +96,33 @@ test("rail layer: silent failover — an unavailable top rail falls through the 
   assert.equal(suiDead.rail, null, "sui: no serving rail when rango is unavailable");
 });
 
+test("rail layer: SUI/TRON are SINGLE-RAIL sources — one candidate, no fallback (the SPOF flag, 2026-09-06 check)", () => {
+  // Unlike BTC/DOGE/LTC/XRP ([THORChain, Rango] — two candidates, silent
+  // failover), the Rango-native sources carry exactly ONE serving rail. If
+  // Rango is down/halted/erroring, the lane goes fully dark: railCandidates
+  // has nothing to fall over to and pickRail answers the honest dead-end.
+  // Any consumer MUST translate that state into the calm route-unavailable
+  // UX (src/lib/rango/routeState.js) — never a raw error or an EVM
+  // fallthrough (docs/ROUTING-ENGINE.md §11.7).
+  for (const c of RANGO_CHAIN_IDS) {
+    assert.equal(COVERAGE_MATRIX[c].length, 1, `${c}: exactly ONE serving rail (single point of failure)`);
+    assert.equal(COVERAGE_MATRIX[c][0], RAIL.RANGO, `${c}: that one rail is rango`);
+    const cands = railCandidates({ fromChain: c });
+    assert.equal(cands.length, 1, `${c}: railCandidates returns no fallback candidate`);
+    assert.equal(cands[0].rail, RAIL.RANGO);
+    // Rango unavailable → NO fallback rail exists → honest { rail: null }.
+    const dead = pickRail({ fromChain: c, unavailableRails: new Set([RAIL.RANGO]) });
+    assert.equal(dead.rail, null, `${c}: no second rail to fail over to when rango is unavailable`);
+    assert.equal(dead.execution, null);
+  }
+  // The natives keep their TWO-candidate failover (the contrast that makes
+  // sui/tron single-rail): thorchain down → rango still serves.
+  for (const c of NATIVE_CHAIN_IDS) {
+    assert.equal(COVERAGE_MATRIX[c].length, 2, `${c}: two serving rails (fallback exists)`);
+    assert.equal(COVERAGE_MATRIX[c][1], RAIL.RANGO, `${c}: rango is the fallback candidate`);
+  }
+});
+
 test("rail layer: the source-asset union — EVM chains + native chains + X1, each with its token list", () => {
   assert.ok(SOURCE_CHAINS.includes("eth") && SOURCE_CHAINS.includes("x1"), "EVM + X1 present");
   for (const c of NATIVE_CHAIN_IDS) assert.ok(SOURCE_CHAINS.includes(c), `${c} in the union`);

@@ -416,8 +416,8 @@ preference is [THORChain, Rango, Wanchain], FILTERED by this matrix:
 | DOGE | ✅ | ✅ | ❌ (no XFlows row) | [THORChain, Rango] |
 | LTC | ✅ | ✅ | ❌ (no XFlows row) | [THORChain, Rango] |
 | XRP | ✅ | ✅ | ❌ (no XFlows row) | [THORChain, Rango] |
-| SUI (native) | ❌ | ✅ | ❌ (XFlows has SUI-USDC only, no native SUI) | [Rango] |
-| TRON (TRX) | ❌ | ✅ | ❌ (TRX→SOL probe failed) | [Rango] |
+| SUI (native) | ❌ | ✅ | ❌ (XFlows has SUI-USDC only, no native SUI) | [Rango] ⚠️ SINGLE-RAIL |
+| TRON (TRX) | ❌ | ✅ | ❌ (TRX→SOL probe failed) | [Rango] ⚠️ SINGLE-RAIL |
 | ADA (Cardano) | ❌ | ❌ | ❌ (ADA→SOL + ADA→WAN probes failed; portal flow not API-quotable) | **NO RAIL** — do not list as a console source |
 | POLKADOT | ❌ | ❌ | ❌ (no row in any Wanchain-family API) | **NO RAIL** — do not list as a console source |
 | EVM stables / X1 | — | — | (EVM pairs only; land EVM/Wanchain-L1, never SOL/X1) | LiFi/Warp (unchanged) |
@@ -427,6 +427,13 @@ Wanchain] filtered by the matrix) leaves every current source's candidate
 list unchanged — Wanchain earns NO slot until a live-proven route exists.
 The `RAIL.WANCHAIN` rail + label + engine plan exist (registered, wired,
 tested) so the seam is one line per source when a route becomes quotable.
+
+⚠️ **SINGLE-RAIL sources (SUI/TRON) — single point of failure + the
+future second rail:** the ⚠️ rows above have exactly ONE serving rail
+(Rango) with no fallback candidate — when Rango is down/halted/erroring,
+`pickRail` answers the honest dead-end ({ rail: null }) and the lane goes
+dark. The graceful-failure UX + the THORChain-Sui launch watch are the
+2026-09-06 SUI COVERAGE CHECK — see §11.7.
 
 ### 11.5 What was built (branch feat/wanchain-leg, additive, all green)
 
@@ -469,3 +476,83 @@ SecRand selection, threshold TSS, deposits + falling-price auction to
 compensate users. No public audit history appears in Wanchain's docs — an
 independent audit is a live-test open item before any Wanchain-family lane
 moves real funds.
+
+### 11.7 SUI COVERAGE CHECK + HARDENING (2026-09-06 — the 4-point check)
+
+Mr. Esters' four-point Sui check, answered with code evidence (branch
+feat/sui-coverage-check — additive only; no new rails, no funds/tx, frozen
+instruments byte-unchanged):
+
+**1. Sui's exact routing — Rango-ONLY, no fallback (confirmed).**
+`src/lib/teleportRail.js` COVERAGE_MATRIX: `sui → [RANGO]` (tron likewise).
+THORChain can't serve Sui; the Wanchain-family XFlows v3 API has no native
+SUI row (SUI-USDC only — the wanchain verification §11.2); Rango serves
+SUI.SUI → SOLANA.SOL (live fixture
+`test/fixtures/golden/rango-leg/quote-sui-sol-100sui.real.json`, NearIntent,
+2026-09-05). Engine: `RoutePlanner.planRango({source:"sui"})` →
+`rango-sui-sol` (rango-quote + the 🔴 GUARDED rango-execute stub). No other
+rail row mentions Sui. Contrast: BTC/DOGE/LTC/XRP carry TWO candidates
+[THORChain, Rango] with silent failover — Sui has ONE.
+
+**2. The single point of failure + the graceful-failure UX (flagged +
+hardened at the seam).** Sui's one rail means: when Rango is down / a Sui
+route is halted / the Rango API errors, `pickRail({fromChain:"sui"})` with
+Rango unavailable answers `{ rail: null }` — no second candidate to fail
+over to; the lane goes fully dark. Hardening (the Rango mirror of the
+THORChain SOL-halt UX — THORChainDeposit's isThorchainHaltMessage +
+destHalted calm state + gate disable + auto re-check):
+- `src/lib/rango/routeState.js` (NEW, pure, tested) — detects the failure
+  class (`isRangoRouteUnavailable`: transport down / proxy fail-closed
+  codes / HTTP ≥500 / route-halt wire phrases — and deliberately EXCLUDES
+  Rango's NO_ROUTE coverage answer, which keeps its own honest message)
+  and carries the calm copy
+  (`rangoRouteUnavailableMessage("Sui")` =
+  "⚠️ Sui route temporarily unavailable (the bridge network is having
+  issues) — this usually recovers; try again shortly.").
+- CONSOLE STATE TODAY (honest): the console does NOT list Sui as a source
+  yet — its source picker is EVM-chains + BTC/DOGE/LTC/XRP + X1
+  (SOURCE_CHAINS in teleportRail.js; the ⚠️ CONSOLE BOUNDARY note still
+  holds — no Rango execution step UI exists, so no Rango-Sui quote can
+  fail IN the console today). When the console's Sui phase lands, its
+  Rango quote step MUST route every failure through isRangoRouteUnavailable
+  and render rangoRouteUnavailableMessage (gate disabled, calm state,
+  auto-recover on the next attempt/refresh — the console's existing
+  re-quote semantics ARE the re-check; no new timers). The seam is pinned
+  + tested now so that wiring is copy-paste, not design.
+- Rail tests now pin the SPOF: SUI/TRON have exactly ONE serving rail and
+  answer the honest dead-end when Rango is unavailable
+  (src/lib/teleportRail.test.js).
+
+**3. Wallet side — Sui lane is ROUTE-registered but WALLET-INCOMPLETE.**
+The wallet layer (`src/lib/wallet/families.js` — the canonical
+WALLET_FAMILIES/FAMILY_LABELS order + `walletDiscovery`, ConnectModal) has
+NO Sui/Move family: families are evm, solana, bitcoin, litecoin, dogecoin,
+xrp, tron. No Sui wallet (Petra/Suiet/Slush — the Move-family registry
+convention) is wired anywhere: no discovery handle, no connect row, no
+balance read, no signer. What the flow requires TODAY: nothing — Sui is
+not a console source, so no in-flow Sui wallet is needed yet. When the Sui
+phase lands, the Rango leg's execution shape (rangoExecuteLeg: the
+swap-create request needs `fromAddress` = the user's REAL Sui source
+wallet + `toAddress` = the SOL session pubkey; family "external" — no
+in-app signer by design) means the MINIMUM wallet wiring is a
+Sui-address input seam (the user pastes their Sui address — like the
+THORChain natives' refund-address prefill, out-of-band send), NOT a full
+Move-family session. A full Petra/Suiet/Slush family (connect/balance/
+sign) is a separate, bigger phase decision (Mr. Esters' call) — and only
+needed if the Sui flow is ever to sign in-app.
+
+**4. THORChain-Sui roadmap watch (the future SECOND Sui rail).**
+THORChain's roadmap ships SOL/TON/Cardano/Sui via EdDSA. The moment
+THORChain enables SUI, it becomes the Sui FALLBACK rail behind Rango —
+and our X1TP affiliate (the deposit-memo pair) earns on Sui journeys.
+Watcher + note:
+- `tools/thorchain-sui-launch-watch.mjs` (NEW — mirror of the SOL-halt
+  watcher): polls THORChain's public inbound_addresses for a "SUI" chain
+  entry; the moment it appears it fires a REAL SUI→SOL probe quote and
+  prints the exact matrix-update steps. `--once` mode for cron/CI;
+  WATCH_INTERVAL_MS configurable. No deps, no writes, log-only.
+- Rail matrix comment (teleportRail.js COVERAGE_MATRIX): the sui row now
+  carries the 🔭 roadmap note — when SUI appears in inbound_addresses,
+  re-verify a live quote and flip the row to [THORChain, Rango].
+- On launch: update the matrix row + this doc's §11.4 table, re-verify
+  live (Wanchain-style evidence pack), then retire/repoint the watcher.
