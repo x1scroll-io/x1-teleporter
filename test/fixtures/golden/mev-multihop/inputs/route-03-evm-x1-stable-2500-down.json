@@ -1,0 +1,146 @@
+{
+  "capturedAt": "2026-09-06T23:21:19.033Z",
+  "round": 3,
+  "routeId": "evm-x1-stable-2500-down",
+  "legend": "EVM stable → X1 (the bridge's REAL flow to a STABLE destination — USDC.x via the Warp hop; the 0.5% Warp skim is invariant across venue choices and documented, not quoted). Leg 1 = the EVM aggregator-vs-direct swap; leg 2 = the bridge. No exotic destination — the honest control: stable-heavy journeys carry only the liquid-pair venue deltas.",
+  "legs": [
+    {
+      "hop": 1,
+      "from": "WETH",
+      "to": "USDC",
+      "chain": "eth",
+      "kind": "swap",
+      "venueChosen": "uniswap",
+      "usdPerOutUnit": 0.000001,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "lifi",
+          "pool": "lifi-eth-WETH-USDC",
+          "amountIn": "1000000000000000000",
+          "amountOut": "2507645743",
+          "feeBps": null,
+          "source": "REAL-live-lifi-quote(fee=0)",
+          "capturedAt": "2026-09-06T23:21:16.421Z",
+          "context": {
+            "feeCostsUsd": 6.2828,
+            "gasCostsUsd": 0.0815
+          },
+          "state": null
+        },
+        {
+          "venue": "uniswap",
+          "pool": "uniswap-eth-WETH-USDC-f500",
+          "amountIn": "1000000000000000000",
+          "amountOut": "2511208299",
+          "feeBps": 5,
+          "source": "REAL-live-quoter-eth_call",
+          "capturedAt": "2026-09-06T23:21:16.451Z",
+          "context": {
+            "gasUsd": 0.014298
+          },
+          "state": null
+        }
+      ]
+    },
+    {
+      "hop": 2,
+      "from": "USDC",
+      "to": "USDC",
+      "chain": "eth→sol",
+      "kind": "bridge",
+      "venueChosen": "lifi",
+      "usdPerOutUnit": 0.000001,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "lifi",
+          "pool": "lifi-eth-sol-USDC-USDC",
+          "amountIn": "2511208299",
+          "amountOut": "2504930279",
+          "feeBps": null,
+          "source": "REAL-live-lifi-quote(fee=0)",
+          "capturedAt": "2026-09-06T23:21:17.409Z",
+          "context": {
+            "feeCostsUsd": 6.2745,
+            "gasCostsUsd": 0.0839
+          },
+          "state": null
+        }
+      ]
+    }
+  ],
+  "routeUsd": {
+    "journeyUnit": "WETH",
+    "journeyAmountRaw": "1000000000000000000",
+    "notes": "EVM stable → X1 (the bridge's REAL flow to a STABLE destination — USDC.x via the Warp hop; the 0.5% Warp skim is invariant across venue choices and documented, not quoted). Leg 1 = the EVM aggregator-vs-direct swap; leg 2 = the bridge. No exotic destination — the honest control: stable-heavy journeys carry only the liquid-pair venue deltas."
+  },
+  "analysis": {
+    "kind": "route-capture-analysis",
+    "routeId": "evm-x1-stable-2500-down",
+    "legs": [
+      {
+        "hop": 1,
+        "from": "WETH",
+        "to": "USDC",
+        "chain": "eth",
+        "kind": "swap",
+        "venueChosen": "uniswap",
+        "venueBest": "uniswap",
+        "routeChosen": "uniswap:uniswap-eth-WETH-USDC-f500",
+        "routeBest": "uniswap:uniswap-eth-WETH-USDC-f500",
+        "singleVenue": false,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": 0,
+        "deltaOutRaw": "0",
+        "gapUsd": 0,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": 0,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      },
+      {
+        "hop": 2,
+        "from": "USDC",
+        "to": "USDC",
+        "chain": "eth→sol",
+        "kind": "bridge",
+        "venueChosen": "lifi",
+        "venueBest": "lifi",
+        "routeChosen": "lifi:lifi-eth-sol-USDC-USDC",
+        "routeBest": "lifi:lifi-eth-sol-USDC-USDC",
+        "singleVenue": true,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": null,
+        "deltaOutRaw": "0",
+        "gapUsd": null,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": null,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      }
+    ],
+    "routeGapBps": 0,
+    "routeNetBps": 0,
+    "routeGapUsd": 0,
+    "routeNetUsd": 0,
+    "routeUsdPartial": false,
+    "wouldCapture": false,
+    "whyNot": "already-optimal: every multi-venue leg was already routed through its best venue — the engine left nothing on the table",
+    "economical": false,
+    "optimalRoute": [
+      {
+        "hop": 1,
+        "venue": "uniswap"
+      },
+      {
+        "hop": 2,
+        "venue": "lifi"
+      }
+    ]
+  }
+}

@@ -5,19 +5,30 @@
  * LAYERS (read in order):
  *   1. gapDetector.js        — pure gap math (no network, no txs). It never
  *                              returns a trade; it returns a DETECTION.
+ *   1b. routeAnalyzer.js     — the MULTI-HOP route-choice analyzer (pure):
+ *                              per-hop venue deltas (best venue vs routed
+ *                              venue) accumulated across a whole journey —
+ *                              the framing correction: real MEV is
+ *                              DISTRIBUTED over multi-hop routes to volatile
+ *                              destinations, not same-pair round trips.
  *   2. THIS MODULE           — the gate (mirror of the WARP_LIVE_SEND flag
- *                              discipline) + the observation pipeline that
- *                              turns multi-DEX quotes into detections +
- *                              human reports ("capture opportunity: X bps
- *                              (gated OFF)").
+ *                              discipline) + the observation pipelines:
+ *                              runCaptureScan (same-pair round trip →
+ *                              "capture opportunity: X bps (gated OFF)") and
+ *                              runRouteCaptureScan (multi-hop route choice →
+ *                              "route capture opportunity: X bps across N
+ *                              hops (gated OFF)").
  *   3. routePlanner.js       — the routing-layer hook: captureCandidatesForChain
  *                              (the same-chain venue lists) + planCaptureSwapPair
  *                              (the atomic capture-leg constructor that COMPOSES
  *                              two existing swap legs via composeRoute — see
- *                              src/engine/routePlanner.js).
- *   4. tools/simulate-mev-capture.mjs — the read-only SIMULATION harness:
+ *                              src/engine/routePlanner.js) + observeRouteCapture
+ *                              (the multi-hop hook) + planCaptureRouteJourney
+ *                              (the optimal-sub-path constructor).
+ *   4. tools/simulate-mev-capture.mjs / tools/simulate-mev-multihop.mjs —
+ *                              the read-only SIMULATION harnesses:
  *                              real quotes against live pool state, quantified,
- *                              reported, ZERO trades (the deliverable proof).
+ *                              reported, ZERO trades (the deliverable proofs).
  *
  * 🔴 HARD LIMITS (Mr. Esters — absolute, structural, not just a flag):
  *   - NO live trades. NO broadcasting funds. This module is detection +
@@ -39,6 +50,7 @@
 
 import { MEV_CAPTURE_ENABLED } from "../flags.ts";
 import { detectCaptureGap, CAPTURE_FEE_POLICY_BPS } from "./gapDetector.js";
+import { analyzeRoute } from "./routeAnalyzer.js";
 
 /** The label every gated-off report carries. */
 export const CAPTURE_GATE_LABEL = "gated OFF";
@@ -147,5 +159,73 @@ export function formatCaptureReport(detection) {
   return (
     `[mev-capture] ${where}: capture opportunity ${detection.gapBps} bps spread, ` +
     `${detection.netRoundTripBps} bps net after costs, route ${detection.route.join(" → ")} — ${CAPTURE_GATE_LABEL}`
+  );
+}
+
+// ── MULTI-HOP ROUTE-CHOICE CAPTURE (the framing correction — 2026-09-06) ──
+//
+// The single same-pair ROUND-TRIP model (runCaptureScan above) proved ~0 on
+// deep stable pairs — a round trip pays two pool fees + two gas bills. The
+// multi-hop model (routeAnalyzer.js) measures the ONE-WAY ROUTE-CHOICE value
+// distributed across a whole journey: every hop has a venue CHOICE (which
+// DEX / aggregator / bridge), and the delta between the venue the engine
+// routed and the BEST venue for that hop is capturable per hop, accumulated
+// across the journey — concentrated on the APING flow (any-to-any routes
+// ending at volatile/exotic destinations). runRouteCaptureScan is the
+// observation pipeline for that model — PURE OBSERVATION at every gate
+// state, same discipline as runCaptureScan: gated OFF (default) → the line
+// "route capture opportunity: X bps across N hops (gated OFF)".
+
+/** The label every gated-off route report carries. */
+export const ROUTE_CAPTURE_GATE_LABEL = CAPTURE_GATE_LABEL; // "gated OFF"
+
+/**
+ * runRouteCaptureScan — the multi-hop observation pipeline (PURE
+ * OBSERVATION at every gate state): given a planned multi-hop route with
+ * per-leg venue quotes (the routing layer already fetched them across the
+ * venue candidates), run the route analyzer and produce the capture report.
+ *
+ * When the gate is OFF (default) the report carries the honest
+ * "route capture opportunity: X bps across N hops (gated OFF)" line. When
+ * ON, the analysis math is identical — only the mode string changes — and
+ * the report still carries executable:false.
+ *
+ * @param {object} route the analyzed route { id, legs: [{hop, from, to,
+ *   chain?, kind?, venueChosen, quotes, usdPerOutUnit?}] } — see
+ *   routeAnalyzer.analyzeRoute
+ * @returns {{analysis: object, gate: object, report: string}}
+ */
+export function runRouteCaptureScan(route) {
+  const analysis = analyzeRoute(route);
+  const gate = captureGate();
+  const nHops = analysis.legs.length;
+  const gapTxt = analysis.routeGapBps === null ? "no usd-converted gap" : `${analysis.routeGapBps} bps`;
+  const usdTxt = analysis.routeNetUsd === null ? "" : ` / $${analysis.routeNetUsd} net`;
+  const line = analysis.wouldCapture
+    ? `route capture opportunity: ${gapTxt}${usdTxt} across ${nHops} hops (${gate.label})`
+    : `route capture scan: ${analysis.whyNot || "no capture"} (${gate.label})`;
+  const report = `[mev-route-capture] ${analysis.routeId ?? "?"}: ${line}`;
+  return { analysis, gate, report };
+}
+
+/**
+ * formatRouteCaptureReport — the human log line for a route analysis (the
+ * line the engine prints when its routing pass observes a capturable
+ * multi-hop route).
+ * @param {object} analysis from analyzeRoute
+ * @returns {string}
+ */
+export function formatRouteCaptureReport(analysis) {
+  if (!analysis) return "[mev-route-capture] no analysis";
+  const id = analysis.routeId ?? "?";
+  if (!analysis.wouldCapture) {
+    return `[mev-route-capture] ${id}: no capture (${analysis.whyNot || "below threshold"})`;
+  }
+  const bpsTxt = analysis.routeGapBps === null ? "?" : `${analysis.routeGapBps} bps`;
+  const usdTxt = analysis.routeNetUsd === null ? "" : ` / $${analysis.routeNetUsd} net`;
+  const opt = analysis.optimalRoute.map((o) => o.venue).join(" → ");
+  return (
+    `[mev-route-capture] ${id}: route capture opportunity ${bpsTxt}${usdTxt} across ${analysis.legs.length} hops, ` +
+    `optimal sub-path ${opt} — ${ROUTE_CAPTURE_GATE_LABEL}`
   );
 }
