@@ -60,14 +60,14 @@ runs server-side in the proxy; the SPA stays as-is.
 | Site | What it constructs | Verdict |
 |---|---|---|
 | `thorchain/quoteLeg.js` + `lib/thorchain/quote.js` | The quote request to `/api/thorchain/quote` | **SDK-BASED / N-A** — deterministic URL artifact through the serverless proxy (THORChain API key server-side); not tx construction. |
-| `thorchain/depositBuildLeg.js` + `lib/thorchain/memo.js` | The deposit vault address + deposit MEMO `=:SOL.SOL:<dest>[/refund]` | **HAND-ROLLED (documented — no SDK exists for this)**. The memo is a protocol DATA STRING in THORNode's `SwapMemo.String()` scheme (verified against `memo_swap.go`), NOT calldata — and the official `@xchainjs/xchain-thorchain` (checked v1.0.0 and v3.1.1) has NO memo builder: its own `deposit()`/`prepareTx()` take `memo` as a CALLER-SUPPLIED string. Every xchainjs consumer hand-builds memos exactly like this module. The deposit TX itself is executed OUT-OF-BAND in the user's external wallet (family "external" — the app never constructs or broadcasts it), so no UTXO/XRP tx SDK (bitcoinjs-lib/xrpl.js) is in the money path. If an in-app deposit-tx builder ever lands, those become the SDKs. |
+| `thorchain/depositBuildLeg.js` + `lib/thorchain/memo.js` | The deposit vault address + deposit MEMO `=:SOL.SOL:<dest>[/refund]` | **HAND-ROLLED (documented — no SDK exists for this)**. The memo is a protocol DATA STRING in THORNode's `SwapMemo.String()` scheme (verified against `memo_swap.go`), NOT calldata — and the official `@xchainjs/xchain-thorchain` (checked v1.0.0 and v3.1.1) has NO memo builder: its own `deposit()`/`prepareTx()` take `memo` as a CALLER-SUPPLIED string. Every xchainjs consumer hand-builds memos exactly like this module. The deposit TX itself is executed OUT-OF-BAND in the user's external wallet (family "external" — the app never constructs or broadcasts it), so no UTXO/XRP tx SDK (bitcoinjs-lib/xrpl.js) is in the money path. If an in-app deposit-tx builder ever lands, those become the SDKs. → Both are now **GRABBED** as readiness (`feat/grab-sdks` — bitcoinjs-lib 7.0.1 `sdkBitcoin.js`, xrpl 5.1.0 `sdkXrp.js`; §9 + docs/SDK-REGISTRY.md). |
 | `lib/thorchain/inboundAddresses.js`, `pollStatus.js` etc. | Reads/polling | N-A. |
 
 ### DEX legs
 
 | Site | What it constructs | Verdict |
 |---|---|---|
-| `dex/jupiterSwapLeg.js` | Jupiter quote-request URL + swap-instructions request body | **SDK-adjacent request artifacts (documented)** — Jupiter's server constructs the swap instructions; the leg pins the canonical requests (identical to what the official `@jupiter/api` SDK sends) + the pinned session pubkey. When a live lane lands and assembles the response into a tx, it must use `@jupiter/api` (official) + `@solana/web3.js` — noted in the leg header; no in-app tx bytes exist today. |
+| `dex/jupiterSwapLeg.js` | Jupiter quote-request URL + swap-instructions request body | **SDK-adjacent request artifacts (documented)** — Jupiter's server constructs the swap instructions; the leg pins the canonical requests (identical to what the official `@jupiter/api` SDK sends) + the pinned session pubkey. When a live lane lands and assembles the response into a tx, it must use `@jupiter/api` (official) + `@solana/web3.js` — noted in the leg header; no in-app tx bytes exist today. → SDK **GRABBED** (`feat/grab-sdks` — actual npm name `@jup-ag/api` 6.0.48, `sdkJupiter.js`; §9 + docs/SDK-REGISTRY.md). |
 | `dex/xdexSwapLeg.js` | XDEX `SwapBaseInput` instruction + tx (X1) | **HAND-ROLLED → SDK (REFACTORED this branch — the marquee fix).** XDEX is a Raydium-CPMM fork running ON X1 with no SDK of its own (only HTTP price endpoints — verified in the discovery). The instruction is now built by **`@raydium-io/raydium-sdk-v2` `makeSwapCpmmBaseInInstruction`** (the official Raydium SDK) with the XDEX program id + the live pool key set. Evidence: (a) the SDK's CPMM `swapBaseInput` discriminator table IS `8fbe5adac41e33de` — byte-identical to the live-verified XDEX pin (also = sha256("global:swap_base_input")[..8]); (b) the SDK emits the identical 24-byte payload (disc + amount_in u64 LE + min_out u64 LE) and the identical 13-account order; (c) the SDK-built ix **SIMULATED err:null on X1 mainnet** (2026-09-06, slot 76,980,xxx, sigVerify:false) and executed the full CP swap (Token-2022 TransferChecked in, Token TransferChecked out). The only delta: the SDK marks the fee payer READONLY at the ix level (the live XDEX anchor tx marked it writable) — both accepted by the live program (proven by simulation), and the serialized legacy tx is byte-identical either way because `@solana/web3.js` forces the fee-payer meta writable when compiling the message (**fixture txSha256 UNCHANGED**; only the ix-level JSON flag + artifact sha256 changed in the regenerated xdex step2 fixture). A fail-closed drift canary now checks the SDK output against the live-verified account order + payload before anything serializes. Heavy-SDK discipline: dynamic-import only in the execute path. Quote math stays app-side CP over the live pool snapshot (live-confirmed 1:1 with the anchor economics) — the same way any DEX frontend reads on-chain state; the snapshot fixture carries no raw account bytes, so SDK pool parsing is not possible offline. |
 | `dex/lifiEvmSwapLeg.js` | See EVM section | See EVM section. |
 | `dexDirect/*` (Uniswap/PancakeSwap/Raydium/Orca) | Direct DEX legs | **IN FLIGHT — owned by the parallel `feat/dex-official-sdk` task** (37 files modified in its worktree as of 2026-09-06, adding `@uniswap/sdk-core`+`@uniswap/v3-sdk`, `@pancakeswap/sdk`+`smart-router`+`universal-router-sdk`, `@raydium-io/raydium-sdk-v2`, `@orca-so/whirlpools-sdk`). Not touched here. No overlap with this branch's files. |
@@ -110,7 +110,9 @@ runs server-side in the proxy; the SPA stays as-is.
   snapshot), and the swap instruction is byte-compatible with the Raydium
   SDK's CPMM `swap_base_input` builder. → Refactored to the Raydium SDK (§3).
 - **Jupiter:** official SDK `@jupiter/api` exists — noted for the future live
-  lane (no in-app assembly today).
+  lane (no in-app assembly today). → **GRABBED** by `feat/grab-sdks` — actual
+  npm name is `@jup-ag/api` 6.0.48 (`@jupiter/api` does not exist on npm) —
+  see §9 + docs/SDK-REGISTRY.md.
 
 ## 3. REFACTORS LANDED
 
@@ -164,13 +166,19 @@ covers.
    is SDK-built (§3a).
 3. **THORChain memo** — protocol data string; even the official xchainjs SDK
    takes memos as caller-supplied strings (verified v1.0.0 + v3.1.1). The
-   deposit tx is out-of-band; no UTXO/XRP tx SDK in the money path.
+   deposit tx is out-of-band; no UTXO/XRP tx SDK in the money path. → The
+   SDK family (`@xchainjs/xchain-thorchain` 3.1.1 + `xchain-client` 2.0.17)
+   and the UTXO/XRP tx SDKs (`bitcoinjs-lib` 7.0.1, `xrpl` 5.1.0) are now
+   **GRABBED** as readiness by `feat/grab-sdks` (§9) — available the day an
+   in-app builder lands.
 4. **LiFi REST-proxy pattern** — deliberate (server-side API key + server-side
    fee policy). `@lifi/sdk` would break the key boundary; if ever needed, run
    it server-side in the proxy.
 5. **Rango execute stub** — rango-sdk requires the key client-side; the
    deliberate server-side-key proxy architecture keeps the SPA request-pinned.
-   rango-sdk belongs in the future `api/rango/swap.js` proxy route.
+   rango-sdk belongs in the future `api/rango/swap.js` proxy route. →
+   **GRABBED** by `feat/grab-sdks` (`rango-sdk` 0.5.0, readiness module
+   `sdkRango.js` — §9); wiring stays server-side when the proxy route lands.
 6. **Wanchain execute stub** — no official Wanchain/XFlows SDK exists (raw
    HTTP API; upstream constructs the tx).
 
@@ -229,3 +237,42 @@ covers.
 - Fixture-shape ix (payer writable): identical sim result — both accepted.
 - sha256 checks: rebuilt fixtures byte-match; xdex dataSha256/txSha256
   unchanged across the refactor.
+
+## 9. THE REMAINING SDKs — GRABBED (feat/grab-sdks, 2026-09-06)
+
+Mr. Esters: "keep grabbing the other sdks." Every official SDK the roadmap
+legs will need that was still PENDING in this audit is now GRABBED as
+readiness scaffolding — dependency added, version VERIFIED on npm (no
+guessed names: @tronweb3/tronweb, @jupiter/api, @mysten/sui.js and the old
+cardano-serialization-lib line do NOT exist / are dead on npm — the registry
+resolved the real current packages), and import-verified by offline smoke
+tests. Full table: **docs/SDK-REGISTRY.md**. Readiness modules:
+`src/lib/sdk/` (shared cached lazy loader `sdkLoader.js` + one module per
+family; ⛔ NOT WIRED — nothing in the app imports them, no funds, no
+broadcasts).
+
+| SDK (npm) | Version (verified) | Leg it serves | Module |
+|---|---|---|---|
+| `xrpl` | 5.1.0 | XRPL source chain (in-app XRP leg) | `sdkXrp.js` |
+| `tronweb` | 6.5.0 | TRON source chain | `sdkTron.js` |
+| `@mysten/sui` (`./grpc`, `./utils`) | 2.29.0 | SUI source chain (non-deprecated SuiGrpcClient surface) | `sdkSui.js` |
+| `@xchainjs/xchain-thorchain` + `@xchainjs/xchain-client` | 3.1.1 / 2.0.17 | future cosmos/thorchain legs (memo stays caller-supplied) | `sdkThorchain.js` |
+| `@emurgo/cardano-serialization-lib-browser` | 17.0.0 | ADA (no rail today — grabbed ahead of a ruling) | `sdkCardano.js` |
+| `@ton/ton` | 16.3.0 | TON source chain | `sdkTon.js` |
+| `bitcoinjs-lib` | 7.0.1 | UTXO-native in-app tx builders | `sdkBitcoin.js` |
+| `rango-sdk` | 0.5.0 | Rango execute lane (SERVER-side proxy route) | `sdkRango.js` |
+| `@jup-ag/api` | 6.0.48 | Jupiter live lane (quote + swap-instructions) | `sdkJupiter.js` |
+
+Bundle impact: ZERO — the readiness modules are unreferenced by the app
+graph, so the Vite main bundle is byte-identical to the v2 baseline
+(4,965.58 kB before AND after; verified in the branch build log). Each
+module's lazy loader keeps future wiring on the dynamic-import pattern
+(this audit's §3a raydium approach). Smoke tests: 31 assertions across
+`src/lib/sdk/*.test.js`, all offline (no network, no keys, no funds) —
+full suite count below unchanged except +31.
+
+Merge notes: additive-only. Touches package.json/package-lock.json
+(dependency lines only — the parallel dex-official-sdk task adds ITS SDKs
+in the same files; npm reconciles), docs (this file + SDK-REGISTRY.md), and
+the new `src/lib/sdk/*` + `tools/run-sdk-smoke.mjs`. Does NOT touch
+`dexDirect/*`, engine legs, warpBridge, fixtures, or any instrument.
