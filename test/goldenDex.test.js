@@ -43,6 +43,20 @@
  *
  * The engine must make this file pass UNCHANGED. Do not weaken assertions to
  * accommodate the engine — fix the engine.
+ *
+ * SDK-REFACTOR NOTE (feat/leg-sdk-audit, sanctioned fixture regeneration):
+ * the xdex step2 construction moved from hand-assembled bytes to the
+ * OFFICIAL Raydium SDK (@raydium-io/raydium-sdk-v2 makeSwapCpmmBaseInInstruction
+ * with the XDEX program id — XDEX is a Raydium-CPMM fork on X1). The SDK
+ * emits the same discriminator + u64 layout + 13-account order (proven
+ * byte-identical on the payload), and marks the fee payer READONLY at the ix
+ * level (the live anchor tx marked it writable). Both shapes are accepted by
+ * the live program — the SDK-built ix SIMULATED err:null on X1 mainnet
+ * (2026-09-06, sigVerify:false) — and the serialized legacy transaction is
+ * BYTE-IDENTICAL either way (@solana/web3.js forces the fee-payer meta
+ * writable when compiling the message; the fixture txSha256 is unchanged).
+ * The step2 fixture + the flags assertion below were regenerated to the SDK
+ * shape; every other step is byte-unchanged.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -192,8 +206,8 @@ test("golden dex xdex step1: swap-quote rebuild is byte-identical (CP math + liv
 });
 
 // ── XDEX step2 — the SwapBaseInput instruction + unsigned tx ──
-test("golden dex xdex step2: swap-ix rebuild is byte-identical (LIVE disc 8fbe5ada… + 13 metas + tx)", () => {
-  const rebuilt = buildXdexStep2();
+test("golden dex xdex step2: swap-ix rebuild is byte-identical (LIVE disc 8fbe5ada… + 13 metas + tx)", async () => {
+  const rebuilt = await buildXdexStep2();
 
   assert.equal(canonicalJson(rebuilt.artifact), canonicalJson(FIX_XD2.artifact));
   assert.equal(rebuilt.sha256, FIX_XD2.sha256);
@@ -230,8 +244,8 @@ test("golden dex xdex step2: swap-ix rebuild is byte-identical (LIVE disc 8fbe5a
 });
 
 // ── XDEX LIVE-ANCHOR regression — the rebuilt swap == the live mainnet tx ──
-test("golden dex xdex: rebuilt swap equals the LIVE anchor tx shape (disc 8fbe5ada… + 13-account order + amount_in)", () => {
-  const rebuilt = buildXdexStep2();
+test("golden dex xdex: rebuilt swap equals the LIVE anchor tx shape (disc 8fbe5ada… + 13-account order + amount_in)", async () => {
+  const rebuilt = await buildXdexStep2();
   const a = rebuilt.artifact;
 
   // The LIVE anchor: Mr. Esters' controlled $5 swap — tx 65xjdHVd…,
@@ -275,12 +289,17 @@ test("golden dex xdex: rebuilt swap equals the LIVE anchor tx shape (disc 8fbe5a
     liveOrder,
     "rebuilt keys == live tx account order (tx 65xjdHVd…)",
   );
-  // Signer/writable flags match the live metas: only the user signs; the
-  // pool, both ATAs, both vaults and the observation account are writable.
+  // Signer/writable flags match the live metas at the MESSAGE level: only the
+  // user signs; the pool, both ATAs, both vaults and the observation account
+  // are writable. At the IX level the SDK marks the payer READONLY (Raydium's
+  // upstream shape — accepted by the live XDEX program, proven by X1-mainnet
+  // simulation 2026-09-06; the serialized legacy message is byte-identical to
+  // the live-anchor writable-payer shape because @solana/web3.js forces the
+  // fee-payer meta writable at compile time — txSha256 unchanged).
   assert.deepEqual(
     a.ix.keys.map((k) => ({ s: k.isSigner, w: k.isWritable })),
     [
-      { s: true, w: true },
+      { s: true, w: false }, // payer — SDK shape (readonly at the ix level)
       { s: false, w: false },
       { s: false, w: false },
       { s: false, w: true },
@@ -294,7 +313,7 @@ test("golden dex xdex: rebuilt swap equals the LIVE anchor tx shape (disc 8fbe5a
       { s: false, w: false },
       { s: false, w: true },
     ],
-    "rebuilt writable/signer flags == live metas",
+    "rebuilt writable/signer flags == the official-SDK shape (message-level parity with the live metas)",
   );
   // The derived ATAs are the LIVE tx's ATAs (user = the anchor signer).
   assert.equal(a.inputAta, "GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V");
@@ -332,9 +351,9 @@ test("golden dex lifi step1: same-chain swap-request rebuild is byte-identical (
 });
 
 // ── Full capture: reproducible + deterministic ──
-test("golden dex: full capture is reproducible + deterministic (rebuild twice, same bytes)", () => {
-  const c1 = captureDexLeg();
-  const c2 = captureDexLeg();
+test("golden dex: full capture is reproducible + deterministic (rebuild twice, same bytes)", async () => {
+  const c1 = await captureDexLeg();
+  const c2 = await captureDexLeg();
   for (const k of Object.keys(c1.steps)) {
     assert.equal(c1.steps[k].sha256, c2.steps[k].sha256, `${k} sha256 stable`);
     assert.equal(

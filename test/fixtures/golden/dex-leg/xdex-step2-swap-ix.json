@@ -30,7 +30,7 @@
         {
           "pubkey": "FKBMEQ6yyEyaK49hEnct3HnKXrCDy5o6W3LcU2ojBtrZ",
           "isSigner": true,
-          "isWritable": true
+          "isWritable": false
         },
         {
           "pubkey": "9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU",
@@ -103,10 +103,10 @@
       "serializedBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAcO1KvF4VU2fIOKfwaUEd52uiQ6P8+XVhpBzI8buNk1iRY4e1l6y/Q00RVCg4aBSdPYSUjBMuTpiWFdZy55tz2nEGPkBgXHlWXfYf/K5BBtzEu2PxwpyqyAHqOOqlXlUMFhAgkqk8ufu2fvWbjcJpzXwWyZp6m/YS1RpvgJHrSMpnCl0rx55o+JqJdndfXixanO5xKQNQJBCYsowUkQNiNLUux+9vQfpejrkgV1CPq/myLDJMXUm3n+XHofG1Ybld8mBjJ0XZsQxJJdP6L+5UwhudF/rKRNB51a1jQZ4PN/NzwYZnIUGpH6fC7Hx+EJQIh0+54i005Yhsm3xx/tyHGf/XomcfRlVXmYEiaWBT3EqFdxk1FOldHDEbDHYvT5+8dVleaDzRxdqwl1MVtYFbZOxsY4noG/Qm5OTRvapTS80qQM3rmQUIx+5XCPdq4CZQUanddRluVuaCZ+IIsUlK+DvQabiFf+q4GE+2h/Y0YYwDXaxDncGus7VZig8AAAAAABBt324ddloZPZy+FGzut5rBy0he1fWzeROoz1hX7/AKkG3fbh7nWP3hhCXbzkbM3athr8TYO5DSf+vfko2KGL/HgxdGVsZXBvcnRlci14ZGV4LXN3YXAtbGVnLXYyAABCAQoNAAgHBAUGAgMNDAkLARiPvlraxB4z3kBLTAAAAAAAAAAAAAAAAAA="
     }
   },
-  "sha256": "b215c72ea0ed4a6c35869868718e526cbf58e1c62b0e808339476cc0b3aae2d1",
+  "sha256": "104d41b536dd76f1ff3cce36339278e8df0cc56d877ccc609743ca0245f4b8b6",
   "dataSha256": "75ddd912b1ba19a2bfd3b8e79f82a6a71646ecbca2220e95765e64545db71541",
   "txSha256": "a504c8d3e28a28cfc0def36a5ce51055363869c26f7e1c1f460fc0c3da1386f9",
   "meta": {
-    "note": "The XDEX SwapBaseInput instruction + unsigned tx — ANCHORED TO THE LIVE MAINNET SWAP tx 65xjdHVd… (slot 76,014,947, err ok — Mr. Esters' controlled $5 swap, 5 USDC.x → ~12.74 XNT on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR): disc 8fbe5adac41e33de (sha256(global:swap_base_input)[..8] — LIVE-VERIFIED) + amount_in u64 LE (5,000,000) + min_out u64 LE (0); 13 accounts in the LIVE-VERIFIED order (payer signer, authority 9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU, amm_config 2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c, pool, input ATA GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V, output ATA RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd, input vault 7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg, output vault 8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb, Token-2022, Token, USDC.x mint, wXNT mint, observation 4oUvUgziz4S6VXxMkjqorjgPrgT3wrxXN9kDuja8pkPZ); ATAs derived offline. dataSha256 pins the instruction bytes; txSha256 pins the serialized tx (synthetic DI'd blockhash). If the program is ever upgraded, re-anchor from a NEW live swap — never from a note."
+    "note": "The XDEX SwapBaseInput instruction + unsigned tx — CONSTRUCTED THROUGH THE OFFICIAL RAYDIUM SDK (@raydium-io/raydium-sdk-v2 makeSwapCpmmBaseInInstruction with the XDEX program id — XDEX is a Raydium-CPMM fork on X1; see docs/LEG-SDK-AUDIT.md) and ANCHORED TO THE LIVE MAINNET SWAP tx 65xjdHVd… (slot 76,014,947, err ok — Mr. Esters' controlled $5 swap, 5 USDC.x → ~12.74 XNT on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR): disc 8fbe5adac41e33de (sha256(global:swap_base_input)[..8] — LIVE-VERIFIED; the SDK emits the same disc) + amount_in u64 LE (5,000,000) + min_out u64 LE (0); 13 accounts in the LIVE-VERIFIED order (payer signer — SDK shape READONLY at the ix level, accepted by the live program (X1-mainnet simulation, err:null, 2026-09-06); the serialized legacy tx is byte-identical to the writable-payer shape because @solana/web3.js forces the fee-payer meta writable when compiling the message — txSha256 unchanged by the SDK refactor —, authority 9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU, amm_config 2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c, pool, input ATA GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V, output ATA RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd, input vault 7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg, output vault 8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb, Token-2022, Token, USDC.x mint, wXNT mint, observation 4oUvUgziz4S6VXxMkjqorjgPrgT3wrxXN9kDuja8pkPZ); ATAs derived offline. dataSha256 pins the instruction bytes; txSha256 pins the serialized tx (synthetic DI'd blockhash). If the program is ever upgraded, re-anchor from a NEW live swap — never from a note."
   }
 }

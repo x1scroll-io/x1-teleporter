@@ -41,9 +41,43 @@ import {
   isKnownLiFiDiamond,
   isKnownLiFiDiamondChain,
 } from "./lifiDiamondAllowlist.js";
+import { encodeFunctionData } from "viem";
 
 export const ERC20_APPROVE_SELECTOR = "0x095ea7b3"; // approve(address,uint256)
 export const MAX_UINT256 = (1n << 256n) - 1n;
+
+// ── OFFICIAL-SDK ABI ENCODING (feat/leg-sdk-audit) ──
+// The ERC-20 approve/allowance calldata is encoded through viem's
+// encodeFunctionData — the official EVM SDK (viem is already a dependency;
+// the rule: never hand-roll ABI encoding when an official SDK exists). The
+// emitted bytes are IDENTICAL to the previous manual encoding (selector +
+// 32-byte words — proven by the byte-identical approval fixtures + the
+// amountFromApprovalData/spenderFromApprovalData round-trip tests), so the
+// golden step1 fixture and every call site are unchanged.
+const ERC20_APPROVE_ABI = [
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool" }],
+  },
+];
+const ERC20_ALLOWANCE_ABI = [
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+];
 
 /**
  * Normalize an EVM address to lowercase 0x-hex, or null if not a valid address.
@@ -73,11 +107,31 @@ export function buildApprovalData({ spender, amount }) {
   }
   if (amt <= 0n) throw new Error("buildApprovalData: amount must be positive");
   if (amt > MAX_UINT256) throw new Error("buildApprovalData: amount exceeds uint256");
-  return (
-    ERC20_APPROVE_SELECTOR +
-    s.slice(2).padStart(64, "0") +
-    amt.toString(16).padStart(64, "0")
-  );
+  // viem-encoded approve(spender, EXACT amount) — the official EVM SDK's ABI
+  // encoder (byte-identical to the manual selector+words layout it replaced).
+  return encodeFunctionData({
+    abi: ERC20_APPROVE_ABI,
+    functionName: "approve",
+    args: [s, amt],
+  });
+}
+
+/**
+ * Build allowance(owner, spender) eth_call calldata — viem-encoded
+ * (the official EVM SDK; replaces the hand-assembled selector + padded-word
+ * string at the call sites). Byte-identical output: 0xdd62ed3e + owner word
+ * + spender word.
+ */
+export function buildAllowanceData({ owner, spender }) {
+  const o = normalizeEvmAddress(owner);
+  if (!o) throw new Error("buildAllowanceData: invalid owner address");
+  const s = normalizeEvmAddress(spender);
+  if (!s) throw new Error("buildAllowanceData: invalid spender address");
+  return encodeFunctionData({
+    abi: ERC20_ALLOWANCE_ABI,
+    functionName: "allowance",
+    args: [o, s],
+  });
 }
 
 /** Parse the amount back out of approve() calldata (for tests/debugging). */

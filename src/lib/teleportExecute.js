@@ -23,7 +23,7 @@
  * (TeleportForm), not this LiFi leg.
  */
 
-import { validateLiFiApproval, buildApprovalData, LiFiApprovalValidationError } from "./lifiApproval.js";
+import { validateLiFiApproval, buildApprovalData, buildAllowanceData, LiFiApprovalValidationError } from "./lifiApproval.js";
 import { guardedSendEvmTx, SimulationError } from "./simulateTx.js";
 import { CHAINS } from "./teleportConstants.js";
 
@@ -97,10 +97,9 @@ export async function executeLiFiEvmTx({ lifiData, provider, address, onStatus =
       }
       const { spender, amount } = validateLiFiApproval({ step, toolsData });
       const need = amount; // EXACT raw source amount from the quote
-      // allowance(owner,spender) => 0xdd62ed3e
-      const allowData = "0xdd62ed3e" +
-        address.slice(2).padStart(64, "0") +
-        spender.slice(2).padStart(64, "0");
+      // allowance(owner,spender) — viem-encoded calldata (the official EVM
+      // SDK; byte-identical to the selector+words layout it replaced).
+      const allowData = buildAllowanceData({ owner: address, spender });
       const allowanceHex = await provider.request({
         method: "eth_call",
         params: [{ to: tokenAddr, data: allowData }, "latest"],

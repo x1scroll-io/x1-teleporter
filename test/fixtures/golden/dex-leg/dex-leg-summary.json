@@ -1,6 +1,6 @@
 {
   "tool": "golden-transaction fixtures — the DEX swap legs (regression oracle, Phase 4)",
-  "capturedAt": "2026-09-02T23:15:30.060Z",
+  "capturedAt": "2026-09-06T14:23:09.379Z",
   "liveStatus": {
     "note": "Input fixtures are LIVE read-only captures (2026-09-02): the Jupiter quote, the LiFi same-chain quote and the XDEX pool snapshot. The oracle pins the CONSTRUCTION given the same inputs. XDEX arg semantics (disc 8fbe5adac41e33de, amount_in u64 LE + min_out u64 LE) are LIVE-CONFIRMED 1:1 by the anchor swap tx 65xjdHVd… (slot 76,014,947, err ok — Mr. Esters' controlled $5 swap on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR); the xdex sample IS that swap.",
     "replaceWith": "On first live use: refresh the XDEX pool snapshot (tools/capture-xdex-snapshot.mjs equivalent — read-only RPC) and re-run tools/capture-dex-golden-fixtures.mjs."
@@ -82,7 +82,7 @@
     },
     "xdexStep2SwapIx": {
       "file": "xdex-step2-swap-ix.json",
-      "sha256": "b215c72ea0ed4a6c35869868718e526cbf58e1c62b0e808339476cc0b3aae2d1",
+      "sha256": "104d41b536dd76f1ff3cce36339278e8df0cc56d877ccc609743ca0245f4b8b6",
       "dataSha256": "75ddd912b1ba19a2bfd3b8e79f82a6a71646ecbca2220e95765e64545db71541",
       "txSha256": "a504c8d3e28a28cfc0def36a5ce51055363869c26f7e1c1f460fc0c3da1386f9",
       "discriminator": "8fbe5adac41e33de"
