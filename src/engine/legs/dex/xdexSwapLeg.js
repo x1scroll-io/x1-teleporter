@@ -64,6 +64,25 @@
  * Phase-4 pin 13bddf5c73d6bd24 was a misread — sampled non-swap
  * instructions / confused program — and has been corrected.)
  *
+ * SDK CONSTRUCTION (feat/leg-sdk-audit — the standing official-SDK rule):
+ * XDEX is a Raydium-CPMM fork running ON X1 with NO SDK of its own, so the
+ * swap instruction is built by @raydium-io/raydium-sdk-v2's
+ * makeSwapCpmmBaseInInstruction — the official Raydium SDK — with the
+ * XDEX program id + the live pool's key set. This is correct by
+ * construction: the SDK emits the SAME 8-byte discriminator (8fbe5adac41e33de),
+ * the SAME amountIn/amounOutMin u64 LE layout and the SAME 13-account
+ * order this leg previously hand-assembled from on-chain decoding — the
+ * hand-rolled-discriminator/account-layout bug class is gone. LIVE-PROVEN
+ * 2026-09-06 (slot 76,980,xxx): the SDK-built instruction SIMULATED
+ * err:null on X1 mainnet (sigVerify:false) and executed the identical CP
+ * swap — see docs/LEG-SDK-AUDIT.md §xdex. One documented divergence: the
+ * SDK marks the fee payer READONLY at the ix level (upstream Raydium
+ * shape; the live XDEX anchor tx 65xjdHVd… marked it writable). Both are
+ * accepted by the live program (proven by simulation), and the serialized
+ * legacy transaction is BYTE-IDENTICAL either way — @solana/web3.js
+ * forces the fee-payer meta writable when it compiles the message (the
+ * xdex step2 fixture's txSha256 is unchanged by this refactor).
+ *
  * ARG-SEMANTICS — LIVE-CONFIRMED 1:1 (2026-09-02, the anchor tx): the
  * controlled swap above proves the layout (amount_in u64 LE + min_out u64
  * LE, 13-account order, disc 8fbe5adac41e33de) byte-for-byte: the decoded
@@ -93,6 +112,58 @@
 import { createLeg } from "../../legContract.js";
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
+import BN from "bn.js";
+
+// ── OFFICIAL-SDK LOADER (heavy-SDK discipline) ──
+// @raydium-io/raydium-sdk-v2 is large; it is dynamic-imported ONLY when a
+// swap instruction is actually constructed (the execute path), so the Vite
+// SPA main bundle never carries it. The module loader caches the promise —
+// the first construction pays the import cost, subsequent ones do not.
+let raydiumSdkMakeSwapIxPromise = null;
+function loadMakeSwapCpmmBaseInInstruction() {
+  if (!raydiumSdkMakeSwapIxPromise) {
+    raydiumSdkMakeSwapIxPromise = import("@raydium-io/raydium-sdk-v2")
+      .then((m) => {
+        const fn =
+          m?.makeSwapCpmmBaseInInstruction ??
+          m?.default?.makeSwapCpmmBaseInInstruction;
+        if (typeof fn !== "function") {
+          throw new Error(
+            "xdexSwapLeg: @raydium-io/raydium-sdk-v2 does not export makeSwapCpmmBaseInInstruction",
+          );
+        }
+        return fn;
+      })
+      .catch((e) => {
+        raydiumSdkMakeSwapIxPromise = null; // allow one retry after a transient failure
+        throw e;
+      });
+  }
+  return raydiumSdkMakeSwapIxPromise;
+}
+
+/**
+ * The LIVE-VERIFIED 13-account order (anchor tx 65xjdHVd…, slot 76,014,947
+ * — see the module header). The SDK-built instruction is checked against
+ * this list before anything is serialized: if a future Raydium SDK release
+ * ever changes the CPMM swap layout, this leg fails LOUDLY instead of
+ * sending a broken instruction (fail-closed drift canary).
+ */
+const XDEX_SWAP_ACCOUNT_ORDER = Object.freeze([
+  "payer", // 0 (signer)
+  "authority", // 1
+  "amm_config", // 2
+  "pool", // 3 (w)
+  "input_ata", // 4 (w)
+  "output_ata", // 5 (w)
+  "input_vault", // 6 (w)
+  "output_vault", // 7 (w)
+  "input_token_program", // 8
+  "output_token_program", // 9
+  "input_mint", // 10
+  "output_mint", // 11
+  "observation", // 12 (w)
+]);
 
 /** The live XDEX program id on X1 mainnet — owner BPFLoaderUpgradeab1e
  *  (UPGRADEABLE — verified on-chain 2026-09-02; NOT immutable). Values in
@@ -241,7 +312,7 @@ export function xdexQuote({ snapshot, inputMint, amountInRaw, slippageBps = 100 
  * @param {string} [args.feePayer] defaults to userPubkey
  * @returns {object} the fixture-shaped artifact
  */
-export function shapeXdexSwapArtifact({
+export async function shapeXdexSwapArtifact({
   snapshot,
   userPubkey,
   inputMint,
@@ -267,31 +338,81 @@ export function shapeXdexSwapArtifact({
     toPubkey(quote.outputProgram),
   );
 
-  const keys = [
-    { pubkey: payer, isSigner: true, isWritable: true }, // 0 payer
-    { pubkey: toPubkey(XDEX_AUTHORITY), isSigner: false, isWritable: false }, // 1 authority
-    { pubkey: toPubkey(snapshot.poolFields.amm_config), isSigner: false, isWritable: false }, // 2
-    { pubkey: toPubkey(snapshot.pool), isSigner: false, isWritable: true }, // 3 pool
-    { pubkey: inputAta, isSigner: false, isWritable: true }, // 4 input ATA
-    { pubkey: outputAta, isSigner: false, isWritable: true }, // 5 output ATA
-    { pubkey: toPubkey(quote.inputVault), isSigner: false, isWritable: true }, // 6
-    { pubkey: toPubkey(quote.outputVault), isSigner: false, isWritable: true }, // 7
-    { pubkey: toPubkey(quote.inputProgram), isSigner: false, isWritable: false }, // 8
-    { pubkey: toPubkey(quote.outputProgram), isSigner: false, isWritable: false }, // 9
-    { pubkey: toPubkey(quote.inputMint), isSigner: false, isWritable: false }, // 10
-    { pubkey: toPubkey(quote.outputMint), isSigner: false, isWritable: false }, // 11
-    { pubkey: toPubkey(snapshot.poolFields.observation_key), isSigner: false, isWritable: true }, // 12
+  // ── OFFICIAL-SDK CONSTRUCTION (@raydium-io/raydium-sdk-v2) ──
+  // XDEX is a Raydium-CPMM fork on X1 with no SDK of its own; the swap
+  // instruction is built by the official Raydium SDK with the XDEX program
+  // id + the live key set. The SDK emits the same 8fbe5adac41e33de
+  // discriminator, the same u64-LE amount layout and the same 13-account
+  // order this leg used to hand-assemble (LIVE-PROVEN on X1 mainnet by
+  // simulation 2026-09-06 — see the module header + docs/LEG-SDK-AUDIT.md).
+  const makeSwapIx = await loadMakeSwapCpmmBaseInInstruction();
+  const ix = makeSwapIx(
+    toPubkey(XDEX_PROGRAM_ID), // programId — the XDEX program on X1
+    payer, // payer (SDK shape: signer, READONLY — accepted by the live program)
+    toPubkey(XDEX_AUTHORITY), // authority
+    toPubkey(snapshot.poolFields.amm_config), // amm_config
+    toPubkey(snapshot.pool), // pool
+    inputAta, // user input ATA
+    outputAta, // user output ATA
+    toPubkey(quote.inputVault), // input vault
+    toPubkey(quote.outputVault), // output vault
+    toPubkey(quote.inputProgram), // input token program
+    toPubkey(quote.outputProgram), // output token program
+    toPubkey(quote.inputMint), // input mint
+    toPubkey(quote.outputMint), // output mint
+    toPubkey(snapshot.poolFields.observation_key), // observation
+    new BN(quote.inRaw), // amountIn (u64 LE)
+    new BN(quote.minOutRaw), // amounOutMin (u64 LE)
+  );
+
+  // FAIL-CLOSED DRIFT CANARY: the SDK-built account list must equal the
+  // LIVE-VERIFIED 13-account order (anchor tx 65xjdHVd…) and carry the
+  // verified 24-byte payload. A changed layout/discriminator throws HERE —
+  // before anything could be serialized or signed — instead of sending a
+  // broken instruction. (The SDK marks the payer readonly; the live anchor
+  // marked it writable — both accepted by the program, and the serialized
+  // legacy message is identical either way because @solana/web3.js forces
+  // the fee-payer meta writable at compile time.)
+  const ixKeys = ix.keys.map((k) => ({
+    pubkey: k.pubkey.toBase58(),
+    isSigner: k.isSigner,
+    isWritable: k.isWritable,
+  }));
+  const ixPubkeys = ixKeys.map((k) => k.pubkey);
+  const expectedPubkeys = [
+    payer.toBase58(),
+    XDEX_AUTHORITY,
+    snapshot.poolFields.amm_config,
+    snapshot.pool,
+    inputAta.toBase58(),
+    outputAta.toBase58(),
+    quote.inputVault,
+    quote.outputVault,
+    quote.inputProgram,
+    quote.outputProgram,
+    quote.inputMint,
+    quote.outputMint,
+    snapshot.poolFields.observation_key,
   ];
+  if (ixKeys.length !== 13 || !ixPubkeys.every((pk, i) => pk === expectedPubkeys[i])) {
+    throw new Error(
+      "xdexSwapLeg: the Raydium SDK account layout drifted from the LIVE-VERIFIED XDEX " +
+        "order (anchor tx 65xjdHVd…) — refusing to construct. Re-verify against a new live " +
+        "swap before touching this guard.",
+    );
+  }
+  const data = Buffer.from(ix.data);
+  if (data.length !== 24 || data.toString("hex").slice(0, 16) !== XDEX_SWAP_BASE_INPUT_DISCRIMINATOR) {
+    throw new Error(
+      "xdexSwapLeg: the Raydium SDK swap payload drifted from the LIVE-VERIFIED XDEX " +
+        "24-byte shape (disc 8fbe5adac41e33de + amount_in u64 LE + min_out u64 LE) — " +
+        "refusing to construct.",
+    );
+  }
 
-  const data = Buffer.concat([
-    Buffer.from(XDEX_SWAP_BASE_INPUT_DISCRIMINATOR, "hex"),
-    (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(quote.inRaw)); return b; })(),
-    (() => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(quote.minOutRaw)); return b; })(),
-  ]);
-
-  const ix = {
-    programId: XDEX_PROGRAM_ID,
-    keys: keys.map((k) => ({ pubkey: k.pubkey.toBase58(), isSigner: k.isSigner, isWritable: k.isWritable })),
+  const ixJson = {
+    programId: ix.programId.toBase58(),
+    keys: ixKeys,
     dataBase64: data.toString("base64"),
     dataHex: data.toString("hex"),
   };
@@ -320,18 +441,14 @@ export function shapeXdexSwapArtifact({
       inputDecimals: quote.inputDecimals,
       outputDecimals: quote.outputDecimals,
     },
-    ix,
+    ix: ixJson,
   };
 
   if (blockhash) {
     const tx = new Transaction();
     tx.feePayer = payer;
     tx.recentBlockhash = blockhash;
-    tx.add({
-      programId: toPubkey(XDEX_PROGRAM_ID),
-      keys: keys.map((k) => ({ pubkey: k.pubkey, isSigner: k.isSigner, isWritable: k.isWritable })),
-      data,
-    });
+    tx.add(ix);
     artifact.transaction = {
       blockhash: tx.recentBlockhash,
       feePayer: payer.toBase58(),
@@ -371,7 +488,7 @@ export function createXdexSwapLeg() {
         if (!Number.isFinite(Number(ctx.amountInRaw)) || Number(ctx.amountInRaw) <= 0) {
           throw new Error("xdexSwapLeg.build: a positive raw amountInRaw is required");
         }
-        const artifact = shapeXdexSwapArtifact({
+        const artifact = await shapeXdexSwapArtifact({
           snapshot: ctx.snapshot,
           userPubkey: ctx.userPubkey,
           inputMint: ctx.inputMint,
@@ -385,16 +502,20 @@ export function createXdexSwapLeg() {
     },
     meta: {
       wraps:
-        "GREENFIELD DIRECT integration (no HTTP API — the discovery): XDEX program " +
-        "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN (UPGRADEABLE — BPFLoaderUpgradeab1e) " +
-        "SwapBaseInput (disc 8fbe5adac41e33de = sha256(global:swap_base_input)[..8], " +
-        "LIVE-VERIFIED on the anchor tx 65xjdHVd… slot 76,014,947 err ok — see the module " +
-        "header) + the CP curve (fee on input; live AmmConfig trade 2800/1e6, protocol " +
-        "250000/1e6, fund 50000/1e6, creator 0). ARG SEMANTICS LIVE-CONFIRMED 1:1 by the " +
-        "anchor swap (amount_in 5,000,000 / min_out 0 decodes + vault deltas match). " +
-        "Refresh the pool snapshot before any real flow. NEBULA WALL-OFF: nebula-dex is a " +
-        "separate project — its notes never inform this leg; XDEX truth = its own live " +
-        "on-chain data (anchor tx + snapshots) only.",
+        "OFFICIAL-SDK construction (@raydium-io/raydium-sdk-v2 makeSwapCpmmBaseInInstruction " +
+        "with the XDEX program id — XDEX is a Raydium-CPMM fork on X1 with no SDK of its " +
+        "own; the official Raydium SDK is the construction path, dynamic-imported in the " +
+        "execute path only). XDEX program sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN " +
+        "(UPGRADEABLE — BPFLoaderUpgradeab1e) SwapBaseInput (disc 8fbe5adac41e33de = " +
+        "sha256(global:swap_base_input)[..8] — the SDK emits the same disc; LIVE-VERIFIED " +
+        "on the anchor tx 65xjdHVd… slot 76,014,947 err ok AND by X1-mainnet simulation of " +
+        "the SDK-built ix 2026-09-06 — see the module header) + the CP curve (fee on input; " +
+        "live AmmConfig trade 2800/1e6, protocol 250000/1e6, fund 50000/1e6, creator 0). " +
+        "SDK drift canary: the built account list + payload are checked against the " +
+        "LIVE-VERIFIED 13-account order before anything serializes. Refresh the pool " +
+        "snapshot before any real flow. NEBULA WALL-OFF: nebula-dex is a separate " +
+        "project — its notes never inform this leg; XDEX truth = its own live on-chain " +
+        "data (anchor tx + snapshots) only.",
     },
   });
 }

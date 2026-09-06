@@ -19,7 +19,7 @@ import { captureDexLeg, DEX_FIXTURES } from "../test/golden/dexLegBuilders.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 const FIX = join(here, "..", "test", "fixtures", "golden", "dex-leg");
 
-const c = captureDexLeg();
+const c = await captureDexLeg();
 
 const steps = {
   "jupiter-step1-quote-request.json": c.steps.jupiterStep1QuoteRequest,

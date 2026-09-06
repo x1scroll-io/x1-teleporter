@@ -35,7 +35,7 @@
  *               "Approved ✓" status line — the reference sequence.
  */
 import { createLeg } from "../../legContract.js";
-import { buildApprovalData, validateLiFiApproval, normalizeEvmAddress } from "../../../lib/lifiApproval.js";
+import { buildApprovalData, buildAllowanceData, validateLiFiApproval, normalizeEvmAddress } from "../../../lib/lifiApproval.js";
 import { simulateEvmTx } from "../../../lib/simulateTx.js";
 import { waitForReceipt } from "../../../lib/teleportExecute.js";
 
@@ -173,11 +173,11 @@ export function createApprovalLeg() {
           throw new Error("approvalLeg.simulate: validated but no artifact (unreachable)");
         }
 
-        // ── Allowance read — allowance(owner,spender) => 0xdd62ed3e ──
-        const allowData =
-          "0xdd62ed3e" +
-          b.artifact.evmAddress.slice(2).padStart(64, "0") +
-          spender.slice(2).padStart(64, "0");
+        // ── Allowance read — allowance(owner,spender) — viem-encoded calldata ──
+        const allowData = buildAllowanceData({
+          owner: b.artifact.evmAddress,
+          spender,
+        });
         const allowanceHex = await ctx.provider.request({
           method: "eth_call",
           params: [{ to: b.artifact.tokenAddress, data: allowData }, "latest"],

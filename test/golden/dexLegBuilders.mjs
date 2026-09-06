@@ -252,10 +252,13 @@ export function buildXdexStep1({} = {}) {
 }
 
 /** XDEX step2 — the SwapBaseInput instruction (13 metas + 24-byte data) and
- *  the unsigned serialized transaction (deterministic synthetic blockhash). */
-export function buildXdexStep2({} = {}) {
+ *  the unsigned serialized transaction (deterministic synthetic blockhash).
+ *  Constructed through @raydium-io/raydium-sdk-v2's
+ *  makeSwapCpmmBaseInInstruction (the official Raydium SDK — XDEX is a
+ *  Raydium-CPMM fork on X1) — see docs/LEG-SDK-AUDIT.md. */
+export async function buildXdexStep2({} = {}) {
   const snapshot = xdexSnapshotInput();
-  const artifact = shapeXdexSwapArtifact({
+  const artifact = await shapeXdexSwapArtifact({
     snapshot,
     userPubkey: XDEX_SAMPLE.userPubkey,
     inputMint: XDEX_SAMPLE.inputMint,
@@ -271,14 +274,22 @@ export function buildXdexStep2({} = {}) {
     txSha256: sha256Text(artifact.transaction.serializedBase64),
     meta: {
       note:
-        "The XDEX SwapBaseInput instruction + unsigned tx — ANCHORED TO THE LIVE MAINNET SWAP " +
-        "tx 65xjdHVd… (slot 76,014,947, err ok — Mr. Esters' controlled $5 swap, 5 USDC.x → " +
-        "~12.74 XNT on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR): disc " +
-        "8fbe5adac41e33de (sha256(global:swap_base_input)[..8] — LIVE-VERIFIED) + amount_in " +
-        "u64 LE (5,000,000) + min_out u64 LE (0); 13 accounts in the LIVE-VERIFIED order " +
-        "(payer signer, authority 9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU, amm_config " +
-        "2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c, pool, input ATA GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V, " +
-        "output ATA RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd, input vault " +
+        "The XDEX SwapBaseInput instruction + unsigned tx — CONSTRUCTED THROUGH THE " +
+        "OFFICIAL RAYDIUM SDK (@raydium-io/raydium-sdk-v2 makeSwapCpmmBaseInInstruction with " +
+        "the XDEX program id — XDEX is a Raydium-CPMM fork on X1; see docs/LEG-SDK-AUDIT.md) " +
+        "and ANCHORED TO THE LIVE MAINNET SWAP tx 65xjdHVd… (slot 76,014,947, err ok — Mr. " +
+        "Esters' controlled $5 swap, 5 USDC.x → ~12.74 XNT on pool " +
+        "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR): disc 8fbe5adac41e33de " +
+        "(sha256(global:swap_base_input)[..8] — LIVE-VERIFIED; the SDK emits the same disc) " +
+        "+ amount_in u64 LE (5,000,000) + min_out u64 LE (0); 13 accounts in the " +
+        "LIVE-VERIFIED order (payer signer — SDK shape READONLY at the ix level, accepted by " +
+        "the live program (X1-mainnet simulation, err:null, 2026-09-06); the serialized " +
+        "legacy tx is byte-identical to the writable-payer shape because @solana/web3.js " +
+        "forces the fee-payer meta writable when compiling the message — txSha256 unchanged " +
+        "by the SDK refactor —, authority 9Dpjw2pB5kXJr6ZTHiqzEMfJPic3om9jgNacnwpLCoaU, " +
+        "amm_config 2eFPWosizV6nSAGeSvi5tRgXLoqhjnSesra23ALA248c, pool, input ATA " +
+        "GvBWHMoBjrWhNzypAmD6sErMPWFXqCqvTwvsYsfh7A8V, output ATA " +
+        "RC4yGH6Yh477r4FYSAxZjGXrWsGqT2tdTtt2sGnS3Dd, input vault " +
         "7iw2adw8Af7x3pY7gj5RwczFXuGjCoX92Gfy3avwXQtg, output vault " +
         "8wvV4HKBDFMLEUkVWp1WPNa5ano99XCm3f9t3troyLb, Token-2022, Token, USDC.x mint, wXNT " +
         "mint, observation 4oUvUgziz4S6VXxMkjqorjgPrgT3wrxXN9kDuja8pkPZ); ATAs derived " +
@@ -326,11 +337,11 @@ export function buildLifiSwapStep1({} = {}) {
  * Returns the capture objects {step, artifact, sha256, ...} plus the sample
  * inputs + the swap-route evidence pin (all deterministic).
  */
-export function captureDexLeg() {
+export async function captureDexLeg() {
   const jupiterStep1 = buildJupiterStep1();
   const jupiterStep2 = buildJupiterStep2();
   const xdexStep1 = buildXdexStep1();
-  const xdexStep2 = buildXdexStep2();
+  const xdexStep2 = await buildXdexStep2();
   const lifiStep1 = buildLifiSwapStep1();
   const jupiterQuote = jupiterQuoteInput();
   const lifiQuote = lifiSwapQuoteInput();
