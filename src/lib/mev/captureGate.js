@@ -51,6 +51,8 @@
 import { MEV_CAPTURE_ENABLED } from "../flags.ts";
 import { detectCaptureGap, CAPTURE_FEE_POLICY_BPS } from "./gapDetector.js";
 import { analyzeRoute } from "./routeAnalyzer.js";
+import { DEFAULT_MEV_PAYOUT_CONFIG, treasuryForChain, payoutGroupForChain, MEV_PAYOUT_DEPOSIT_ONLY_NOTE } from "./payoutConfig.js";
+import { createCaptureRecord } from "./captureLedger.js";
 
 /** The label every gated-off report carries. */
 export const CAPTURE_GATE_LABEL = "gated OFF";
@@ -122,7 +124,10 @@ export function assertCaptureGateOpen() {
  * When the gate is OFF (default) the report carries the honest
  * "capture opportunity: X bps (gated OFF)" line. When ON, the detection
  * math is identical — only the mode string changes — and the report still
- * carries executable:false.
+ * carries executable:false. The result ALSO carries `payout` — the
+ * drop-as-is deposit destination (the treasury design — payoutConfig.js)
+ * so every observation records WHERE the capture would drop. Pure
+ * annotation; nothing here moves funds.
  *
  * @param {object} args
  * @param {Array<object>} args.buyQuotes   X→Y quotes across venues
@@ -131,7 +136,8 @@ export function assertCaptureGateOpen() {
  * @param {string} [args.chain]            chain key
  * @param {string|number|bigint} [args.gasCostQuoteUnits] gas in X units
  * @param {number} [args.protocolFeeBps]   capture fee policy bps
- * @returns {{detection: object, gate: object, report: string}}
+ * @returns {{detection: object, gate: object, report: string,
+ *            payout: object|null}}
  */
 export function runCaptureScan({ buyQuotes, sellQuotes, pair = null, chain = null, gasCostQuoteUnits = 0n, protocolFeeBps = CAPTURE_FEE_POLICY_BPS } = {}) {
   const detection = detectCaptureGap({ buyQuotes, sellQuotes, pair, chain, gasCostQuoteUnits, protocolFeeBps });
@@ -141,7 +147,7 @@ export function runCaptureScan({ buyQuotes, sellQuotes, pair = null, chain = nul
     ? `capture opportunity: ${gapTxt} — ${detection.netRoundTripBps} bps net after costs (${gate.label})`
     : `capture scan: ${gapTxt} — ${detection.whyNot || "no capture"} (${gate.label})`;
   const report = `[mev-capture] ${chain ?? "?"} ${pair?.from ?? "?"}→${pair?.to ?? "?"}: ${line}`;
-  return { detection, gate, report };
+  return { detection, gate, report, payout: capturePayoutForChain(chain) };
 }
 
 /**
@@ -193,7 +199,11 @@ export const ROUTE_CAPTURE_GATE_LABEL = CAPTURE_GATE_LABEL; // "gated OFF"
  * @param {object} route the analyzed route { id, legs: [{hop, from, to,
  *   chain?, kind?, venueChosen, quotes, usdPerOutUnit?}] } — see
  *   routeAnalyzer.analyzeRoute
- * @returns {{analysis: object, gate: object, report: string}}
+ * @returns {{analysis: object, gate: object, report: string,
+ *            payouts: object|null}} `payouts` maps each distinct leg chain
+ *   to its drop-as-is destination ({group, address}) — a multi-hop journey
+ *   spans chains, so the per-capture destinations follow each leg (see
+ *   dropAsIsRecords). Pure annotation; nothing here moves funds.
  */
 export function runRouteCaptureScan(route) {
   const analysis = analyzeRoute(route);
@@ -205,7 +215,11 @@ export function runRouteCaptureScan(route) {
     ? `route capture opportunity: ${gapTxt}${usdTxt} across ${nHops} hops (${gate.label})`
     : `route capture scan: ${analysis.whyNot || "no capture"} (${gate.label})`;
   const report = `[mev-route-capture] ${analysis.routeId ?? "?"}: ${line}`;
-  return { analysis, gate, report };
+  const legChains = [...new Set((analysis.legs || []).map((l) => l.chain).filter(Boolean))];
+  const payouts = legChains.length
+    ? Object.freeze(Object.fromEntries(legChains.map((c) => [c, capturePayoutForChain(c)]).filter(([, p]) => p)))
+    : null;
+  return { analysis, gate, report, payouts };
 }
 
 /**
@@ -228,4 +242,185 @@ export function formatRouteCaptureReport(analysis) {
     `[mev-route-capture] ${id}: route capture opportunity ${bpsTxt}${usdTxt} across ${analysis.legs.length} hops, ` +
     `optimal sub-path ${opt} — ${ROUTE_CAPTURE_GATE_LABEL}`
   );
+}
+
+// ── PAYOUT + DROP-AS-IS (the treasury design — 2026-09-07) ──────────────────
+//
+// Mr. Esters' treasury design (docs/MEV-PAYOUT.md, payoutConfig.js): every
+// capture is deposited AS-IS into its chain's treasury address (drop-as-is,
+// minimal gas per capture) and piles up until the ONE batched sweep per
+// period converts it to the SOL/wBTC/wETH/USDC basket. THIS SECTION wires
+// the observation pipelines to that design — PURELY:
+//
+//   1. capturePayoutForChain(chain) — the drop-as-is DESTINATION for a
+//      chain (the payout config's treasury). Both scan pipelines already
+//      carry it (runCaptureScan → `payout`; runRouteCaptureScan →
+//      `payouts` per distinct leg chain).
+//   2. dropAsIsRecords(scanResult, {source, simulated, test}) — the
+//      MEASURE/VERIFY bridge: turns a scan result into the captureLedger
+//      record DRAFTS (the drop-as-is intent records) the sandbox
+//      measurement tool + the exotic-route tests persist — marked
+//      simulated/test there. Gated OFF (default) these are measurement
+//      only; the actual deposit is a future ARMED action (signable
+//      artifacts only — DexDirectLiveTestGateError discipline).
+//
+// 🔴 The boundary is structural: these functions annotate and record
+// INTENT. They construct no transactions, broadcast nothing, and hold no
+// treasury keys. Deposit + sweep = Mr. Esters' arm alone.
+
+/**
+ * capturePayoutForChain — the drop-as-is deposit destination for a chain
+ * (the payout config's per-chain treasury map — payoutConfig.js). Null for
+ * chains the payout map does not cover (a capture there cannot drop
+ * anywhere; the ledger record builder fails closed on it).
+ *
+ * @param {string|null} chain canonical chain key
+ * @param {object} [config] payout config (default DEFAULT_MEV_PAYOUT_CONFIG)
+ * @returns {object|null} { chain, group, address, dropAsIs: true,
+ *   depositOnly: true, note } or null
+ */
+export function capturePayoutForChain(chain, config = DEFAULT_MEV_PAYOUT_CONFIG) {
+  if (!chain) return null;
+  const address = treasuryForChain(config, chain);
+  if (!address) return null;
+  return Object.freeze({
+    chain,
+    group: payoutGroupForChain(config, chain),
+    address,
+    dropAsIs: true,
+    depositOnly: true,
+    note: MEV_PAYOUT_DEPOSIT_ONLY_NOTE,
+  });
+}
+
+/**
+ * dropAsIsRecords — the MEASURE/VERIFY bridge from a scan result to the
+ * capture ledger's drop-as-is record DRAFTS.
+ *
+ * Given a scan result (runCaptureScan's same-pair shape — it carries
+ * `detection` — or runRouteCaptureScan's multi-hop shape — it carries
+ * `analysis`), produce the captureLedger records that WOULD be recorded:
+ *
+ *   - same-pair capture: ONE record — the net round-trip capture in the
+ *     pair's FROM token (the token that drops as-is), amountRaw =
+ *     netValueAfterCostsRaw (the actual positive capture after gas/costs).
+ *   - multi-hop route capture: ONE record PER LEG with a positive
+ *     best-venue improvement (deltaOutRaw > 0) — the leg's TO token on the
+ *     leg's own chain (where the route-choice value accrues). Legs without
+ *     a chain (bridge legs) are SKIPPED with a reason — the value accrues
+ *     on a leg destination this scan cannot attribute chain-locally.
+ *
+ * Each draft is validated through captureLedger.createCaptureRecord's
+ * rules (chain-configured treasury required unless explicitly a sandbox
+ * measurement). Recording = journaling INTENT — no funds move (see the
+ * ledger header).
+ *
+ * @param {object} scanResult from runCaptureScan / runRouteCaptureScan
+ * @param {object} [opts]
+ * @param {string} [opts.source] "detection" | "simulated" | "test"
+ *   (default "detection")
+ * @param {boolean} [opts.simulated] mark the records simulated (sandbox
+ *   measurement — default false)
+ * @param {boolean} [opts.test] mark the records test-fleet (default false)
+ * @param {object} [opts.config] payout config
+ * @returns {{records: object[], skipped: object[]}} records = validated
+ *   captureLedger record drafts; skipped = {reason, hop?} for value the
+ *   scan found but could not attribute to a drop-as-is destination
+ */
+export function dropAsIsRecords(scanResult, { source = "detection", simulated = false, test = false, config = DEFAULT_MEV_PAYOUT_CONFIG } = {}) {
+  if (!scanResult || typeof scanResult !== "object") throw new Error("captureGate.dropAsIsRecords: a scan result is required");
+  const records = [];
+  const skipped = [];
+
+  if (scanResult.detection) {
+    const d = scanResult.detection;
+    if (d.wouldCapture && BigInt(d.netValueAfterCostsRaw ?? 0) > 0n) {
+      const token = d.pair?.from ?? null;
+      if (!token) {
+        skipped.push({ reason: "same-pair capture with no pair.from token — nothing identifiable drops as-is" });
+      } else {
+        const rec = createCaptureLedgerRecord(
+          {
+            chain: d.chain,
+            token,
+            tokenAddress: null,
+            amountRaw: d.netValueAfterCostsRaw,
+            source,
+            simulated,
+            test,
+            config,
+            evidence: {
+              kind: "same-pair-cross-venue",
+              pair: d.pair ? `${d.pair.from}→${d.pair.to}` : null,
+              gapBps: d.gapBps,
+              grossRoundTripBps: d.grossRoundTripBps,
+              netRoundTripBps: d.netRoundTripBps,
+              route: d.route,
+              exact: d.exact,
+            },
+          },
+          skipped,
+        );
+        if (rec) records.push(rec);
+      }
+    }
+    return { records, skipped };
+  }
+
+  if (scanResult.analysis) {
+    const a = scanResult.analysis;
+    for (const leg of a.legs || []) {
+      if (leg.singleVenue || BigInt(leg.deltaOutRaw ?? 0) <= 0n) continue; // no venue choice / no improvement
+      if (!leg.chain) {
+        skipped.push({
+          hop: leg.hop,
+          reason: `leg ${leg.hop} (${leg.from ?? "?"}→${leg.to ?? "?"}) improved ${leg.deltaOutRaw} raw but carries no chain — the value accrues on a leg destination this scan cannot attribute chain-locally`,
+        });
+        continue;
+      }
+      const rec = createCaptureLedgerRecord(
+        {
+          chain: leg.chain,
+          token: leg.to,
+          tokenAddress: null,
+          amountRaw: leg.deltaOutRaw,
+          source,
+          simulated,
+          test,
+          config,
+          evidence: {
+            kind: "multi-hop-route-choice",
+            routeId: a.routeId,
+            hop: leg.hop,
+            from: leg.from,
+            to: leg.to,
+            venueChosen: leg.venueChosen,
+            venueBest: leg.venueBest,
+            gapBps: leg.gapBps,
+            netUsd: leg.netUsd,
+            routeNetUsd: a.routeNetUsd,
+          },
+        },
+        skipped,
+      );
+      if (rec) records.push(rec);
+    }
+    return { records, skipped };
+  }
+
+  throw new Error("captureGate.dropAsIsRecords: the scan result must carry `detection` (runCaptureScan) or `analysis` (runRouteCaptureScan)");
+}
+
+/** The ledger-record factory used by dropAsIsRecords (fail-closed on
+ *  unconfigured chains unless the record is an explicit sandbox
+ *  measurement). Returns the record, or null after pushing the skip reason
+ *  (a record that cannot drop anywhere is never silently dropped — it is
+ *  surfaced on the skipped list). */
+function createCaptureLedgerRecord(input, skipped) {
+  try {
+    return createCaptureRecord(input);
+  } catch (err) {
+    skipped.push({ reason: err.message, input: { chain: input.chain, token: input.token, amountRaw: input.amountRaw } });
+    return null;
+  }
 }
