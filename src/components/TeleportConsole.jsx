@@ -515,6 +515,19 @@ export default function TeleportConsole({
   // THE RAIL DECISION (post-pick, pre-execution — invisible to the user):
   // native sources → the THORChain engine path (deposit-address execution);
   // EVM/X1 sources → the LiFi/Warp engine path (wallet-connect execution).
+  //
+  // SUI/TRON (the Rango-native sources — RANGO_CHAINS) are deliberately NOT
+  // in SOURCE_CHAINS yet (the console's source picker adopts them in a later
+  // phase — the ⚠️ CONSOLE BOUNDARY note in teleportRail.js: no Rango
+  // execution step UI exists, so no Rango-Sui quote can fail in this console
+  // today). When that phase lands: rail === RAIL.RANGO (a Rango-native
+  // source) and rail === null (Rango unavailable — the Sui single-rail dark
+  // state: pickRail has no fallback candidate) MUST render the calm
+  // route-unavailable state via src/lib/rango/routeState.js
+  // (isRangoRouteUnavailable + rangoRouteUnavailableMessage — gate disabled,
+  // honest "Sui route temporarily unavailable…" copy, auto-recover on the
+  // next attempt/refresh), NEVER the EVM fallthrough below or a raw error.
+  // Seam + verdicts: docs/ROUTING-ENGINE.md §11.7.
   const railMeta = pickRail({ fromChain: from });
   const rail = railMeta.rail;
   const nativeMeta = isNativeChain(from) ? NATIVE_CHAINS[from] : null;

@@ -170,6 +170,29 @@ export function isRangoChain(chain) {
  *   evm stables/x1    → LiFi/Warp          (unchanged; Wanchain EVM routes
  *       land EVM/Wanchain-L1 — never Solana/X1 — so no overlap)
  *
+ * ⚠️ SINGLE-RAIL SOURCES (the sui/tron rows above) — SINGLE POINT OF
+ * FAILURE (2026-09-06 SUI COVERAGE CHECK): sui and tron have exactly ONE
+ * serving rail (Rango) — no fallback candidate behind it, unlike
+ * btc/doge/ltc/xrp ([THORChain, Rango]). When Rango is down / a Sui route
+ * is halted / the Rango API errors, pickRail({ fromChain: "sui" }) answers
+ * { rail: null } (the loop exhausts the one candidate and has nothing to
+ * fail over to) — the Sui lane goes fully dark. Any consumer (the console's
+ * future Sui source phase) MUST translate that failure class into the CALM
+ * route-unavailable state via src/lib/rango/routeState.js
+ * (isRangoRouteUnavailable + rangoRouteUnavailableMessage — the Rango
+ * mirror of the THORChain SOL-halt UX: gate disabled, calm copy, auto
+ * re-check on the next attempt/refresh) — never a raw error. Evidence +
+ * verdicts: docs/ROUTING-ENGINE.md §11.7.
+ *
+ * 🔭 THORCHAIN-SUI ROADMAP (2026-09-06 — the future SECOND Sui rail):
+ * THORChain's roadmap ships SOL/TON/Cardano/Sui via EdDSA. The moment
+ * THORChain enables SUI (its public inbound_addresses endpoint starts
+ * listing a "SUI" chain entry — watch: tools/thorchain-sui-launch-watch.mjs),
+ * RE-VERIFY a live SUI→SOL quote, then add THORCHAIN to this sui row
+ * ([THORChain, Rango]) — THORChain becomes the Sui fallback rail AND the
+ * X1TP affiliate earns on it (the affiliate pair rides the deposit memo,
+ * same as the native rows). Until then sui stays Rango-only.
+ *
  * The registry is the seam: when a rail's live API starts serving a source
  * (re-verify FIRST), update this map + railCandidates() + the engine's
  * source registry in the same change.
