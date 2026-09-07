@@ -127,3 +127,14 @@ node tools/mev-multihop-report-build.mjs                         # rebuild the r
 
 node tools/run-selected-tests.mjs src/lib/mev/gapDetector.test.js src/lib/mev/captureGate.test.js src/lib/mev/routeAnalyzer.test.js test/mevCapture.test.js test/mevSimulationFixtures.test.js test/mevMultihop.test.js test/mevMultihopSimulationFixtures.test.js
 ```
+
+## Treasury / payout layer (deposit-only, drop-as-is, batched sweep)
+
+The capture engine's DEPOSIT side — Mr. Esters' treasury design: per-chain
+payout addresses (deposit-only destinations), drop-as-is capture
+accumulation, and ONE batched daily/weekly sweep per chain converting the
+pile → the SOL/wBTC/wETH/USDC basket. Config + ledger + sweep planner +
+measurement tool: **docs/MEV-PAYOUT.md** (`src/lib/mev/payoutConfig.js`,
+`captureLedger.js`, `sweepPlanner.js`, `tools/mev-capture-measure.mjs`).
+Same discipline: gated OFF, deposit-only, signable artifacts only — the
+deposit + sweep are Mr. Esters' arm alone.

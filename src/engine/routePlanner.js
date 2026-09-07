@@ -118,7 +118,7 @@ import { createUniswapSwapLeg } from "./legs/dexDirect/uniswapSwapLeg.js";
 import { createPancakeSwapSwapLeg } from "./legs/dexDirect/pancakeswapSwapLeg.js";
 import { createRaydiumSwapLeg } from "./legs/dexDirect/raydiumSwapLeg.js";
 import { createOrcaSwapLeg } from "./legs/dexDirect/orcaSwapLeg.js";
-import { runCaptureScan, runRouteCaptureScan, captureGate } from "../lib/mev/captureGate.js";
+import { runCaptureScan, runRouteCaptureScan, captureGate, capturePayoutForChain, dropAsIsRecords } from "../lib/mev/captureGate.js";
 
 /** The forward route's leg ids in execution order (the planner contract). */
 export const FORWARD_LEG_IDS = Object.freeze([
@@ -918,4 +918,13 @@ export const RoutePlanner = Object.freeze({
   observeCaptureForSwap,
   observeRouteCapture,
   planCaptureRouteJourney,
+  capturePayoutForChain,
+  dropAsIsRecords,
 });
+
+// Named re-exports of the payout/drop-as-is wiring (the routing-layer seam
+// of the treasury design — docs/MEV-PAYOUT.md): capturePayoutForChain gives
+// the drop-as-is destination for a chain; dropAsIsRecords turns a scan
+// result into the captureLedger record drafts (measurement first — gated
+// OFF by default; recording moves no funds).
+export { capturePayoutForChain, dropAsIsRecords };

@@ -62,6 +62,8 @@ export {
   planCaptureSide,
   planCaptureSwapPair,
   observeCaptureForSwap,
+  capturePayoutForChain,
+  dropAsIsRecords,
 } from "./routePlanner.js";
 export { runForwardEvmStage, ensureEvmChain } from "./runners/forwardEvmStage.js";
 export { runForwardSvmStage } from "./runners/forwardSvmStage.js";
