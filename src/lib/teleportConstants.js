@@ -12,7 +12,8 @@
  *
  * CHAINS stays the UI routing registry (this file); CHAIN_META in
  * tokenResolver.js is the identity-only chain space (includes the non-UI
- * chains: btc/doge/ltc/xrp/rbn/tron).
+ * chains: btc/doge/ltc/xrp/tron — rbn joined the UI CHAINS below when the
+ * Robinhood Chain leg landed, PR #57).
  *
  * Verbatim-mirror note (v1): Teleporter.jsx still carries its OWN inline
  * TOKENS (the flag-restorable v1 safety net, deliberately NOT imported here
@@ -41,6 +42,7 @@ export const CHAINS = {
   pol:   { id: "pol",   name: "Polygon",     lifiKey: "pol", chainId: 137,   walletType: "evm",    color: "#8247E5", glyph: "⬡" },
   avax:  { id: "avax",  name: "Avalanche",   lifiKey: "ava", chainId: 43114, walletType: "evm",    color: "#E84142", glyph: "▲" },
   sonic: { id: "sonic", name: "Sonic",       lifiKey: "son", chainId: 146,   walletType: "evm",    color: "#5BC8F5", glyph: "S" },
+  rbn:   { id: "rbn",   name: "Robinhood Chain", lifiKey: "out", chainId: 4663,  walletType: "evm",    color: "#00C805", glyph: "R" }, // Arbitrum Orbit L2 (4663) — canonical stable Paxos USDG only, NO Circle USDC on-chain (PR #57; docs/robinhood-chain.md)
 };
 
 /**
@@ -69,7 +71,7 @@ export const TOKENS = (() => {
  * route). Solana-source (sol_x1) and X1-source (x1_reverse / x1_onward)
  * routes are flag-gated / removed (step 1.2) and stay OUT of this port.
  */
-export const EVM_CHAINS = Object.freeze(["eth", "bsc", "arb", "bas", "opt", "pol", "avax", "sonic"]);
+export const EVM_CHAINS = Object.freeze(["eth", "bsc", "arb", "bas", "opt", "pol", "avax", "sonic", "rbn"]);
 
 // Minimum into X1 — REMOVED 2026-09-02 (fee-model v2). The old $25 floor's
 // reasoning (the flat $1 bridge fee would be ~11% of a $10 journey) is gone:

@@ -35,6 +35,7 @@ test("defaultPriceFetch parses the Coingecko simple-price shape", async () => {
       "wrapped-solana": { usd: 150.5 },
       tether: { usd: 1.0 },
       dai: { usd: 0.999 },
+      "global-dollar": { usd: 1.0 },
     }),
   });
   try {
@@ -90,6 +91,7 @@ test("getPricesUSD maps Coingecko ids onto every balance-line symbol", async () 
     "usd-coin": 1.0,
     tether: 1.0,
     dai: 1.0,
+    "global-dollar": 1.0,
     "wrapped-solana": 150.5,
     bitcoin: 97_000,
     dogecoin: 0.16,
@@ -102,6 +104,7 @@ test("getPricesUSD maps Coingecko ids onto every balance-line symbol", async () 
     USDC: 1.0,
     USDT: 1.0,
     DAI: 1.0,
+    USDG: 1.0,
     WSOL: 150.5,
     "USDC.x": 1.0, // Warp twin of Solana USDC — same id, same price
     "wSOL.X": 150.5, // Warp twin of Solana WSOL — same id, same price
@@ -110,12 +113,13 @@ test("getPricesUSD maps Coingecko ids onto every balance-line symbol", async () 
     LTC: 100,
     XRP: 2.5,
   });
-  // one batch call with the deduped id set
-  assert.deepEqual(fp.calls[0], ["usd-coin", "tether", "dai", "wrapped-solana", "bitcoin", "dogecoin", "litecoin", "ripple"]);
+  // one batch call with the deduped id set (COINGECKO_IDS order — USDG
+  // joined at 2026-09-05, natives joined with the BAL readout)
+  assert.deepEqual(fp.calls[0], ["usd-coin", "tether", "dai", "global-dollar", "wrapped-solana", "bitcoin", "dogecoin", "litecoin", "ripple"]);
 });
 
 test("getPricesUSD caches within the TTL — one fetch across many calls", async () => {
-  const fp = makeFetchPrice({ "usd-coin": 1.0, tether: 1.0, dai: 1.0, "wrapped-solana": 150.5 });
+  const fp = makeFetchPrice({ "usd-coin": 1.0, tether: 1.0, dai: 1.0, "global-dollar": 1.0, "wrapped-solana": 150.5 });
   resetPriceCache();
   const a = await getPricesUSD({ fetchPrice: fp, now: 0, force: true });
   const b = await getPricesUSD({ fetchPrice: fp, now: 30_000 }); // inside TTL
@@ -128,7 +132,7 @@ test("getPricesUSD caches within the TTL — one fetch across many calls", async
 
 test("getPricesUSD refetches after the TTL expires", async () => {
   let price = 1.0;
-  const fp = makeFetchPrice(() => ({ "usd-coin": price, tether: 1.0, dai: 1.0, "wrapped-solana": 150.5 }));
+  const fp = makeFetchPrice(() => ({ "usd-coin": price, tether: 1.0, dai: 1.0, "global-dollar": 1.0, "wrapped-solana": 150.5 }));
   resetPriceCache();
   await getPricesUSD({ fetchPrice: fp, now: 0, force: true });
   assert.equal(fp.calls.length, 1);
@@ -143,7 +147,7 @@ test("getPricesUSD: fetch failure → null (fail-soft), no cached poison", async
   resetPriceCache();
   assert.equal(await getPricesUSD({ fetchPrice: fp, now: 0, force: true }), null);
   // a later successful fetch still works
-  const fp2 = makeFetchPrice({ "usd-coin": 1.0, tether: 1.0, dai: 1.0, "wrapped-solana": 150.5 });
+  const fp2 = makeFetchPrice({ "usd-coin": 1.0, tether: 1.0, dai: 1.0, "global-dollar": 1.0, "wrapped-solana": 150.5 });
   const ok = await getPricesUSD({ fetchPrice: fp2, now: 1, force: true });
   assert.equal(ok.USDC, 1.0);
 });
@@ -172,5 +176,10 @@ test("usdValue: null-in → null-out (no USD when balance or price missing)", ()
 });
 
 test("COINGECKO_IDS covers the exact symbols the balance readouts render", () => {
-  assert.deepEqual(Object.keys(COINGECKO_IDS).sort(), ["BTC", "DAI", "DOGE", "LTC", "USDC", "USDC.x", "USDT", "WSOL", "XRP", "wSOL.X"]);
+  // The full union: the EVM/X1 stables (USDC/USDT/DAI/WSOL + the USDC.x /
+  // wSOL.X Warp twins), Paxos USDG (Robinhood Chain's canonical stable, PR
+  // #57) and the native source assets (BTC/DOGE/LTC/XRP — the console's
+  // native-source BAL readout shows their live USD worth like every other
+  // source).
+  assert.deepEqual(Object.keys(COINGECKO_IDS).sort(), ["BTC", "DAI", "DOGE", "LTC", "USDC", "USDC.x", "USDG", "USDT", "WSOL", "XRP", "wSOL.X"]);
 });

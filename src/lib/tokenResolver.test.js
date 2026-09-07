@@ -277,10 +277,41 @@ test("resolve: reserved/unverified rows never resolve (Robinhood USDC TODO, DGN,
   assert.ok(rbnEntry && rbnEntry.status === "unverified" && rbnEntry.address === null, "Robinhood USDC entry is the marked TODO");
 });
 
+test("resolve: USDG on rbn is Robinhood Chain's canonical stable (PR #57) — USDC stays null beside it", () => {
+  // The Robinhood Chain leg landed with Paxos USDG as the canonical stable
+  // (TOKEN_TABLE USDG row, appended at the END of the table). The USDC row's
+  // rbn entry stays the unverified TODO — the two facts coexist: USDG
+  // resolves, USDC does not (no invented Circle deployment).
+  const usdg = resolve("USDG", "rbn");
+  assert.ok(usdg, "resolve('USDG','rbn') resolves");
+  assert.equal(usdg.symbol, "USDG");
+  assert.equal(usdg.name, "Paxos Global Dollar");
+  assert.equal(usdg.address, "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168");
+  assert.equal(usdg.decimals, 6);
+  assert.equal(usdg.program, "erc20");
+  assert.deepEqual([...usdg.rails], ["lifi"]);
+  assert.equal(usdg.listed, true);
+  assert.equal(usdg.coingeckoId, "global-dollar");
+  assert.equal(usdg.chain, "rbn");
+  // resolveByAddress: the canonical contract on rbn → USDG (case-insensitive).
+  const byAddr = resolveByAddress("0x5Fc5360d0400A0Fd4f2aF552aDD042D716f1D168", "rbn");
+  assert.equal(byAddr?.symbol, "USDG");
+  // The honesty invariant — no fake USDC identity invented beside it.
+  assert.equal(resolve("USDC", "rbn"), null);
+  assert.equal(resolveByAddress("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "rbn"), null, "canonical Circle contract not assumed on Robinhood Chain");
+  // USDG is a Robinhood-only row — it must NOT resolve on any other chain.
+  assert.equal(resolve("USDG", "eth"), null);
+  assert.equal(resolve("USDG", "sol"), null);
+  assert.equal(resolve("USDG", "x1"), null);
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // 5. MIGRATION REGRESSION — teleportConstants TOKENS byte-identical
 // ────────────────────────────────────────────────────────────────────────────
-/** The exact pre-resolver TOKENS literal (v2 @ 204e808) — pinned forever. */
+/** The exact pre-resolver TOKENS literal (v2 @ 204e808) — pinned forever.
+ *  The Robinhood Chain leg (PR #57, 2026-09-07) appends the rbn chain key
+ *  (Paxos USDG — the resolver TOKEN_TABLE USDG row's projection); every
+ *  pre-existing row stays byte-identical. */
 const HISTORICAL_TOKENS = {
   eth:   { USDC: { decimals: 6, address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" }, USDT: { decimals: 6, address: "0xdAC17F958D2ee523a2206206994597C13D831ec7" }, DAI: { decimals: 18, address: "0x6B175474E89094C44Da98b954EedeAC495271d0F" } },
   bsc:   { USDC: { decimals: 18, address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d" }, USDT: { decimals: 18, address: "0x55d398326f99059fF775485246999027B3197955" }, DAI: { decimals: 18, address: "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3" } },
@@ -292,6 +323,7 @@ const HISTORICAL_TOKENS = {
   avax:  { USDC: { decimals: 6, address: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E" }, USDT: { decimals: 6, address: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7" }, DAI: { decimals: 18, address: "0xd586E7F844cEa2F87f50152665BCbc2C279D8d70" } },
   sonic: { USDC: { decimals: 6, address: "0x29219dd400f2Bf60E5a23d13Be72B486D4038894" }, USDT: { decimals: 6, address: "0xE5DA20F15420aD15DE0fa650600aFc998bbE3955" } },
   x1:    { "USDC.x": { decimals: 6, address: "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq" }, "wSOL.X": { decimals: 9, address: "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8" } },
+  rbn:   { USDG: { decimals: 6, address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" } },
 };
 
 test("MIGRATION REGRESSION: TOKENS projection is byte-identical to the historical literal", () => {
@@ -310,6 +342,7 @@ test("MIGRATION REGRESSION: TOKENS projection is byte-identical to the historica
   assert.equal(Object.keys(TOKENS.sol)[2], "WSOL");
   assert.equal(Object.keys(TOKENS.sol)[3], "ETH");
   assert.equal(Object.keys(TOKENS.sol)[4], "cbBTC");
+  assert.equal(Object.keys(TOKENS.rbn)[0], "USDG", "rbn's default token is USDG (the only listed entry)");
 });
 
 test("MIGRATION REGRESSION: every TOKENS entry equals the resolver's canonical entry (single source)", () => {
@@ -435,7 +468,7 @@ test("table hygiene: every entry's chain is known; listed entries have addresses
   // The canonical symbol list, in table order (docs/TOKEN-RESOLVER.md).
   assert.deepEqual(
     canonicalSymbols(),
-    ["USDC", "USDT", "DAI", "WSOL", "USDC.x", "wSOL.X", "ETH", "ETH.X", "cbBTC", "cbBTC.X", "wXNT", "XNT", "BTC", "DOGE", "LTC", "XRP", "DGN", "xencat"],
+    ["USDC", "USDT", "DAI", "WSOL", "USDC.x", "wSOL.X", "ETH", "ETH.X", "cbBTC", "cbBTC.X", "wXNT", "XNT", "BTC", "DOGE", "LTC", "XRP", "DGN", "xencat", "USDG"],
     "canonical symbol list (docs/TOKEN-RESOLVER.md table order)",
   );
 });

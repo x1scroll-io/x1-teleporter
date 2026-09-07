@@ -46,9 +46,11 @@
 // ────────────────────────────────────────────────────────────────────────────
 // CHAIN METADATA — the resolver's chain-id space. Extends the teleport CHAINS
 // ids (x1/eth/bsc/sol/arb/bas/opt/pol/avax/sonic) with the chains the other
-// rails touch (btc/doge/ltc/xrp for THORChain natives, rbn = Robinhood Chain
-// 4663, tron for the v1-gated TRON lane). CHAINS in teleportConstants.js is
-// the UI routing registry and stays separate (this table is identity-only).
+// rails touch (btc/doge/ltc/xrp for THORChain natives, tron for the v1-gated
+// TRON lane). rbn = Robinhood Chain 4663, UI-listed since the Robinhood leg
+// landed (PR #57 — CHAINS.rbn in teleportConstants.js). CHAINS in
+// teleportConstants.js is the UI routing registry and stays separate (this
+// table is identity-only).
 // ────────────────────────────────────────────────────────────────────────────
 export const CHAIN_META = Object.freeze({
   x1:    Object.freeze({ id: "x1",    name: "X1",           chainId: null,   family: "svm" }),
@@ -61,7 +63,7 @@ export const CHAIN_META = Object.freeze({
   pol:   Object.freeze({ id: "pol",   name: "Polygon",      chainId: 137,    family: "evm" }),
   avax:  Object.freeze({ id: "avax",  name: "Avalanche",    chainId: 43114,  family: "evm" }),
   sonic: Object.freeze({ id: "sonic", name: "Sonic",        chainId: 146,    family: "evm" }),
-  rbn:   Object.freeze({ id: "rbn",   name: "Robinhood Chain", chainId: 4663, family: "evm" }), // TODO(robinhood-task): the sibling Robinhood Chain leg. USDC entry below is UNRESOLVED until it lands.
+  rbn:   Object.freeze({ id: "rbn",   name: "Robinhood Chain", chainId: 4663, family: "evm" }), // Robinhood Chain — landed as a UI EVM source (PR #57): the canonical stable is Paxos USDG (TOKEN_TABLE USDG row below); the USDC entry in the USDC row stays intentionally unverified (no Circle USDC on-chain → resolve("USDC","rbn") stays null).
   tron:  Object.freeze({ id: "tron",  name: "Tron",         chainId: "TRON", family: "evm" }), // TVM — v1-gated lane (ENABLE_TRON=false in v2); entries kept for identity only
   btc:   Object.freeze({ id: "btc",   name: "Bitcoin",      chainId: null,   family: "utxo" }),
   doge:  Object.freeze({ id: "doge",  name: "Dogecoin",     chainId: null,   family: "utxo" }),
@@ -328,6 +330,22 @@ export const TOKEN_TABLE = Object.freeze({
     kind: "token",
     status: "unverified",
     entries: Object.freeze({}),
+  }),
+
+  // ── Paxos USDG (Global Dollar) — Robinhood Chain's canonical stable ──────
+  USDG: Object.freeze({
+    symbol: "USDG",
+    name: "Paxos Global Dollar",
+    kind: "token",
+    coingeckoId: "global-dollar",
+    entries: Object.freeze({
+      // Robinhood Chain (4663) — the ONLY canonical stable on-chain (official
+      // docs Token Contracts page + LiFi chain-4663 tokenlist, 2026-09-05;
+      // chainid 4663 = 0x1237). NO Circle USDC/USDT/DAI deployments exist —
+      // the USDC row above keeps its rbn entry unverified so
+      // resolve("USDC","rbn") stays null (the honesty invariant).
+      rbn:   Object.freeze({ chain: "rbn",   address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", decimals: 6, program: "erc20", rails: Object.freeze(["lifi"]), listed: true, note: "Robinhood Chain canonical stable — Paxos USDG (verified 2026-09-05); LiFi key 'out', chainId 4663" }),
+    }),
   }),
 });
 
