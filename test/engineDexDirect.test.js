@@ -38,8 +38,8 @@ import {
 import { RoutePlanner } from "../src/engine/routePlanner.js";
 import { createLeg, runLeg } from "../src/engine/legContract.js";
 
-// ── the guarded execute boundary (every dexDirect leg) ─────────────────────
-test("dexDirect: every execute leg is a GUARDED STUB that throws DexDirectLiveTestGateError", async () => {
+// ── the no-broadcast gate (every dexDirect leg — signable, never self-broadcast) ─
+test("dexDirect: every execute leg's submit is the NO-BROADCAST tripwire that throws DexDirectLiveTestGateError", async () => {
   const legs = [createUniswapSwapLeg(), createPancakeSwapSwapLeg(), createRaydiumSwapLeg(), createOrcaSwapLeg()];
   for (const leg of legs) {
     assert.equal(typeof leg.phases.submit, "function", `${leg.id} defines submit`);
@@ -47,14 +47,15 @@ test("dexDirect: every execute leg is a GUARDED STUB that throws DexDirectLiveTe
       leg.phases.submit(),
       (e) => {
         assert.ok(e instanceof DexDirectLiveTestGateError, `${leg.id} throws DexDirectLiveTestGateError (got ${e?.name})`);
+        assert.match(e.message, /CANNOT broadcast/);
+        assert.match(e.message, /sign in your wallet/);
         assert.match(e.message, /READY FOR LIVE ANCHOR/);
-        assert.match(e.message, /dex-direct-execute: not wired for autonomous broadcast/);
         return true;
       },
-      `${leg.id} submit must be gated`,
+      `${leg.id} submit must be the no-broadcast tripwire`,
     );
   }
-  assert.match(DEX_DIRECT_LIVE_TEST_GATE_MESSAGE, /READY FOR LIVE ANCHOR/);
+  assert.match(DEX_DIRECT_LIVE_TEST_GATE_MESSAGE, /sign in your wallet/);
 });
 
 // ── EVM legs ────────────────────────────────────────────────────────────────

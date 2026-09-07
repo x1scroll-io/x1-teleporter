@@ -19,7 +19,14 @@
  *
  * QUOTE: PCS QuoterV2.quoteExactInputSingle eth_call (read-only, live-
  * verified: bsc USDC→USDT fee-100 → 9,997,494 per 10 USDC).
- * EXECUTE: PCS SwapRouter.exactInputSingle request artifact — GUARDED.
+ * EXECUTE (SIGNABLE — this phase): the swap tx is built for Mr. Esters'
+ * WALLET to sign — evmSignable.planEvmDexExecute returns
+ * { needsApproval, approvalTx?, swapTx } (approval = fromToken.approve(
+ * PANCAKESWAP_V3_SWAP_ROUTER, exact amount) when the read-only allowance
+ * is short; swapTx = the PCS SwapRouter exactInputSingle with a fresh
+ * deadline, viem-encoded). NO broadcast: submit() throws
+ * DexDirectLiveTestGateError — "the agent CANNOT broadcast — sign in your
+ * wallet". The anchor harness (src/lib/dexAnchor/) hands the txs to Rabby.
  *
  * ctx (build): { chain: "bsc", fromToken, toToken, amount, fee?,
  *   slippageBps?, recipient?, deadline?, quoteHex? }
@@ -155,9 +162,10 @@ export function createPancakeSwapSwapLeg() {
       "The PancakeSwap v3 DEX-direct swap leg (BNB Chain fallback — the no-aggregator path " +
       "when LiFi is down, or for fee comparison): the REAL quote via PancakeSwap's own " +
       "QuoterV2 quoteExactInputSingle eth_call (0xB048Bbc1…e25997 — the deployment-record " +
-      "address, verified live) + the PCS SwapRouter exactInputSingle swap-call request pinned " +
-      "for the guarded execute. 🔴 GUARDED STUB: submit() always throws " +
-      "DexDirectLiveTestGateError — swap-execution pending Mr. Esters' live anchor.",
+      "address, verified live) + the SIGNABLE execute — planEvmDexExecute returns " +
+      "{ needsApproval, approvalTx?, swapTx } for Mr. Esters' wallet (Rabby) to sign. " +
+      "🔴 NO-BROADCAST GATE: submit() always throws DexDirectLiveTestGateError — the agent " +
+      "CANNOT broadcast; sign in your wallet. Swap-execution pending Mr. Esters' live anchor.",
     goldenStep: "pancakeswap",
     phases: {
       async build(ctx) {
@@ -199,3 +207,11 @@ export function createPancakeSwapSwapLeg() {
     },
   });
 }
+
+/**
+ * The PancakeSwap leg's SIGNABLE execute planner (bound to the PCS v3
+ * SwapRouter via the artifact). Returns { needsApproval, approvalTx?,
+ * swapTx } for Rabby — see evmSignable.planEvmDexExecute. Read-only
+ * allowance eth_call only; no broadcast anywhere.
+ */
+export { planEvmDexExecute as planPancakeSwapSwapExecute } from "./evmSignable.js";

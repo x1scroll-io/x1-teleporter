@@ -19,11 +19,15 @@
  *          sha256("global:swap_v2")[..8] from ITS program — the same
  *          preimage, so the same 8 bytes).
  *
- * Both halves are guarded on execute: submit() throws
- * DexDirectLiveTestGateError ("swap-execution pending Mr. Esters' live
- * anchor"). No funds, no broadcast — quotes are read-only pool-state math;
- * instructions are pinned to the wire level (+ unsigned tx with a DI'd
- * blockhash).
+ * Both halves are SIGNABLE on execute: the swap instruction is rebuilt by
+ * the OFFICIAL raydium-sdk-v2 builders (makeSwapCpmmBaseInInstruction /
+ * ClmmInstrument.swapV2Instruction — byte-pinned to the frozen layouts by
+ * the solanaSdk drift canaries) and planRaydiumExecute returns
+ * { needsSetup, setupTx?, swapTx } for Mr. Esters' wallet (Backpack) to
+ * sign (ATA-create setup when the pair's accounts don't exist). submit()
+ * throws DexDirectLiveTestGateError — the agent CANNOT broadcast; sign in
+ * your wallet. No funds, no broadcast — quotes are read-only pool-state
+ * math; the signable txs carry a fresh blockhash for the wallet UI.
  *
  * ctx (build): { dex: "cpmm"|"clmm", snapshot, userPubkey, inputMint,
  *   amountInRaw, slippageBps?, amountOutMinRaw?, blockhash?, feePayer? }
@@ -709,10 +713,10 @@ export function createRaydiumSwapLeg() {
       "pool state — CPMM (constant product on vault balances, the curve the XDEX leg proved " +
       "live) and CLMM (the full tick-walk swap simulator mirrored from raydium-sdk-v2's " +
       "swapMath/swapSimulator; cross-checked against the SDK on the frozen capture) — plus " +
-      "the swap instructions (swap_base_input disc 8fbe5adac41e33de / swap_v2 disc " +
-      "2b04ed0b1ac91e62) + unsigned txs pinned to the wire level. 🔴 GUARDED STUB: submit() " +
-      "always throws DexDirectLiveTestGateError — swap-execution pending Mr. Esters' live " +
-      "anchor.",
+      "the SIGNABLE execute: official raydium-sdk-v2 swap instructions + planRaydiumExecute " +
+      "returns { needsSetup, setupTx?, swapTx } for Mr. Esters' wallet (Backpack) to sign. " +
+      "🔴 NO-BROADCAST GATE: submit() always throws DexDirectLiveTestGateError — the agent " +
+      "CANNOT broadcast; sign in your wallet. Swap-execution pending Mr. Esters' live anchor.",
     goldenStep: "raydium",
     phases: {
       async build(ctx) {
@@ -758,3 +762,11 @@ export function createRaydiumSwapLeg() {
     },
   });
 }
+
+/**
+ * The Raydium leg's SIGNABLE execute planner. Returns
+ * { needsSetup, setupTx?, swapTx } for Backpack — see
+ * solanaSignable.planRaydiumExecute (official raydium-sdk-v2 instruction
+ * construction; read-only ATA/getAccountInfo checks only; no broadcast).
+ */
+export { planRaydiumExecute } from "./solanaSignable.js";

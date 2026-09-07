@@ -16,14 +16,17 @@
  *   the cross-checks frozen in the dex-direct fixtures: SDK quote == this
  *   leg's quote on the same captured state). No funds, no tx.
  *
- *   The execute half is a GUARDED STUB (submit() throws
- *   DexDirectLiveTestGateError) — pinned to the wire level: the swap_v2
- *   instruction (disc 2b04ed0b1ac91e62 = sha256("global:swap_v2")[..8] —
- *   the CURRENT deployed instruction; the account layout below was verified
- *   against a REAL live mainnet swap tx on the SOL/USDC whirlpool
- *   (Czfq3xZZ…, err ok) — 15 metas + the option byte) + the unsigned tx
- *   when a blockhash is supplied. "swap-execution pending Mr. Esters' live
- *   anchor."
+ *   The execute half is SIGNABLE (this phase): the swap_v2 instruction is
+ *   rebuilt by the OFFICIAL @orca-so/whirlpools-sdk WhirlpoolIx.swapV2Ix
+ *   (byte-pinned to this module's live-tx-verified layout by the solanaSdk
+ *   drift canary — disc 2b04ed0b1ac91e62 = sha256("global:swap_v2")[..8];
+ *   the account layout below was verified against a REAL live mainnet swap
+ *   tx on the SOL/USDC whirlpool (Czfq3xZZ…, err ok) — 15 metas + the
+ *   option byte), and planOrcaExecute returns { needsSetup, setupTx?,
+ *   swapTx } for Mr. Esters' wallet (Backpack) to sign (ATA-create setup
+ *   when the pair's accounts don't exist). submit() throws
+ *   DexDirectLiveTestGateError — the agent CANNOT broadcast; sign in your
+ *   wallet. "swap-execution pending Mr. Esters' live anchor."
  *
  * LIVE-VERIFIED ANCHOR (2026-09-05, read-only)
  *   - whirlpool SOL/USDC Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE
@@ -530,10 +533,11 @@ export function createOrcaSwapLeg() {
       "when Jupiter is down or for fee comparison): the REAL read-only quote computed from the " +
       "live on-chain pool state (whirlpool + tick arrays — the exact SDK/on-chain swap math " +
       "mirrored in BigInt; cross-checked against @orca-so/whirlpools-sdk on the frozen capture) " +
-      "+ the swap_v2 instruction + unsigned tx pinned to the wire level (disc 2b04ed0b1ac91e62 " +
-      "— VERIFIED on the live mainnet swap tx 44VxpkKE… on the SOL/USDC whirlpool Czfq3xZZ…, " +
-      "err ok). 🔴 GUARDED STUB: submit() always throws DexDirectLiveTestGateError — " +
-      "swap-execution pending Mr. Esters' live anchor.",
+      "+ the swap_v2 instruction (official @orca-so/whirlpools-sdk WhirlpoolIx.swapV2Ix — byte-" +
+      "pinned to the live-tx-verified layout) + planOrcaExecute returns { needsSetup, setupTx?, " +
+      "swapTx } for Mr. Esters' wallet (Backpack) to sign. 🔴 NO-BROADCAST GATE: submit() always " +
+      "throws DexDirectLiveTestGateError — the agent CANNOT broadcast; sign in your wallet. " +
+      "Swap-execution pending Mr. Esters' live anchor.",
     goldenStep: "orca",
     phases: {
       async build(ctx) {
@@ -577,3 +581,11 @@ export function createOrcaSwapLeg() {
     },
   });
 }
+
+/**
+ * The Orca leg's SIGNABLE execute planner. Returns
+ * { needsSetup, setupTx?, swapTx } for Backpack — see
+ * solanaSignable.planOrcaExecute (official whirlpools-sdk instruction
+ * construction; read-only ATA/getAccountInfo checks only; no broadcast).
+ */
+export { planOrcaExecute } from "./solanaSignable.js";
