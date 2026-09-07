@@ -61,15 +61,24 @@ p2wpkh derivation + PSBT, Rango/Jupiter client construction).
 | `viem` | ^2.56.0 | EVM calldata (approve/allowance — audit §3b) | `lifiApproval.js` | IN USE |
 | `@raydium-io/raydium-sdk-v2` | ^0.2.63-alpha | XDEX swap ix (Raydium-CPMM fork on X1) — audit §3a | `dex/xdexSwapLeg.js` | DYNAMIC (execute path only; added by audit #65) |
 
-## C. IN FLIGHT — OWNED BY THE PARALLEL `feat/dex-official-sdk` TASK
+## C. DEX-DIRECT EXECUTE SDKs — GRABBED (2026-09-07, `feat/dex-execute-wiring`)
 
-The dexDirect legs (`src/engine/legs/dexDirect/*` — Uniswap v3 /
-PancakeSwap v3 / Raydium / Orca) are that task's files; its SDK set
-(`@uniswap/sdk-core` + `@uniswap/v3-sdk`, `@pancakeswap/sdk` +
-`smart-router` + `universal-router-sdk`, `@raydium-io/raydium-sdk-v2`,
-`@orca-so/whirlpools-sdk`) lands with it (uncommitted in its worktree as of
-2026-09-06; same raydium line as audit #65 → additive merge). **This branch
-does not touch `dexDirect/*` or add those packages.**
+The dexDirect legs' SIGNABLE execute path uses the official SDKs to build
+the swap instructions (byte-pinned to the frozen dex-direct layouts by the
+solanaSdk drift canaries — see docs/DEX-LIVE-ANCHOR-GUIDE.md):
+
+| SDK (npm) | Version | Serves | Where | Import status |
+|---|---|---|---|---|
+| `@raydium-io/raydium-sdk-v2` | ^0.2.63-alpha | Raydium CPMM `makeSwapCpmmBaseInInstruction` + CLMM `ClmmInstrument.swapV2Instruction` | `dexDirect/solanaSdk.js` | DYNAMIC (signable path only) |
+| `@orca-so/whirlpools-sdk` | ^0.22.0 | Orca `WhirlpoolIx.swapV2Ix` (anchor-built vs the bundled Whirlpool IDL) | `dexDirect/solanaSdk.js` | DYNAMIC (signable path only; pulled in only when the anchor harness imports it — verified absent from the built bundle) |
+| `viem` | ^2.56.0 | EVM exactInputSingle + approve/allowance encoding (official EVM SDK — the lifiApproval precedent) | `dexDirect/evmSignable.js` | IN USE (already a dep) |
+
+EVM execute decision (unchanged from the #64 skill cross-check): the v3
+SwapRouter direct-periphery path + DIRECT token approval to the router —
+the skill's LEGACY DIRECT-APPROVE backend pattern; NOT the Universal
+Router / Permit2 (per-chain UR + EIP-712 per-swap signing adds nothing on
+a single-hop v3 swap). PancakeSwap: the fixture-pinned direct v3 quoter +
+SwapRouter path (its own deployments), same approval shape.
 
 ## D. BUNDLE DISCIPLINE — PROVEN
 

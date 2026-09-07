@@ -56,10 +56,19 @@ wallet's token account (the test wallet has no ATAs; a live swap uses the
 user's funded accounts). The discriminators, account orders and data
 layouts are therefore correct to the wire.
 
-**Execute side = GUARDED.** Every dexDirect leg's submit() throws
-`DexDirectLiveTestGateError` ("…READY FOR LIVE ANCHOR…") — the live-swap
+**Execute side = SIGNABLE, never self-broadcast (Phase 6b).** Every
+dexDirect leg now BUILDS its signable swap for Mr. Esters' wallet —
+approval + swap txs for the EVM legs (Rabby), ATA-setup + swap txs for the
+Solana legs (Backpack) — with the OFFICIAL SDKs constructing the swap
+instructions (raydium-sdk-v2 makeSwapCpmmBaseInInstruction /
+ClmmInstrument.swapV2Instruction; @orca-so/whirlpools-sdk
+WhirlpoolIx.swapV2Ix; byte-pinned to these frozen layouts by the
+solanaSdk drift canaries — see test/engineDexExecute.test.js). submit()
+still throws `DexDirectLiveTestGateError` — the NO-BROADCAST tripwire
+("the agent CANNOT broadcast — sign in your wallet"). The live-swap
 anchor is Mr. Esters': first live swap per DEX (funded wallet, real ATA,
-router allowance for the EVM legs). Nothing here signs or broadcasts.
+router allowance for the EVM legs). Nothing here signs or broadcasts on
+its own; the wallet UI does, on his confirm.
 
 ## Verification notes (facts this scaffold pinned live)
 
@@ -130,6 +139,8 @@ broadcast, no fixture rewrite): canonical factory/QuoterV2/SwapRouter code
 presence re-confirmed on eth/arb/opt/pol/bas; the frozen quoter calldata
 still quotes on `latest` on every chain (eth 9,997,212 vs frozen 9,997,027
 — normal pool drift; the oracle pins the CONSTRUCTION, quotes are market
-data and are refreshed before live use). The execute stubs remain GUARDED
-(`submit()` throws `DexDirectLiveTestGateError`) — swap-execution is
-READY FOR LIVE ANCHOR, Mr. Esters fires the first live swap.
+data and are refreshed before live use). Phase 6b (2026-09-07): execute
+wiring landed — official-SDK signable construction byte-pinned to these
+frozen layouts (the goldenDexDirect rebuild above still passes UNCHANGED);
+swap-execution is READY FOR LIVE ANCHOR — see docs/DEX-LIVE-ANCHOR-GUIDE.md
+for the exact click/sign sequence per leg.

@@ -22,8 +22,14 @@
  * QUOTE: QuoterV2.quoteExactInputSingle eth_call (read-only — the REAL
  * quote; live-verified: eth USDC→USDT fee-100 → 9,997,027 per 10 USDC —
  * the frozen 2026-09-05 capture).
- * EXECUTE: SwapRouter.exactInputSingle request artifact — GUARDED (submit()
- * throws DexDirectLiveTestGateError — "READY FOR LIVE ANCHOR").
+ * EXECUTE (SIGNABLE — this phase): the swap tx is built for Mr. Esters'
+ * WALLET to sign — evmSignable.planEvmDexExecute returns
+ * { needsApproval, approvalTx?, swapTx } (approval = fromToken.approve(
+ * UNISWAP_V3_SWAP_ROUTER, exact amount) when the read-only allowance is
+ * short; swapTx = SwapRouter.exactInputSingle with a fresh deadline,
+ * viem-encoded). NO broadcast: submit() throws DexDirectLiveTestGateError
+ * — "the agent CANNOT broadcast — sign in your wallet". The anchor
+ * harness (src/lib/dexAnchor/) hands the txs to Rabby.
  *
  * SKILL CROSS-CHECK (official Uniswap swap-integration skill v1.5.0,
  * reviewed 2026-09-06 against this construction):
@@ -203,10 +209,11 @@ export function createUniswapSwapLeg() {
     description:
       "The Uniswap v3 DEX-direct swap leg (EVM fallback — the no-aggregator path when LiFi " +
       "is down, or for fee comparison): the REAL quote via the QuoterV2 quoteExactInputSingle " +
-      "eth_call (read-only, live-verified on eth/arb/opt/pol) + the SwapRouter " +
-      "exactInputSingle swap-call request pinned for the guarded execute. 🔴 GUARDED STUB: " +
-      "submit() always throws DexDirectLiveTestGateError — swap-execution pending Mr. " +
-      "Esters' live anchor.",
+      "eth_call (read-only, live-verified on eth/arb/opt/pol) + the SIGNABLE execute — " +
+      "planEvmDexExecute returns { needsApproval, approvalTx?, swapTx } for Mr. Esters' wallet " +
+      "(Rabby) to sign. 🔴 NO-BROADCAST GATE: submit() always throws DexDirectLiveTestGateError " +
+      "— the agent CANNOT broadcast; sign in your wallet. Swap-execution pending Mr. Esters' " +
+      "live anchor.",
     goldenStep: "uniswap",
     phases: {
       async build(ctx) {
@@ -247,3 +254,11 @@ export function createUniswapSwapLeg() {
     },
   });
 }
+
+/**
+ * The Uniswap leg's SIGNABLE execute planner (bound to the canonical v3
+ * SwapRouter via the artifact). Returns { needsApproval, approvalTx?,
+ * swapTx } for Rabby — see evmSignable.planEvmDexExecute. Read-only
+ * allowance eth_call only; no broadcast anywhere.
+ */
+export { planEvmDexExecute as planUniswapSwapExecute } from "./evmSignable.js";
