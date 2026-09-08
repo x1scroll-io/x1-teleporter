@@ -65,6 +65,8 @@ export const CHAIN_META = Object.freeze({
   sonic: Object.freeze({ id: "sonic", name: "Sonic",        chainId: 146,    family: "evm" }),
   rbn:   Object.freeze({ id: "rbn",   name: "Robinhood Chain", chainId: 4663, family: "evm" }), // Robinhood Chain — landed as a UI EVM source (PR #57): the canonical stable is Paxos USDG (TOKEN_TABLE USDG row below); the USDC entry in the USDC row stays intentionally unverified (no Circle USDC on-chain → resolve("USDC","rbn") stays null).
   tron:  Object.freeze({ id: "tron",  name: "Tron",         chainId: "TRON", family: "evm" }), // TVM — v1-gated lane (ENABLE_TRON=false in v2); entries kept for identity only
+  sui:   Object.freeze({ id: "sui",   name: "Sui",           chainId: null,   family: "move" }), // Move — native gas SUI; Circle native USDC is the deep stable (docs/CHAIN-STABLES.md)
+  hype:  Object.freeze({ id: "hype",  name: "Hyperliquid",   chainId: null,   family: "evm" }), // HL L1 — custom EVM; native gas HYPE; bridged USDC is the deep stable (docs/CHAIN-STABLES.md; NOT USDH — DefiLlama $6.95B vs $8M)
   btc:   Object.freeze({ id: "btc",   name: "Bitcoin",      chainId: null,   family: "utxo" }),
   doge:  Object.freeze({ id: "doge",  name: "Dogecoin",     chainId: null,   family: "utxo" }),
   ltc:   Object.freeze({ id: "ltc",   name: "Litecoin",     chainId: null,   family: "utxo" }),
@@ -128,6 +130,8 @@ export const TOKEN_TABLE = Object.freeze({
       // THIS entry; if it is a different deployment it becomes its own row.
       // Until confirmed, address stays null → resolve("USDC","rbn") is null.
       rbn:   Object.freeze({ chain: "rbn",   address: null, decimals: null, program: "erc20", rails: Object.freeze(["lifi"]), listed: false, status: "unverified", note: "TODO(robinhood-task): confirm Robinhood Chain USDC deployment (canonical Circle contract vs other) before filling address/decimals" }),
+      sui:   Object.freeze({ chain: "sui",   address: null, decimals: 6,  program: "move", rails: Object.freeze(["lifi"]), listed: false, status: "unverified", note: "Sui native Circle USDC is the deep stable (docs/CHAIN-STABLES.md: $280M vs USDSUI $74M). EXACT 0x…::usdc::USDC type string must be re-verified live before filling address (public Sui RPC/GraphQL unreachable from the build box 2026-09-08) — no guessing" }),
+      hype:  Object.freeze({ chain: "hype",  address: "0x6b9e773128f453f5c2c60935ee2de2cbc5390a24", decimals: 6,  program: "erc20", rails: Object.freeze(["lifi"]), listed: false, status: "unverified", note: "HL bridged USDC (spotMeta evmContract 2026-09-08). Deep stable on HL ($6.95B). NOT USDH. rails unconfirmed — LiFi HL support needs checking" }),
     }),
   }),
 
@@ -271,6 +275,26 @@ export const TOKEN_TABLE = Object.freeze({
     kind: "native",
     entries: Object.freeze({
       x1: Object.freeze({ chain: "x1", address: null, decimals: 9, program: "native", rails: Object.freeze(["native"]), listed: false, note: "X1 chain gas — no mint (0.001 XNT = 1_000_000 lamports per the X1 fee-payer preflight). The brief's 'land as XNT' toggle is parked; wXNT is its wrapped xdex form" }),
+    }),
+  }),
+
+  // ── SUI (Sui native gas) ────────────────────────────────────────────────
+  SUI: Object.freeze({
+    symbol: "SUI",
+    name: "Sui",
+    kind: "native",
+    entries: Object.freeze({
+      sui: Object.freeze({ chain: "sui", address: null, decimals: 9, program: "native", rails: Object.freeze(["native"]), listed: false, note: "Sui chain gas — no single-address mint (Move coin 0x2::sui::SUI). docs/CHAIN-STABLES.md" }),
+    }),
+  }),
+
+  // ── HYPE (Hyperliquid native gas) ────────────────────────────────────────
+  HYPE: Object.freeze({
+    symbol: "HYPE",
+    name: "Hyperliquid",
+    kind: "native",
+    entries: Object.freeze({
+      hype: Object.freeze({ chain: "hype", address: null, decimals: 8, program: "native", rails: Object.freeze(["native"]), listed: false, note: "HL L1 gas — no evm contract per spotMeta (native L1 token). docs/CHAIN-STABLES.md" }),
     }),
   }),
 

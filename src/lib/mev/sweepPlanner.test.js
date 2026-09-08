@@ -42,10 +42,15 @@ const EVM_TREASURY = treasuryForChain(DEFAULT_MEV_PAYOUT_CONFIG, "eth");
 
 function solLedger() {
   let st = emptyLedger();
+  // timestamps RELATIVE to now — the default sweep window (daily, ending now)
+  // must always cover the fixture captures (hardcoded dates go stale as
+  // wall-clock advances and silently empty the pile: the 2026-09-08 break).
+  const now = Date.now();
+  const ago = (mins) => new Date(now - mins * 60 * 1000).toISOString();
   ({ state: st } = recordCaptures(st, [
-    { chain: "sol", token: "USDC", amountRaw: "5000000000", capturedAt: "2026-09-07T01:00:00.000Z" },
-    { chain: "sol", token: "EXOTIC", amountRaw: "1234567890", capturedAt: "2026-09-07T02:00:00.000Z", source: "simulated", simulated: true, test: true },
-    { chain: "eth", token: "MEME", amountRaw: "999", capturedAt: "2026-09-07T03:00:00.000Z", source: "simulated", simulated: true },
+    { chain: "sol", token: "USDC", amountRaw: "5000000000", capturedAt: ago(120) },
+    { chain: "sol", token: "EXOTIC", amountRaw: "1234567890", capturedAt: ago(90), source: "simulated", simulated: true, test: true },
+    { chain: "eth", token: "MEME", amountRaw: "999", capturedAt: ago(60), source: "simulated", simulated: true },
   ]));
   return st;
 }

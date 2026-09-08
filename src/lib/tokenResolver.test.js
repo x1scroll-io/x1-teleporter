@@ -468,7 +468,7 @@ test("table hygiene: every entry's chain is known; listed entries have addresses
   // The canonical symbol list, in table order (docs/TOKEN-RESOLVER.md).
   assert.deepEqual(
     canonicalSymbols(),
-    ["USDC", "USDT", "DAI", "WSOL", "USDC.x", "wSOL.X", "ETH", "ETH.X", "cbBTC", "cbBTC.X", "wXNT", "XNT", "BTC", "DOGE", "LTC", "XRP", "DGN", "xencat", "USDG"],
+    ["USDC", "USDT", "DAI", "WSOL", "USDC.x", "wSOL.X", "ETH", "ETH.X", "cbBTC", "cbBTC.X", "wXNT", "XNT", "SUI", "HYPE", "BTC", "DOGE", "LTC", "XRP", "DGN", "xencat", "USDG"],
     "canonical symbol list (docs/TOKEN-RESOLVER.md table order)",
   );
 });

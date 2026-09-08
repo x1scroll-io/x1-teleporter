@@ -64,6 +64,9 @@ export const DISCOVERY_CHAINS = Object.freeze({
   bas: Object.freeze({ gtNetwork: "base", dsChainId: "base", family: "evm", label: "Base" }),
   bsc: Object.freeze({ gtNetwork: "bsc", dsChainId: "bsc", family: "evm", label: "BNB Chain" }),
   pol: Object.freeze({ gtNetwork: "polygon", dsChainId: "polygon", family: "evm", label: "Polygon" }),
+  arb: Object.freeze({ gtNetwork: "arbitrum", dsChainId: "arbitrum", family: "evm", label: "Arbitrum" }),
+  opt: Object.freeze({ gtNetwork: "optimism", dsChainId: "optimism", family: "evm", label: "Optimism" }),
+  rh: Object.freeze({ gtNetwork: "robinhood", dsChainId: "robinhood", family: "evm", label: "Robinhood Chain", note: "Arbitrum-Orbit L2 (chain 4663) — standard EVM. Gas ETH, stable USDG (NO USDC). Uniswap-dominant (~85%) + Pons. Uni pools at RH-owned factory 0x1f7d7550 (canonical addresses are stubs). docs/RH-CHAIN-DEX.md" }),
 });
 
 export const DISCOVERY_CHAIN_KEYS = Object.freeze(Object.keys(DISCOVERY_CHAINS));
@@ -171,8 +174,10 @@ export function parseDexScreener(json, { chain, dsChainId } = {}) {
       symbol: base.symbol ?? null,
       name: base.name ?? null,
       chain,
+      family: DISCOVERY_CHAINS[chain]?.family ?? null,
       pairAddress: p.pairAddress ?? null,
       dexId: p.dexId ?? null,
+      fee: p.fee != null ? Number(p.fee) : null, // v3 fee tier when the API exposes it (100/500/3000/10000)
       liquidityUsd: num(p.liquidity?.usd),
       volumeUsd: num(p.volume?.h24),
       priceUsd: num(p.priceUsd),
@@ -220,6 +225,7 @@ export function parseGeckoTerminal(json, { chain, gtNetwork } = {}) {
       symbol: tokenAttrs?.symbol ?? null,
       name: tokenAttrs?.name ?? null,
       chain,
+      family: DISCOVERY_CHAINS[chain]?.family ?? null,
       poolAddress: attrs.address ?? null,
       dexId: rel.dex?.data?.id ?? null,
       // reserve_in_usd ≈ the pool's two-sided liquidity (the same notion as
@@ -239,6 +245,28 @@ export function parseGeckoTerminal(json, { chain, gtNetwork } = {}) {
 /** Is this dex/pool id a pump.fun venue? (pumpfun / pumpswap / pump.fun …) */
 export function isPumpVenue(dexId) {
   return Boolean(dexId && PUMP_DEX_PATTERN.test(String(dexId)));
+}
+
+/**
+ * poolVersionFromDexId — resolve the AMM generation of a pool from its
+ * DEX Screener dexId (+ pair row). The engine must route across v2 / v3
+ * fee tiers / v4 — the version tells it which router family + quote path
+ * a pool needs. Pure + best-effort: unknown patterns → "unknown".
+ * @param {string} dexId e.g. "uniswap-v3-base", "uniswap_v2", "uniswap-v4-ethereum", "pons-v2-dex", "ramses-v3-robinhood"
+ * @param {object} [obs] optional pair row (for fee hints)
+ * @returns {object} { version: "v2"|"v3"|"v4"|"unknown", feeTier: int|null }
+ */
+export function poolVersionFromDexId(dexId, obs = null) {
+  const d = String(dexId || "").toLowerCase();
+  const out = { version: "unknown", feeTier: null };
+  if (d.includes("v4")) out.version = "v4";
+  else if (d.includes("v3")) out.version = "v3";
+  else if (d.includes("v2")) out.version = "v2";
+  // fee tier hint from the dexId tail (e.g. "0.3%" appears in some ids) or obs
+  const feeMatch = d.match(/(\d+(?:\.\d+)?)%/);
+  if (feeMatch) out.feeTier = Math.round(parseFloat(feeMatch[1]) * 10000);
+  else if (obs?.fee) out.feeTier = obs.fee;
+  return out;
 }
 
 /**
@@ -270,15 +298,33 @@ export function buildVenueMap(observations) {
     if (!t.symbol && obs.symbol) t.symbol = obs.symbol;
     if (obs.priceUsd > t.priceUsd) t.priceUsd = obs.priceUsd;
     const dexId = obs.dexId ?? "unknown";
-    let v = t.venues.get(dexId);
+    // 🔴 POOL-VERSION-AWARE VENUE KEY (Mr. Esters' architecture correction —
+    // 2026-09-08): EVM chains key venues by POOL INSTANCE (dexId + pairAddress),
+    // NOT the coarse dexId — the same token lives in v2 + multiple v3 fee
+    // tiers + v4 pools under one dexId; collapsing them throws away the
+    // cross-version price gap (the MEV surface). SVM chains (raydium/orca/
+    // meteora) stay per-AMM: Jupiter excludes at AMM level and each AMM is
+    // one venue there. The family is passed on the observation row.
+    const family = obs.family ?? DISCOVERY_CHAINS[obs.chain]?.family ?? "evm"; // svm → per-AMM; evm → per-pool
+    const poolKey = family === "evm" && obs.pairAddress ? `${dexId}@${obs.pairAddress}` : dexId;
+    let v = t.venues.get(poolKey);
     if (!v) {
-      v = { dex: dexId, liquidityUsd: 0, volumeUsd: 0, pairCount: 0 };
-      t.venues.set(dexId, v);
+      v = {
+        dex: dexId,
+        pairAddress: obs.pairAddress ?? null,
+        version: poolVersionFromDexId(dexId, obs),
+        priceUsd: obs.priceUsd ?? null, // per-pool price — the gap signal
+        liquidityUsd: 0,
+        volumeUsd: 0,
+        pairCount: 0,
+      };
+      t.venues.set(poolKey, v);
       t.venueCount += 1;
     }
     v.liquidityUsd += obs.liquidityUsd;
     v.volumeUsd += obs.volumeUsd;
     v.pairCount += 1;
+    if (obs.priceUsd && v.priceUsd === null) v.priceUsd = obs.priceUsd;
     t.pairCount += 1;
   }
   for (const t of tokens.values()) {
@@ -289,9 +335,12 @@ export function buildVenueMap(observations) {
 }
 
 /**
- * venuesToArray — the Map<dexId, venue> → sorted array form (output shape).
- * @returns {Array<object>} [{ dex, liquidityUsd, volumeUsd, pairCount }]
- *   descending by liquidityUsd
+ * venuesToArray — the Map<venueKey, venue> → sorted array form (output shape).
+ * On SVM the key is the AMM (dexId); on EVM it is the POOL INSTANCE
+ * (dexId@pairAddress) so v2 / v3 fee tiers / v4 pools of one token stay
+ * separate scoreable venues (cross-version gaps = the MEV surface).
+ * @returns {Array<object>} [{ dex, pairAddress, version, feeTier, priceUsd,
+ *   liquidityUsd, volumeUsd, pairCount }] descending by liquidityUsd
  */
 export function venuesToArray(venueMap) {
   return [...venueMap.values()].sort((a, b) => b.liquidityUsd - a.liquidityUsd);

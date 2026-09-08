@@ -38,6 +38,7 @@ import {
   parseGeckoTerminal,
   buildVenueMap,
   venuesToArray,
+  poolVersionFromDexId,
   dedupeByMint,
   filterCandidates,
   isPumpVenue,
@@ -355,4 +356,49 @@ test("DISCOVERY_CHAINS: sol first, EVM coverage structured in (eth/bas/bsc/pol)"
   assert.equal(DISCOVERY_CHAINS.eth.gtNetwork, "eth");
   assert.equal(DISCOVERY_CHAINS.bsc.gtNetwork, "bsc");
   assert.equal(DISCOVERY_CHAINS.pol.dsChainId, "polygon");
+});
+
+test("DISCOVERY_CHAINS: arb/opt/rh added (the session-tested capture surfaces)", () => {
+  assert.equal(DISCOVERY_CHAINS.arb.gtNetwork, "arbitrum");
+  assert.equal(DISCOVERY_CHAINS.arb.dsChainId, "arbitrum");
+  assert.equal(DISCOVERY_CHAINS.opt.gtNetwork, "optimism");
+  assert.equal(DISCOVERY_CHAINS.rh.gtNetwork, "robinhood");
+  assert.equal(DISCOVERY_CHAINS.rh.dsChainId, "robinhood");
+  assert.equal(DISCOVERY_CHAINS.rh.family, "evm");
+  assert.match(DISCOVERY_CHAINS.rh.note || "", /USDG/, "RH has NO USDC — the note documents USDG");
+});
+
+test("buildVenueMap (EVM): pool-INSTANCE venues — v2/v3-tier/v4 stay separate (cross-version gap surface)", () => {
+  // The architecture correction: on EVM, one dexId ("uniswap") hosts v2 + v3
+  // fee tiers + v4 pools of the SAME token. Each pool is its own venue with
+  // its own price — collapsing by dexId throws away the cross-version gap.
+  const rows = [
+    { address: "0xAAAA", symbol: "TEST", chain: "arb", family: "evm", dexId: "uniswap_v2", pairAddress: "0xP1", fee: null, liquidityUsd: 1_000_000, volumeUsd: 500_000, priceUsd: 1.00 },
+    { address: "0xAAAA", symbol: "TEST", chain: "arb", family: "evm", dexId: "uniswap-v3-arbitrum", pairAddress: "0xP2", fee: 500, liquidityUsd: 2_000_000, volumeUsd: 800_000, priceUsd: 0.997 },
+    { address: "0xAAAA", symbol: "TEST", chain: "arb", family: "evm", dexId: "uniswap-v3-arbitrum", pairAddress: "0xP3", fee: 3000, liquidityUsd: 3_000_000, volumeUsd: 600_000, priceUsd: 0.998 },
+    { address: "0xAAAA", symbol: "TEST", chain: "arb", family: "evm", dexId: "uniswap-v4-ethereum", pairAddress: "0xP4", fee: null, liquidityUsd: 4_000_000, volumeUsd: 900_000, priceUsd: 1.004 },
+  ];
+  const map = buildVenueMap(rows);
+  const t = map.get("0xAAAA");
+  assert.equal(t.venueCount, 4, "four POOL venues — v2 + two v3 tiers + v4 are NOT collapsed");
+  const venues = venuesToArray(t.venues);
+  assert.equal(venues.length, 4);
+  const v4 = venues.find((v) => v.version?.version === "v4");
+  assert.ok(v4, "v4 pool resolved its version from the dexId");
+  assert.equal(v4.pairAddress, "0xP4");
+  const v3s = venues.filter((v) => v.version?.version === "v3");
+  assert.equal(v3s.length, 2, "both v3 fee tiers are separate venues");
+  // the per-pool prices differ → the gap signal exists (0.997 vs 1.004 = 70bps)
+  const prices = venues.map((v) => v.priceUsd).filter(Boolean);
+  assert.ok(Math.max(...prices) - Math.min(...prices) > 0.005, "cross-version price spread is visible per pool");
+});
+
+test("poolVersionFromDexId: version + fee tier resolution across dexId patterns", () => {
+  assert.equal(poolVersionFromDexId("uniswap-v3-base").version, "v3");
+  assert.equal(poolVersionFromDexId("uniswap-v4-ethereum").version, "v4");
+  assert.equal(poolVersionFromDexId("pons-v2-dex").version, "v2");
+  assert.equal(poolVersionFromDexId("ramses-v3-robinhood").version, "v3");
+  assert.equal(poolVersionFromDexId("uniswap_v2").version, "v2");
+  assert.equal(poolVersionFromDexId("aerodrome").version, "unknown", "unversioned dexIds stay unknown (safe default)");
+  assert.equal(poolVersionFromDexId("uniswap-v3-base", { fee: 3000 }).feeTier, 3000);
 });
