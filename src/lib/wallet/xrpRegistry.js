@@ -56,6 +56,13 @@ export const XRP_WALLETS = Object.freeze([
     name: "Starport",
     pinned: true,
     installUrl: null, // no public install link yet — pinned + dev mock fallback
+    // XRPL Memos: the wallet's XRP signer now attaches the XRPL Memos field
+    // (WalletCore Ripple SigningInput.memo — "SigningInput memo" in the installed
+    // typings; wired 2026-09-14 in starport-extension/src/xrpsend.ts). Required for
+    // the THORChain deposit-address lane: the memo carries the swap instruction and
+    // a deposit without it is unrecoverable, so this must stay "memos" only while
+    // the send path really attaches one (memoRule fails closed otherwise).
+    memoSupport: "memos",
   }),
   // ——— Reference wallet: Xaman — the registry's PRIMARY ———
   Object.freeze({
