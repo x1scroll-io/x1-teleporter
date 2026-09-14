@@ -668,6 +668,8 @@ test("submit hook emits {inboundTxid, sourceChain, destination, expectedAmountOu
   try {
     act(() => factory.instances[0].pushEntries(DEFAULT_INBOUND));
     await getQuote(container, "0.01"); // quote → expectedAmountOut 0.0456
+    // refund address is REQUIRED for submit (user-safety gate)
+    change(container.querySelector('[data-testid="tc-refund-input"]'), "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh");
     change(container.querySelector('[data-testid="tc-txid-input"]'), "  tx-abc-123  ");
     act(() => container.querySelector('[data-testid="tc-submit"]').click());
 
@@ -694,6 +696,8 @@ test("submit requires a txid AND a fresh quote; expectedAmountOut is always pres
     act(() => factory.instances[0].pushEntries(DEFAULT_INBOUND));
 
     // No quote yet → submit disabled even with a txid.
+    // refund address is REQUIRED for submit (user-safety gate)
+    change(container.querySelector('[data-testid="tc-refund-input"]'), "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh");
     change(container.querySelector('[data-testid="tc-txid-input"]'), "tx-xyz");
     const submit = container.querySelector('[data-testid="tc-submit"]');
     assert.equal(submit.disabled, true, "no fresh quote → submit disabled");

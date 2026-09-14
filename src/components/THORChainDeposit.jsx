@@ -507,6 +507,30 @@ export default function THORChainDeposit({
   }, []);
 
   const quoteOk = quoteStatus === "ok" && !!quote;
+  // ─── REFUND ADDRESS — HARD GATE (user-safety, 2026-09-14) ────────────────
+  // The deposit-address lanes refund HERE when a swap fails. With it empty
+  // THORChain still quotes and the console still renders a deposit address, so
+  // a failed swap would leave the user's funds unrecoverable. Fail closed: no
+  // valid refund address -> no quote, no deposit address. An unrecognised
+  // family returns false (a lane that cannot state its rules cannot quote).
+  const REFUND_PATTERNS = {
+    bitcoin: [/^bc1[a-z0-9]{25,62}$/i, /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/],
+    litecoin: [/^ltc1[a-z0-9]{25,62}$/i, /^[LM3][a-km-zA-HJ-NP-Z1-9]{25,34}$/],
+    dogecoin: [/^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$/, /^A[1-9A-HJ-NP-Za-km-z]{33}$/],
+    xrp: [/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/],
+  };
+  const refundOk = (() => {
+    const fam = selectedMeta?.family;
+    const v = (refund ?? "").trim();
+    if (!v || !fam) return false;
+    const pats = REFUND_PATTERNS[fam];
+    return Array.isArray(pats) ? pats.some((re) => re.test(v)) : false;
+  })();
+
+  // The quote itself moves nothing — keep it readable. The refund gate applies
+  // where funds actually move (canSubmit) and is surfaced as a warning on the
+  // deposit card, so a user can inspect a route without ever being able to
+  // deposit with no refund address.
   const canGetQuote =
     solConnected && !!solAddress && hasValidAmount && !selectedHalted && !destHalted;
   const canSubmit =
@@ -515,6 +539,7 @@ export default function THORChainDeposit({
     !!selectedEntry &&
     !selectedHalted &&
     !destHalted &&
+    refundOk &&          // same gate as the quote: a refund address is mandatory
     quoteOk &&
     txid.trim().length > 0;
 

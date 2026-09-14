@@ -357,6 +357,8 @@ test("3.2: deposit submit emits the hook payload (expectedAmountOut from the fre
     await getQuote(container, "0.01");
     assert.ok(container.querySelector('[data-testid="tc-deposit-address"]'));
 
+    // refund address is REQUIRED for submit (user-safety gate)
+    setInput(container.querySelector('[data-testid="tc-refund-input"]'), "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh");
     setInput(container.querySelector('[data-testid="tc-txid-input"]'), "tx-deposit-1");
     click(container.querySelector('[data-testid="tc-submit"]'));
 
