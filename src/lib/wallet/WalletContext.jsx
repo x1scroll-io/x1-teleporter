@@ -51,6 +51,7 @@ import {
 import { isWalletFamily } from "./families.js";
 import { canConnect, createInitialState, walletReducer } from "./walletReducer.js";
 import { createMockProvider } from "./mockProviders.js";
+import { STARPORT_NAMES, isStarportKey } from "./modalLogic.js";
 
 export const WalletContext = createContext(null);
 
@@ -71,8 +72,36 @@ const EMPTY_DISCOVERED = Object.freeze({
  * own factory; the app relies on this default + discovery).
  */
 function defaultResolveProvider(discovery, family, walletId) {
-  const real = discovery?.getProvider?.(family, walletId);
-  return real ?? createMockProvider(family);
+  return resolveDiscovered(discovery, family, walletId) ?? createMockProvider(family);
+}
+
+/**
+ * Resolve a discovered wallet, tolerating the id-vs-announced-name mismatch
+ * between the registry rows and the Wallet Standard registry.
+ *
+ * Registry rows carry STABLE ids (Starport's is STARPORT_ID = "starport",
+ * lowercase), while discovered adapters are keyed by the name the wallet
+ * ANNOUNCES ("Starport", capital S). `discovery.getProvider(family, id)`
+ * matches on the key, so the Starport row missed, returned nothing, and
+ * silently fell back to the dev mock — observed live as a connected address of
+ * `mock:solana:9xQeWvG8…` with NO wallet approval ever requested, even though
+ * the wallet was registered in the Wallet Standard registry (verified by
+ * reading getWallets() on the page: name "Starport", full feature set).
+ *
+ * STARPORT_NAMES already models this alias pair; this just applies it on the
+ * connect path instead of leaving it to the row-rendering code.
+ */
+function resolveDiscovered(discovery, family, walletId) {
+  const direct = discovery?.getProvider?.(family, walletId);
+  if (direct) return direct;
+  // Alias sweep: only Starport has an id/name case pair today (solana family).
+  const aliases = family === "solana" && isStarportKey(walletId) ? STARPORT_NAMES : [];
+  for (const alt of aliases) {
+    if (alt === walletId) continue;
+    const hit = discovery?.getProvider?.(family, alt);
+    if (hit) return hit;
+  }
+  return null;
 }
 
 /**
