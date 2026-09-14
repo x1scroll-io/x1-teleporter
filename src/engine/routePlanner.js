@@ -520,6 +520,58 @@ export function plan({ direction = "forward", ...opts } = {}) {
   return null;
 }
 
+/**
+ * Classify a planned route per the published contract (docs/ENGINE-INTERFACE.md §2):
+ *   "x1-class"   — journeys that touch the Warp bridge (forward / reverse)
+ *   "same-chain" — single-chain swap lanes (swap)
+ *   "cross-chain"— aggregator / deposit-address lanes (thorchain / rango / wanchain)
+ */
+export function classifyRoute(route) {
+  if (!route) return null;
+  const d = route.direction;
+  if (d === "forward" || d === "reverse") return "x1-class";
+  if (d === "swap") return "same-chain";
+  if (d === "thorchain" || d === "rango" || d === "wanchain") return "cross-chain";
+  return "cross-chain";
+}
+
+/** Build the human-readable WHY for an unplannable request. */
+export function unsupportedReason({ direction, via } = {}) {
+  if (direction === "swap") {
+    return (
+      `unsupported route: no planner for via="${via ?? "(none)"}" — ` +
+      `expected one of jupiter | xdex | lifi | dexDirect (direction=${direction})`
+    );
+  }
+  return (
+    `unsupported route: no planner for direction="${direction ?? "(none)"}" — ` +
+    `expected one of forward | reverse | thorchain | rango | wanchain | swap`
+  );
+}
+
+/**
+ * planOrExplain — the reason-bearing planner entry (the wallet-facing contract).
+ *
+ * `plan()` returns `null` for lanes that keep their own paths (reverse/THORChain/DEX
+ * on older call sites), which tells a consumer nothing. This entry NEVER returns
+ * null: an unplannable request yields `{ routeKind: "unsupported", reason }` so the
+ * caller can state WHY (required by the wallet's swap screen — docs/ENGINE-INTERFACE.md §3).
+ *
+ * Additive and non-breaking: `plan()` is unchanged, so existing `if (!route)` callers
+ * keep working.
+ */
+export function planOrExplain(opts = {}) {
+  const route = plan(opts);
+  if (route) return { routeKind: classifyRoute(route), route, reason: null, direction: route.direction ?? opts.direction ?? null, via: opts.via ?? null };
+  return {
+    routeKind: "unsupported",
+    route: null,
+    reason: unsupportedReason(opts),
+    direction: opts.direction ?? "forward",
+    via: opts.via ?? null,
+  };
+}
+
 /** Pick a leg out of a route by id (stage runners use this). */
 export function legById(route, id) {
   return route?.legs?.find((l) => l.id === id) || null;

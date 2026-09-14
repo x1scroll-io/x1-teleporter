@@ -1,5 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+// DEV-ONLY: mount the Vercel serverless handlers in /api under `vite dev` so the
+// console can request quotes locally. No effect on production builds.
+import devApi from "./tools/vite-plugin-dev-api.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WARP_LIVE_SEND build pin — deterministic, allowlist-gated arming.
@@ -56,7 +59,7 @@ const mevCaptureEnabled =
   gitRef !== undefined && MEV_ARMED_BRANCHES.has(gitRef) ? "true" : "false";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), devApi()],
   // @solana/web3.js references Buffer/global as browser globals. We polyfill
   // Buffer at the entry (src/main.jsx) and map `global` -> globalThis here.
   // Expose both VITE_ and NEXT_PUBLIC_ vars to the client bundle so the
