@@ -94,8 +94,13 @@ function defaultResolveProvider(discovery, family, walletId) {
 function resolveDiscovered(discovery, family, walletId) {
   const direct = discovery?.getProvider?.(family, walletId);
   if (direct) return direct;
-  // Alias sweep: only Starport has an id/name case pair today (solana family).
-  const aliases = family === "solana" && isStarportKey(walletId) ? STARPORT_NAMES : [];
+  // Alias sweep — ALL families, not just solana. Starport's registry rows carry
+  // the stable id "starport" while any discovery layer keys on the announced
+  // name "Starport"; the mismatch is per-family, so scoping this to solana (the
+  // first place it bit us) left xrp/btc/ltc/doge/tron silently on the mock.
+  // Observed: the XRP lane quoted with a refund address of
+  // `mock:xrp:rHb9CJAW…`, which THORChain rejected as a THORName.
+  const aliases = isStarportKey(walletId) ? STARPORT_NAMES : [];
   for (const alt of aliases) {
     if (alt === walletId) continue;
     const hit = discovery?.getProvider?.(family, alt);
