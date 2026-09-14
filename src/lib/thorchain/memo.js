@@ -138,7 +138,29 @@ export function buildDepositMemo({ sourceChain, destAddress, refundAddress, limi
     parts.push(String(affiliate), String(affiliateBps));
   }
 
-  return parts.join(":");
+  // ── OP_RETURN length guard (2026-09-14) ──────────────────────────────
+  // BTC/LTC/DOGE/BCH cap the memo at 80 bytes. The optional /refund suffix
+  // (and :affiliate) can push it over — THORNode then rejects the deposit with
+  // "generated memo too long" and no address is shown. Refunds default to the
+  // tx sender, so we drop the refund suffix first, then the affiliate, rather
+  // than emit an unusable memo. XRP's Memos field has no such cap.
+  const MEMO_BYTE_LIMIT = { BTC: 80, LTC: 80, DOGE: 80, BCH: 80 };
+  const byteLen = (s) => new TextEncoder().encode(s).length;
+  let memoStr = parts.join(":");
+  const cap = MEMO_BYTE_LIMIT[sourceChain];
+  if (cap && byteLen(memoStr) > cap) {
+    const lean = [SWAP_OPCODE, THORCHAIN_DESTINATION_ASSET, destAddress.trim()];
+    if (hasLimit) lean.push(String(limit));
+    if (hasAffiliate) lean.push(String(affiliate), String(affiliateBps));
+    memoStr = lean.join(":");
+    if (byteLen(memoStr) > cap && hasAffiliate) {
+      const bare = [SWAP_OPCODE, THORCHAIN_DESTINATION_ASSET, destAddress.trim()];
+      if (hasLimit) bare.push(String(limit));
+      memoStr = bare.join(":");
+    }
+  }
+
+  return memoStr;
 }
 
 /**

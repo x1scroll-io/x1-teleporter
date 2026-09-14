@@ -41,11 +41,20 @@ test("buildDepositMemo: minimal memo is the exact 3-part THORChain swap form", (
 });
 
 test("buildDepositMemo: refund address is appended to the destination with a '/' (THORNode destString)", () => {
-  const memo = buildDepositMemo({ sourceChain: "BTC", destAddress: SOL_DEST, refundAddress: BTC_REFUND });
-  assert.equal(memo, `=:SOL.SOL:${SOL_DEST}/${BTC_REFUND}`);
+  const memo = buildDepositMemo({ sourceChain: "BTC", destAddress: SOL_DEST, refundAddress: "RefundAddr1" });
+  assert.equal(memo, `=:SOL.SOL:${SOL_DEST}/RefundAddr1`);
   const parsed = parseDepositMemo(memo);
   assert.equal(parsed.destination, SOL_DEST);
-  assert.equal(parsed.refundAddress, BTC_REFUND);
+  assert.equal(parsed.refundAddress, "RefundAddr1");
+});
+
+test("buildDepositMemo: refund suffix is DROPPED when the memo exceeds the 80-byte OP_RETURN limit", () => {
+  // a realistic 42-char refund + 44-char Solana dest overflows 80 bytes, so the
+  // builder drops the refund (THORNode refunds to the tx sender by default).
+  const memo = buildDepositMemo({ sourceChain: "DOGE", destAddress: SOL_DEST, refundAddress: BTC_REFUND });
+  assert.ok(Buffer.from(memo, "utf8").length <= 80, "memo must fit the 80-byte OP_RETURN cap");
+  assert.equal(memo, `=:SOL.SOL:${SOL_DEST}`);
+  assert.equal(parseDepositMemo(memo).refundAddress, null);
 });
 
 test("buildDepositMemo: works for all four source chains (the memo format is chain-agnostic)", () => {
@@ -57,8 +66,8 @@ test("buildDepositMemo: works for all four source chains (the memo format is cha
 });
 
 test("buildDepositMemo: optional limit appends the 4th part (THORNode `last = 4`)", () => {
-  const memo = buildDepositMemo({ sourceChain: "BTC", destAddress: SOL_DEST, refundAddress: BTC_REFUND, limit: 5000000 });
-  assert.equal(memo, `=:SOL.SOL:${SOL_DEST}/${BTC_REFUND}:5000000`);
+  const memo = buildDepositMemo({ sourceChain: "BTC", destAddress: SOL_DEST, refundAddress: "RefundAddr1", limit: 5000000 });
+  assert.equal(memo, `=:SOL.SOL:${SOL_DEST}/RefundAddr1:5000000`);
   assert.equal(parseDepositMemo(memo).limit, "5000000");
   // A zero/empty limit must NOT append a part — THORNode keeps 3 parts.
   assert.equal(
