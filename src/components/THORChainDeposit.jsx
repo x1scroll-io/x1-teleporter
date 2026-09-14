@@ -427,7 +427,7 @@ export default function THORChainDeposit({
       toAsset: THORCHAIN_DESTINATION_ASSET,
       amount: amountNum,
       destination: solAddress,
-      ...(refund.trim() !== "" ? { refundAddress: refund.trim() } : {}),
+      ...(refundForQuote ? { refundAddress: refundForQuote } : {}),
       // PARKED ITEM: the THORName is empty until Franky registers it — the
       // quote is fetched WITHOUT affiliate params (see quote.js quoteUrl).
       ...(THORCHAIN_AFFILIATE_NAME !== "" ? { affiliate: THORCHAIN_AFFILIATE_NAME, affiliateBps: THORCHAIN_AFFILIATE_BPS } : {}),
@@ -538,6 +538,19 @@ export default function THORChainDeposit({
     if (!v || !fam) return false;
     const pats = REFUND_PATTERNS[fam];
     return Array.isArray(pats) ? pats.some((re) => re.test(v)) : false;
+  })();
+
+  // refundAddress is only sent to THORChain's quote API when it FITS the source
+  // chain's OP_RETURN cap. THORChain builds the memo itself (DEST/REFUND) and
+  // rejects an over-length one with "generated memo too long". Refunds default
+  // to the tx sender, so we omit it rather than fail the quote.
+  const REFUND_MEMO_CAP = { BTC: 80, LTC: 80, DOGE: 80, BCH: 80 };
+  const refundForQuote = (() => {
+    const r = (refund ?? "").trim();
+    if (!r) return undefined;
+    const cap = REFUND_MEMO_CAP[selectedMeta?.id];
+    if (!cap) return r; // XRP (Memos field) has no such cap
+    return new TextEncoder().encode(`=:SOL.SOL:${solAddress}/${r}`).length <= cap ? r : undefined;
   })();
 
   // The quote itself moves nothing — keep it readable. The refund gate applies
