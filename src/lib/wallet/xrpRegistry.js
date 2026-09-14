@@ -56,6 +56,11 @@ export const XRP_WALLETS = Object.freeze([
     name: "Starport",
     pinned: true,
     installUrl: null, // no public install link yet — pinned + dev mock fallback
+    // Injected global (window.starport.xrp) — see xrpDiscovery GLOBAL_DETECTORS.
+    // Without this the row never enters enumerateGlobalWallets, so the family
+    // fell through to the mock and the THORChain refund address was
+    // `mock:xrp:…` (rejected: "THORName doesn't exist").
+    detection: "global",
     // XRPL Memos: the wallet's XRP signer now attaches the XRPL Memos field
     // (WalletCore Ripple SigningInput.memo — "SigningInput memo" in the installed
     // typings; wired 2026-09-14 in starport-extension/src/xrpsend.ts). Required for
