@@ -388,6 +388,19 @@ export default function THORChainDeposit({
   const amountNum = Number(amountSent);
   const hasValidAmount = Number.isFinite(amountNum) && amountNum > 0;
 
+  // ─── THORChain MINIMUM GATE (2026-09-14) ──────────────────────────────────
+  // Each chain's swap floor is its outbound_fee (in base units) from the live
+  // inbound snapshot. Below it THORChain treats the deposit as dust and refunds,
+  // so a sub-minimum amount must NOT be offered a THORChain route — it falls to
+  // the instant-swap lane instead. Fail closed: unknown chain -> treated as
+  // below-minimum until a fee is known.
+  const MIN_DECIMALS = { BTC: 8, LTC: 8, DOGE: 8, BCH: 8, XRP: 6, TRON: 6, SOL: 9, ETH: 18, AVAX: 18, BASE: 18, BSC: 18, GAIA: 6 };
+  const minWhole =
+    selectedEntry && typeof selectedEntry.outbound_fee === "string" && selectedEntry.outbound_fee !== ""
+      ? Number(selectedEntry.outbound_fee) / 10 ** (MIN_DECIMALS[selected] ?? 8)
+      : null;
+  const belowThorchainMin = hasValidAmount && minWhole !== null && amountNum < minWhole;
+
   const getQuote = useCallback(async () => {
     if (!solAddress || !hasValidAmount) return;
     // SIZE CAP enforced at quote time (config 0.05 BTC-equivalent): over-cap
@@ -532,7 +545,7 @@ export default function THORChainDeposit({
   // deposit card, so a user can inspect a route without ever being able to
   // deposit with no refund address.
   const canGetQuote =
-    solConnected && !!solAddress && hasValidAmount && !selectedHalted && !destHalted;
+    solConnected && !!solAddress && hasValidAmount && !selectedHalted && !destHalted && !belowThorchainMin;
   const canSubmit =
     solConnected &&
     !!solAddress &&
@@ -680,6 +693,12 @@ export default function THORChainDeposit({
         onChange={handleAmountChange}
         inputMode="decimal"
       />
+      {belowThorchainMin && minWhole !== null && (
+        <div data-testid="tc-min-warn" style={{ fontSize: 12, color: "#e8b64c", marginTop: 6 }}>
+          ⚠️ {amountNum} {selectedMeta.id} is below THORChain's ~{minWhole.toFixed(4)} {selectedMeta.id} minimum —
+          deposits under it are refunded, not swapped. Use the instant-swap lane for smaller amounts.
+        </div>
+      )}
 
       <div style={S.quoteCard} data-testid="tc-quote-section">
         <button
