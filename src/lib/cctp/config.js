@@ -37,6 +37,13 @@ export const DOMAIN_IDS = Object.freeze({
   hyperevm: 19, // our wallet already supports HyperEVM (EVM chain) — it IS a CCTP chain
   ink: 21,
   plume: 22,
+  edge: 28,
+  injective: 29,
+  morph: 30,
+  pharos: 31,
+  cronos: 32,
+  plasma: 33,
+  xlayer: 37,
 });
 
 /**
@@ -64,24 +71,23 @@ export const CHAINS = Object.freeze({
     domain: 0,
     usdcMint: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", // mainnet native USDC
     usdcDecimals: 6,
-    tokenMinter: null, // TODO: from docs
-    messageTransmitter: null, // TODO: from docs
+    // MessageTransmitterV2 — receiveMessage(message, attestation) is the mint path
+    // (the TokenMinter is called internally by the message handler, not by the user).
+    messageTransmitter: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
     environment: "mainnet",
   },
   base: {
     domain: 6,
     usdcMint: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     usdcDecimals: 6,
-    tokenMinter: null,
-    messageTransmitter: null,
+    messageTransmitter: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
     environment: "mainnet",
   },
   arbitrum: {
     domain: 3,
     usdcMint: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
     usdcDecimals: 6,
-    tokenMinter: null,
-    messageTransmitter: null,
+    messageTransmitter: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
     environment: "mainnet",
   },
   solana: {
@@ -112,5 +118,5 @@ export function cctpConfigFor(chainKey) {
 export function isCctpConfigured(chainKey) {
   const c = cctpConfigFor(chainKey);
   if (!c) return false;
-  return Boolean(c.tokenMinter || c.tokenMessengerMinterProgram); // minting path must exist
+  return Boolean(c.messageTransmitter || c.tokenMessengerMinterProgram); // minting path must exist
 }
