@@ -88,10 +88,10 @@ export const CHAINS = Object.freeze({
     domain: 5,
     usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     usdcDecimals: 6,
-    // Solana program IDs (fill from /cctp/references/solana-programs):
-    tokenMessengerProgram: null,
-    tokenMinterProgram: null,
-    messageTransmitterProgram: null,
+    // Solana program IDs (verified from /cctp/references/solana-programs, 2026-09-15;
+    // identical on mainnet + devnet):
+    tokenMessengerMinterProgram: "CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe", // combines TokenMessenger + TokenMinter
+    messageTransmitterProgram: "CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC",
     environment: "mainnet",
   },
 });
@@ -105,11 +105,12 @@ export function cctpConfigFor(chainKey) {
 }
 
 /**
- * True when the chain is a *configured* CCTP endpoint (has a resolved contract
- * set / program set — an entry with null critical fields is NOT yet usable).
+ * True when the chain is a *configured* CCTP endpoint (has a resolved minting
+ * path — EVM TokenMinter or Solana TokenMessengerMinterV2). An entry with null
+ * critical fields is NOT yet usable (fail closed).
  */
 export function isCctpConfigured(chainKey) {
   const c = cctpConfigFor(chainKey);
   if (!c) return false;
-  return Boolean(c.tokenMinter || c.tokenMinterProgram); // minting path must exist
+  return Boolean(c.tokenMinter || c.tokenMessengerMinterProgram); // minting path must exist
 }
