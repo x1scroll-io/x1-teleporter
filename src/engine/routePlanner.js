@@ -117,6 +117,7 @@ import { createWanchainExecuteLeg } from "./legs/wanchain/wanchainExecuteLeg.js"
 import { createUniswapSwapLeg } from "./legs/dexDirect/uniswapSwapLeg.js";
 import { createPancakeSwapSwapLeg } from "./legs/dexDirect/pancakeswapSwapLeg.js";
 import { createRaydiumSwapLeg } from "./legs/dexDirect/raydiumSwapLeg.js";
+import { buildCctpLegs } from "./legs/cctp/index.js";
 import { createOrcaSwapLeg } from "./legs/dexDirect/orcaSwapLeg.js";
 import { runCaptureScan, runRouteCaptureScan, captureGate, capturePayoutForChain, dropAsIsRecords } from "../lib/mev/captureGate.js";
 
@@ -507,6 +508,7 @@ export function composeRoute(firstRoute, secondRoute, opts = {}) {
 export function plan({ direction = "forward", ...opts } = {}) {
   if (direction === "forward") return planForward(opts);
   if (direction === "reverse") return planReverse(opts);
+  if (direction === "cctp") return planCctp(opts);
   if (direction === "thorchain") return planThorchain(opts);
   if (direction === "rango") return planRango(opts);
   if (direction === "wanchain") return planWanchain(opts);
@@ -569,6 +571,36 @@ export function planOrExplain(opts = {}) {
     reason: unsupportedReason(opts),
     direction: opts.direction ?? "forward",
     via: opts.via ?? null,
+  };
+}
+
+/** CCTP leg ids in execution order (the planner contract). */
+export const CCTP_LEG_IDS = Object.freeze(["cctp-burn", "cctp-attest", "cctp-mint"]);
+
+/** Stage grouping of the CCTP route (UI stage boundaries). */
+export const CCTP_STAGES = Object.freeze({
+  burn: Object.freeze({ label: "stage 1 of 2 (burn USDC)", legIds: Object.freeze(["cctp-burn"]) }),
+  attest: Object.freeze({ label: "attestation (auto)", legIds: Object.freeze(["cctp-attest"]) }),
+  mint: Object.freeze({ label: "stage 2 of 2 (mint USDC)", legIds: Object.freeze(["cctp-mint"]) }),
+});
+
+/**
+ * Plan the CCTP route (native USDC between two CCTP-supported chains): burn on
+ * the source, poll the public Iris attestation, mint on the destination.
+ * Swap composition (source→USDC and USDC→dest, each skipped when already USDC)
+ * is layered by the runner/planner around these three legs.
+ *
+ * @param {{source?: string, dest?: string}} opts chain keys (default ethereum→solana)
+ * @returns {object} { id, direction, sourceChain, destChain, legs, stages }
+ */
+export function planCctp({ source = "ethereum", dest = "solana" } = {}) {
+  return {
+    id: `cctp-${source}-${dest}`,
+    direction: "cctp",
+    sourceChain: source,
+    destChain: dest,
+    legs: buildCctpLegs(),
+    stages: CCTP_STAGES,
   };
 }
 
