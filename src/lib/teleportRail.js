@@ -312,6 +312,8 @@ export function pickRail({ fromChain, unavailableRails } = {}) {
  *  renders). Mirrors pickRail's execution — kept as the single mapping. */
 export function executionFor(rail) {
   if (rail === RAIL.THORCHAIN) return EXECUTION.DEPOSIT_ADDRESS;
+  if (rail === RAIL.INSTANTSWAP) return EXECUTION.DEPOSIT_ADDRESS; // ChangeNow: send to payin address
+  if (rail === RAIL.CCTP) return EXECUTION.WALLET_CONNECT; // burn + mint are wallet-sign steps
   if (rail === RAIL.LIFI_WARP) return EXECUTION.WALLET_CONNECT;
   if (rail === RAIL.RANGO) return EXECUTION.WALLET_CONNECT;
   if (rail === RAIL.WANCHAIN) return EXECUTION.WALLET_CONNECT;
