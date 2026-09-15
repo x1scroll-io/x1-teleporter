@@ -6,18 +6,18 @@ import assert from "node:assert/strict";
 import { encodeMintRecipient, buildBurn, buildMint, fetchAttestation, TOKEN_MESSENGER_V2_ABI } from "../sdk/sdkCctp.js";
 
 test("encodeMintRecipient: EVM address -> 32-byte left-padded hex", () => {
-  const out = encodeMintRecipient("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "base");
+  const out = encodeMintRecipient("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", "bas");
   assert.equal(out.length, 66); // 0x + 64 hex
   assert.match(out, /^0x0{24}a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48$/);
 });
 
 test("encodeMintRecipient: rejects a non-20-byte EVM address", () => {
-  assert.throws(() => encodeMintRecipient("0xdeadbeef", "base"), /invalid EVM address/);
+  assert.throws(() => encodeMintRecipient("0xdeadbeef", "bas"), /invalid EVM address/);
 });
 
 test("buildBurn: returns TokenMessengerV2 + depositForBurn args", () => {
   const b = buildBurn({
-    sourceChainKey: "base",
+    sourceChainKey: "bas",
     amountWei: "1000000",
     destinationDomain: 5,
     mintRecipient: "0x" + "0".repeat(24) + "a0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
@@ -30,9 +30,8 @@ test("buildBurn: returns TokenMessengerV2 + depositForBurn args", () => {
 });
 
 test("buildMint: fails closed when the destination transmitter is not configured", () => {
-  // Solana has programs, but MessageTransmitter (EVM field) is what buildMint
-  // reads for EVM chains; base's messageTransmitter is null in config.
-  assert.throws(() => buildMint({ destChainKey: "base", message: "0x01", attestation: "0x02" }), /not configured/);
+  // avax is not in the CCTP config -> no mint path -> fail closed.
+  assert.throws(() => buildMint({ destChainKey: "avax", message: "0x01", attestation: "0x02" }), /not configured/);
 });
 
 test("fetchAttestation: returns the message + attestation once 'complete'", async () => {

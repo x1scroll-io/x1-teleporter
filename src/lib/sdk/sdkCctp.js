@@ -107,7 +107,7 @@ export async function fetchAttestation({ sourceDomain, txHash, pollMs = 8000, ti
  */
 export function buildMint({ destChainKey, message, attestation }) {
   const cfg = cctpConfigFor(destChainKey);
-  const transmitter = cfg?.messageTransmitter;
+  const transmitter = cfg?.messageTransmitter || cfg?.tokenMessengerMinterProgram;
   if (!transmitter) {
     throw new Error(`buildMint: MessageTransmitter not configured for ${destChainKey} (fail closed)`);
   }

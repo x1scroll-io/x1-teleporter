@@ -21,7 +21,7 @@ import { cctpConfigFor, DOMAIN_IDS } from "../../../lib/cctp/config.js";
 
 /** Family for a CCTP chain: solana -> "svm", everything else -> "evm". */
 function cctpFamily(chainKey) {
-  return chainKey === "solana" ? "svm" : "evm";
+  return chainKey === "sol" ? "svm" : "evm";
 }
 
 /** Source-chain burn leg. */

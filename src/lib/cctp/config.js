@@ -16,14 +16,14 @@
 
 /** Circle CCTP domain id, keyed by our wallet chain key. */
 export const DOMAIN_IDS = Object.freeze({
-  ethereum: 0,
-  avalanche: 1,
-  optimism: 2,
-  arbitrum: 3,
+  eth: 0,
+  avax: 1,
+  opt: 2,
+  arb: 3,
   noble: 4, // Cosmos — USDC issuance hub
-  solana: 5,
-  base: 6,
-  polygon: 7,
+  sol: 5,
+  bas: 6,
+  pol: 7,
   sui: 8,
   aptos: 9,
   unichain: 10,
@@ -67,7 +67,7 @@ export const TOKEN_MESSENGER_V2 = Object.freeze({
  * is NOT offered as a CCTP endpoint (fail closed).
  */
 export const CHAINS = Object.freeze({
-  ethereum: {
+  eth: {
     domain: 0,
     usdcMint: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", // mainnet native USDC
     usdcDecimals: 6,
@@ -76,21 +76,21 @@ export const CHAINS = Object.freeze({
     messageTransmitter: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
     environment: "mainnet",
   },
-  base: {
+  bas: {
     domain: 6,
     usdcMint: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
     usdcDecimals: 6,
     messageTransmitter: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
     environment: "mainnet",
   },
-  arbitrum: {
+  arb: {
     domain: 3,
     usdcMint: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
     usdcDecimals: 6,
     messageTransmitter: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
     environment: "mainnet",
   },
-  solana: {
+  sol: {
     domain: 5,
     usdcMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
     usdcDecimals: 6,

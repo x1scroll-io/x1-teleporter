@@ -593,7 +593,7 @@ export const CCTP_STAGES = Object.freeze({
  * @param {{source?: string, dest?: string}} opts chain keys (default ethereum→solana)
  * @returns {object} { id, direction, sourceChain, destChain, legs, stages }
  */
-export function planCctp({ source = "ethereum", dest = "solana" } = {}) {
+export function planCctp({ source = "eth", dest = "sol" } = {}) {
   return {
     id: `cctp-${source}-${dest}`,
     direction: "cctp",
