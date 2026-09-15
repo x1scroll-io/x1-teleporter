@@ -43,7 +43,7 @@ export const DEX_REGISTRY = Object.freeze({
     Object.freeze({ id: "uni-v2", name: "Uniswap V2", family: "evm", protocol: "uni-v2", router: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", factory: "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f", source: "canonical", verified: true }),
     Object.freeze({ id: "uni-v4", name: "Uniswap V4", family: "evm", protocol: "uni-v4", router: null, factory: null, source: "", verified: false }),
     Object.freeze({ id: "curve", name: "Curve", family: "evm", protocol: "curve", router: null, factory: null, source: "", verified: false }),
-    Object.freeze({ id: "balancer", name: "Balancer V2", family: "evm", protocol: "balancer", router: null, factory: "0xBA12222222228d8Ba445958a75a0704d566BF2C8", source: "canonical", verified: true }),
+    Object.freeze({ id: "balancer", name: "Balancer V2", family: "evm", protocol: "balancer", router: "0xBA12222222228d8Ba445958a75a0704d566BF2C8", factory: null, source: "canonical", verified: true }),
     Object.freeze({ id: "sushi", name: "SushiSwap", family: "evm", protocol: "uni-v2", router: "0xd9e1cE17f2641f24aE83637ab66a2cca9C378B9F", factory: null, source: "canonical", verified: true }),
   ]),
   bsc: Object.freeze([
@@ -90,11 +90,11 @@ export const DEX_REGISTRY = Object.freeze({
     Object.freeze({ id: "wingriders", name: "WingRiders", family: "cardano", protocol: "amm", router: null, factory: null, source: "", verified: false }),
   ]),
   pulsechain: Object.freeze([
-    Object.freeze({ id: "pulsex", name: "PulseX", family: "evm", protocol: "uni-v2", router: null, factory: "0x1715a3E4A142d8b698131108995174F37aEBA10D", source: "chain-test-log", verified: true }),
+    Object.freeze({ id: "pulsex", name: "PulseX", family: "evm", protocol: "uni-v2", router: null, factory: "0x1715a3E4A142d8b698131108995174F37aEBA10D", source: "chain-test-log (factory only — router pending)", verified: false }),
     Object.freeze({ id: "phiat", name: "Phiat", family: "evm", protocol: "amm", router: null, factory: null, source: "", verified: false }),
   ]),
   rbn: Object.freeze([
-    Object.freeze({ id: "rh-fork", name: "Robinhood fork-router", family: "evm", protocol: "uni-v3", router: null, factory: "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA", source: "chain-test-log", verified: true }),
+    Object.freeze({ id: "rh-fork", name: "Robinhood fork-router", family: "evm", protocol: "uni-v3", router: null, factory: "0x1f7d7550B1b028f7571E69A784071F0205FD2EfA", source: "chain-test-log (factory only — quoter+router pending)", verified: false }),
   ]),
 });
 
