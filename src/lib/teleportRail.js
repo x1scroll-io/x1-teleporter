@@ -96,6 +96,11 @@ export const RAIL = Object.freeze({
    *  a pool rail's fees/slippage are worse. Centralised (trust the operator to
    *  complete); KYC above a threshold, surfaced BEFORE commit. */
   INSTANTSWAP: "instantswap",
+  /** Circle CCTP (2026-09-15): permissionless burn-and-mint native USDC. The
+   *  stablecoin lane for CCTP-supported chains (EVM + Solana + Aptos/Sui/Noble).
+   *  No pool, no slippage; keyless (public Iris attestation). X1 is NOT a CCTP
+   *  chain and is never advertised as one — the X1 hop stays Warp. */
+  CCTP: "cctp",
 });
 
 /** Diagnostics only — never rendered to the user (rail names are invisible). */
@@ -105,6 +110,7 @@ export const RAIL_LABELS = Object.freeze({
   [RAIL.RANGO]: "Rango",
   [RAIL.WANCHAIN]: "Wanchain",
   [RAIL.INSTANTSWAP]: "Instant-swap",
+  [RAIL.CCTP]: "CCTP",
 });
 
 /** The two FINAL-EXECUTION shapes the console routes into. The user sees the
