@@ -28,6 +28,15 @@ export const DOMAIN_IDS = Object.freeze({
   aptos: 9,
   unichain: 10,
   linea: 11,
+  codex: 12,
+  sonic: 13,
+  worldchain: 14,
+  monad: 15,
+  sei: 16,
+  xdc: 18,
+  hyperevm: 19, // our wallet already supports HyperEVM (EVM chain) — it IS a CCTP chain
+  ink: 21,
+  plume: 22,
 });
 
 /**
