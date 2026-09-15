@@ -270,17 +270,19 @@ export function railCandidates({ fromChain }) {
     if (covered.length === 0) return [];
     return covered.map((rail) => ({
       rail,
-      execution: rail === RAIL.THORCHAIN ? EXECUTION.DEPOSIT_ADDRESS : EXECUTION.WALLET_CONNECT,
+      execution: executionFor(rail),
     }));
   }
   if (isNativeChain(fromChain)) {
     return [
       { rail: RAIL.THORCHAIN, execution: EXECUTION.DEPOSIT_ADDRESS },
-      { rail: RAIL.RANGO, execution: EXECUTION.WALLET_CONNECT },
+      { rail: RAIL.INSTANTSWAP, execution: EXECUTION.DEPOSIT_ADDRESS }, // ChangeNow fallback (sub-minimum / halted)
     ];
   }
+  // SUI/TRON/ADA-style chains: ChangeNow (instant-swap) is the serving rail
+  // (Rango was the old path — dropped; its surface is covered by ChangeNow).
   if (isRangoChain(fromChain)) {
-    return [{ rail: RAIL.RANGO, execution: EXECUTION.WALLET_CONNECT }];
+    return [{ rail: RAIL.INSTANTSWAP, execution: EXECUTION.DEPOSIT_ADDRESS }];
   }
   return [{ rail: RAIL.LIFI_WARP, execution: EXECUTION.WALLET_CONNECT }];
 }
