@@ -90,6 +90,12 @@ export const RAIL = Object.freeze({
    *  console source (the live quote API serves EVM pairs only — see the
    *  COVERAGE_MATRIX). */
   WANCHAIN: "wanchain",
+  /** ChangeNow (instant-swap, 2026-09-15): a non-custodial deposit-address
+   *  swap service. Serves what THORChain can't — Cardano (ADA) and any pair
+   *  below THORChain's per-chain minimum — and is the small-swap fallback when
+   *  a pool rail's fees/slippage are worse. Centralised (trust the operator to
+   *  complete); KYC above a threshold, surfaced BEFORE commit. */
+  INSTANTSWAP: "instantswap",
 });
 
 /** Diagnostics only — never rendered to the user (rail names are invisible). */
@@ -98,6 +104,7 @@ export const RAIL_LABELS = Object.freeze({
   [RAIL.THORCHAIN]: "THORChain",
   [RAIL.RANGO]: "Rango",
   [RAIL.WANCHAIN]: "Wanchain",
+  [RAIL.INSTANTSWAP]: "Instant-swap",
 });
 
 /** The two FINAL-EXECUTION shapes the console routes into. The user sees the
