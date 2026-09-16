@@ -11,7 +11,9 @@
  *   - Native USDC is identified by MINT + DECIMALS, never by symbol alone.
  *   - X1 is NOT a CCTP chain and is never advertised as one (no Circle contracts
  *     on X1). The X1 hop stays on the Warp lane, out of CCTP's scope.
- *   - Arc is testnet-only and must not be inserted as a forced intermediate hop.
+ *   - Arc went mainnet 2026-09-16 (Circle CCTP domain 26). It is an OPTIONAL
+ *     destination, never a forced intermediate hop. Native-USDC mint + Message-
+ *     Transmitter verified from Circle docs before the chain is offered.
  */
 
 /** Circle CCTP domain id, keyed by our wallet chain key. */
@@ -37,6 +39,7 @@ export const DOMAIN_IDS = Object.freeze({
   hyperevm: 19, // our wallet already supports HyperEVM (EVM chain) — it IS a CCTP chain
   ink: 21,
   plume: 22,
+  arc: 26, // Arc — Circle's L1, mainnet since 2026-09-16
   edge: 28,
   injective: 29,
   morph: 30,
@@ -88,6 +91,16 @@ export const CHAINS = Object.freeze({
     usdcMint: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
     usdcDecimals: 6,
     messageTransmitter: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
+    environment: "mainnet",
+  },
+  arc: {
+    domain: 26,
+    // Arc is a new L1 (mainnet 2026-09-16). Its native-USDC mint + Message-
+    // Transmitter are NOT yet copied from Circle docs — left null so the chain
+    // FAILS CLOSED (isCctpConfigured → false) until verified. Never guess these.
+    usdcMint: null,
+    usdcDecimals: 6,
+    messageTransmitter: null,
     environment: "mainnet",
   },
   sol: {
