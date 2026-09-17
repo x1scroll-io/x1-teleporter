@@ -95,12 +95,11 @@ export const CHAINS = Object.freeze({
   },
   arc: {
     domain: 26,
-    // Arc is a new L1 (mainnet 2026-09-16). Its native-USDC mint + Message-
-    // Transmitter are NOT yet copied from Circle docs — left null so the chain
-    // FAILS CLOSED (isCctpConfigured → false) until verified. Never guess these.
-    usdcMint: null,
+    // Native USDC on Arc (Circle docs 2026-09-17) + the deterministic Message-
+    // TransmitterV2. Both verified live on Arc RPC (rpc.mainnet.arc.io).
+    usdcMint: "0x3600000000000000000000000000000000000000",
     usdcDecimals: 6,
-    messageTransmitter: null,
+    messageTransmitter: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64",
     environment: "mainnet",
   },
   sol: {
