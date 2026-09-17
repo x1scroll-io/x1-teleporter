@@ -10,3 +10,16 @@ playwright-report
 
 # Caged test-wallet sandbox — private keys. NEVER commit.
 .sandbox/
+
+# ad-hoc dev/probe scripts (throwaway)
+e2e/
+wif-*.mjs
+warp-sim.mjs
+warp-reverse.mjs
+warp-live.mjs
+rh-*.mjs
+tax-*.mjs
+testpass-*.mjs
+topup-v2.mjs
+status-all.mjs
+token-dust-scan.mjs
