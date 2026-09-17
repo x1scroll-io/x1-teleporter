@@ -23,3 +23,8 @@ testpass-*.mjs
 topup-v2.mjs
 status-all.mjs
 token-dust-scan.mjs
+pulse-*.mjs
+pulse-*.md
+record-*.mjs
+reclaim-*.mjs
+recent.mjs
