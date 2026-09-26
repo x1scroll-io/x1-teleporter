@@ -31,6 +31,7 @@ import { createRoot } from "react-dom/client";
 import { WalletProvider } from "./WalletContext.jsx";
 import BridgeCard from "../../components/BridgeCard.jsx";
 import TeleportForm, { truncateAddress } from "../../components/TeleportForm.jsx";
+import { clearDiscoveredRails } from "../../warpBridge.js";
 import { createInitialState } from "./walletReducer.js";
 import { WALLET_FAMILIES } from "./families.js";
 
@@ -1063,7 +1064,7 @@ test("REVERSE token: USDC.x default, wSOL.X now offered (SOL rail) — change ev
     assert.ok(tokenSelect, "token picker present in reverse");
     assert.equal(tokenSelect.value, "USDC.x", "reverse token defaults to USDC.x");
     assert.equal(tokenSelect.getAttribute("aria-label"), "Token to burn on X1", "aria-label names the burn token");
-    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC.x", "wSOL.X"], "USDC.x + wSOL.X offered (both bridged by Warp)");
+    assert.deepEqual(Array.from(tokenSelect.options).map((o) => o.value), ["USDC.x", "wSOL.X", "SPCXx", "METAx", "TSLAx", "COINx", "PLTRx", "NVDAx", "AMDx", "SPYx", "GOOGLx"], "USDC.x + wSOL.X + the 9 xStock twins offered (all bridged by Warp)");
     assert.equal(tokenSelect.textContent.includes("USDT"), false, "USDT not rendered");
     assert.equal(tokenSelect.textContent.includes("DAI"), false, "DAI not rendered");
 
@@ -1076,7 +1077,7 @@ test("REVERSE token: USDC.x default, wSOL.X now offered (SOL rail) — change ev
     // The reverse FROM selector (the X1 leg) offers the same two bridged tokens.
     const fromSelect = container.querySelector('[data-testid="from-chain"]');
     assert.equal(fromSelect.value, "x1", "reverse source fixed to X1");
-    assert.deepEqual(Array.from(container.querySelector('[data-testid="x1-token"]').options).map((o) => o.value), ["USDC.x", "wSOL.X"], "X1 source offers USDC.x + wSOL.X");
+    assert.deepEqual(Array.from(container.querySelector('[data-testid="x1-token"]').options).map((o) => o.value), ["USDC.x", "wSOL.X", "SPCXx", "METAx", "TSLAx", "COINx", "PLTRx", "NVDAx", "AMDx", "SPYx", "GOOGLx"], "X1 source offers USDC.x + wSOL.X + the 9 xStock twins");
     assert.equal(fromSelect.textContent.includes("USDT"), false, "no USDT on the X1 source");
     assert.equal(fromSelect.textContent.includes("DAI"), false, "no DAI on the X1 source");
     // The stablecoin CHOICE lives on the destination side — never the X1 side.
@@ -1313,6 +1314,59 @@ test("FORWARD quote card shows the X1 destination (parity): To: 9xQeWv...VFin (X
     assert.equal(addrSpan.getAttribute("title"), SOL_ADDR, "FULL Solana address in the title attr (hover)");
   } finally {
     qf.restore();
+    unmount();
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DYNAMIC RAILS + LANE HEALTH in the form — the live Warp registry is read
+//  once on mount (when WARP_DISCOVERY is on / a registryFetcher is injected),
+//  discovered rails are offered, and a paused lane offers NOTHING (fail-closed).
+// ════════════════════════════════════════════════════════════════════════════
+const DISCOVERED_RAILS = {
+  ok: true, tokens: ["AAPLx"], forward: {}, reverse: {}, destMin: {}, x1Fees: {}, solFees: {},
+  skipped: [], pausedSymbols: new Set(), chainPaused: false, lanes: { solana: { paused: false }, x1: { paused: false } },
+};
+
+test("DYNAMIC RAILS: a newly-discovered Warp token (AAPLx) appears in the X1 dropdown once the registry resolves", async () => {
+  clearDiscoveredRails();
+  const { container, unmount } = renderForm(FORM_PROPS({ registryFetcher: async () => DISCOVERED_RAILS }));
+  try {
+    await flush();
+    const opts = Array.from(container.querySelector('[data-testid="x1-token"]').options).map((o) => o.value);
+    assert.ok(opts.includes("AAPLx"), `discovered AAPLx offered — got ${opts.join(",")}`);
+    assert.ok(container.querySelector('[data-testid="discovered-rails"]'), "the discovery surface is shown");
+  } finally {
+    clearDiscoveredRails();
+    unmount();
+  }
+});
+
+test("LANE HEALTH (fail-closed): a paused Warp lane offers NO X1 tokens and shows the honest banner", async () => {
+  clearDiscoveredRails();
+  const paused = { ...DISCOVERED_RAILS, tokens: [], chainPaused: true, lanes: { solana: { paused: false }, x1: { paused: true, reason: "maintenance" } } };
+  const { container, unmount } = renderForm(FORM_PROPS({ registryFetcher: async () => paused }));
+  try {
+    await flush();
+    assert.equal(container.querySelector('[data-testid="x1-token"]').options.length, 0, "no rails offered while paused");
+    assert.ok(container.querySelector('[data-testid="lane-paused"]'), "honest 'lane unavailable' banner present");
+  } finally {
+    clearDiscoveredRails();
+    unmount();
+  }
+});
+
+test("FAIL-CLOSED: a registry error leaves the known baseline intact (never a guessed rail)", async () => {
+  clearDiscoveredRails();
+  const { container, unmount } = renderForm(FORM_PROPS({ registryFetcher: async () => { throw new Error("registry down"); } }));
+  try {
+    await flush();
+    const opts = Array.from(container.querySelector('[data-testid="x1-token"]').options).map((o) => o.value);
+    assert.equal(opts.length, 11, "the known baseline (USDC.x/wSOL.X + 9 xStock twins) still offers");
+    assert.equal(container.querySelector('[data-testid="discovered-rails"]'), null, "no discovered surface on a failed read");
+    assert.equal(container.querySelector('[data-testid="lane-paused"]'), null, "a read error is NOT a paused lane");
+  } finally {
+    clearDiscoveredRails();
     unmount();
   }
 });

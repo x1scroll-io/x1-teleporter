@@ -389,12 +389,32 @@ test("MIGRATION REGRESSION: X1_WARP_FEES / SOL_WARP_FEES are byte-identical (sha
     "wSOL.X": { kind: "pct", bps: 25, decimals: 9 },
     "ETH.X": { kind: "pct", bps: 25, decimals: 8 },
     "cbBTC.X": { kind: "pct", bps: 25, decimals: 8 },
+    // Stock rails — 25 bps pct, 8 dec (the Starport-wallet port).
+    "SPCXx": { kind: "pct", bps: 25, decimals: 8 },
+    "METAx": { kind: "pct", bps: 25, decimals: 8 },
+    "TSLAx": { kind: "pct", bps: 25, decimals: 8 },
+    "COINx": { kind: "pct", bps: 25, decimals: 8 },
+    "PLTRx": { kind: "pct", bps: 25, decimals: 8 },
+    "NVDAx": { kind: "pct", bps: 25, decimals: 8 },
+    "AMDx": { kind: "pct", bps: 25, decimals: 8 },
+    "SPYx": { kind: "pct", bps: 25, decimals: 8 },
+    "GOOGLx": { kind: "pct", bps: 25, decimals: 8 },
   });
   assert.deepEqual(SOL_WARP_FEES, {
     USDC: { kind: "flat", amountBase: 1_000_000n, decimals: 6 },
     WSOL: { kind: "pct", bps: 25, decimals: 9 },
     ETH: { kind: "pct", bps: 25, decimals: 8 },
     cbBTC: { kind: "pct", bps: 25, decimals: 8 },
+    // Stock rails — 25 bps pct, 8 dec.
+    SPCX: { kind: "pct", bps: 25, decimals: 8 },
+    META: { kind: "pct", bps: 25, decimals: 8 },
+    TSLA: { kind: "pct", bps: 25, decimals: 8 },
+    COIN: { kind: "pct", bps: 25, decimals: 8 },
+    PLTR: { kind: "pct", bps: 25, decimals: 8 },
+    NVDA: { kind: "pct", bps: 25, decimals: 8 },
+    AMD: { kind: "pct", bps: 25, decimals: 8 },
+    SPY: { kind: "pct", bps: 25, decimals: 8 },
+    GOOGL: { kind: "pct", bps: 25, decimals: 8 },
   });
   assert.equal(X1_USDC_DECIMALS, 6);
 });
@@ -408,6 +428,15 @@ test("MIGRATION REGRESSION: X1_REVERSE_TOKENS / X1_FORWARD_TOKENS keep mints, de
       "wSOL.X": { mint: "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8", decimals: 9, feeAccount: b58(X1_WSOLX_FEE_ACCOUNT) },
       "ETH.X": { mint: "4wxJFFnRSCgFgS8GvWH9iHgSjFsKbQpXkBG5Y826cbvw", decimals: 8, feeAccount: b58(X1_ETHX_FEE_ACCOUNT) },
       "cbBTC.X": { mint: "s47zmcZNFkZkdJqgZxZSBvXb8wRx89HgVGXt5Pf791K", decimals: 8, feeAccount: b58(X1_CBBTCX_FEE_ACCOUNT) },
+      "SPCXx": { mint: "CCqoyVud4QNCccV9EJtWEFPaC6jBaGJsaFTnyD8Ss47m", decimals: 8, feeAccount: "2bwDWHU5bhm6gtmXpenHg7yGWcHELUZmVSRSHRjx285J" },
+      "METAx": { mint: "36fxZScbKNXxAfJoiqk76egFGm5b7wWFutjJfXTU5nhT", decimals: 8, feeAccount: "Gfj5mZSSBMjYGzLte2oWrpHtpk4S7TRkeeudNL1kU6TY" },
+      "TSLAx": { mint: "47wNUaHJyuiknQswU5qsfYKjaZ9ijueRB63ZrsxuRb4F", decimals: 8, feeAccount: "GC1vAXQWbokNsoSdKAaZBaPbu2nNs55ePRcedd2sGo63" },
+      "COINx": { mint: "44QsUuVsKVGk5A1X5Vx7MnevsNe7UTVnijfkbSi3rtpY", decimals: 8, feeAccount: "B1T1iz61rFooy9ZqDsd828VptPRuc7ykZBbeXJaf5K4e" },
+      "PLTRx": { mint: "2EPkJGy9C4CwdXFc7zpa4VxeansMRcRVdPnR52nBVZbW", decimals: 8, feeAccount: "PcqXLTXLDWQ2j9Kfs4jbRDAhaYr1Yc6huFVqyA3dCFe" },
+      "NVDAx": { mint: "4JfDXUw8N7b1VJ1og1K3Nc4Z6nwtWxWJUSQKYBcdsiJz", decimals: 8, feeAccount: "CFPTPYANWnhBLVnb45zTRGMUKUN3naiqrMcYB5cwbki1" },
+      "AMDx": { mint: "7Y5bai9oWEjZMYMkHxVBUzpUXJqAcwaHi8MptdcDhKk2", decimals: 8, feeAccount: "3wZ1vEP7mwU7dnQUuiWgxK2kYDCjWope9nUT2mkQivSW" },
+      "SPYx": { mint: "5Z7K1BaM36ubfNHkXbiDm5GW3KGzVSt3DFxD2b7p4VtJ", decimals: 8, feeAccount: "6YgSpSMuuv6aXmXsEbjNpySTkpZv1qJ26mzhEQzY8qtB" },
+      "GOOGLx": { mint: "E3v5m81RLR3ZAjNuCeMjbniCmwBUd1j2iWsvtpXiBVe5", decimals: 8, feeAccount: "GpbrnKinhzEh8sWfuv1MCL7vJ3qLQZHHKu8HWwbm5pd" },
     },
   );
   assert.deepEqual(
@@ -415,6 +444,16 @@ test("MIGRATION REGRESSION: X1_REVERSE_TOKENS / X1_FORWARD_TOKENS keep mints, de
     {
       "USDC.x": { sourceMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", destMint: "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq", decimals: 6, feeAccount: b58(WARP_ACCOUNTS.feeCollectorAta), minBase: 10_000_000n },
       "wSOL.X": { sourceMint: "So11111111111111111111111111111111111111112", destMint: "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8", decimals: 9, feeAccount: "GxfLqeziL8wrUF31H1thWVAHkqzPodoqbwZeoDTRAkyU", minBase: 100_000_000n },
+      // Stock rails — Solana source mint + X1 twin + 1.5×-of-config floor.
+      "SPCXx": { sourceMint: "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8", destMint: "CCqoyVud4QNCccV9EJtWEFPaC6jBaGJsaFTnyD8Ss47m", decimals: 8, feeAccount: "RcyUsKGJVVUqhTCkE2qQNH39JccZGn8tjxQqeLv76XK", minBase: 10_050_000n },
+      "METAx": { sourceMint: "Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu", destMint: "36fxZScbKNXxAfJoiqk76egFGm5b7wWFutjJfXTU5nhT", decimals: 8, feeAccount: "rxf9HBuo58vRQ5HPK6ZGmev9spRPECPhV2VZ4n6TzEk", minBase: 2_250_000n },
+      "TSLAx": { sourceMint: "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB", destMint: "47wNUaHJyuiknQswU5qsfYKjaZ9ijueRB63ZrsxuRb4F", decimals: 8, feeAccount: "94aMjiPSitiEFU8XGRgeSZcXeRqEGFLRG2JCcdMLyLz7", minBase: 3_750_000n },
+      "COINx": { sourceMint: "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu", destMint: "44QsUuVsKVGk5A1X5Vx7MnevsNe7UTVnijfkbSi3rtpY", decimals: 8, feeAccount: "9sXq7eNDgr5ourJupW9ok8V75qJrb77yJ2Ddfd2wpb3F", minBase: 8_100_000n },
+      "PLTRx": { sourceMint: "XsoBhf2ufR8fTyNSjqfU71DYGaE6Z3SUGAidpzriAA4", destMint: "2EPkJGy9C4CwdXFc7zpa4VxeansMRcRVdPnR52nBVZbW", decimals: 8, feeAccount: "HQbVeT39zncthmbNEWBkVbGjYdaEXmjR3PW2nrHLt5K1", minBase: 8_700_000n },
+      "NVDAx": { sourceMint: "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh", destMint: "4JfDXUw8N7b1VJ1og1K3Nc4Z6nwtWxWJUSQKYBcdsiJz", decimals: 8, feeAccount: "H5krn3SzGtq414Fde7KnV7EUneBpYLDQC8pU2kHBpiFT", minBase: 7_500_000n },
+      "AMDx": { sourceMint: "XsXcJ6GZ9kVnjqGsjBnktRcuwMBmvKWh8S93RefZ1rF", destMint: "7Y5bai9oWEjZMYMkHxVBUzpUXJqAcwaHi8MptdcDhKk2", decimals: 8, feeAccount: "HKUdcZLRKyGALchhiqKN3rzrfMUakgpnoHHrf7trWG2W", minBase: 3_000_000n },
+      "SPYx": { sourceMint: "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W", destMint: "5Z7K1BaM36ubfNHkXbiDm5GW3KGzVSt3DFxD2b7p4VtJ", decimals: 8, feeAccount: "GpdnZWDTvCgnLdB2cH4WXFWbiScAfzRnEiUNqa2Hq27D", minBase: 1_950_000n },
+      "GOOGLx": { sourceMint: "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN", destMint: "E3v5m81RLR3ZAjNuCeMjbniCmwBUd1j2iWsvtpXiBVe5", decimals: 8, feeAccount: "3cwHKotdejo4Wnc688zeu1QAMiMD8wbhRBa2coo1gBB8", minBase: 4_350_000n },
     },
   );
 });

@@ -84,7 +84,36 @@ export function resolveConsoleUi(env: Env): boolean | undefined {
   return undefined;
 }
 
+/**
+ * resolveDiscovery — tri-state WARP_DISCOVERY read (dynamic xStock discovery +
+ * lane health from the live Warp config). Explicit env WINS when set:
+ *   VITE_FLAG_WARP_DISCOVERY / NEXT_PUBLIC_FLAG_WARP_DISCOVERY / WARP_DISCOVERY
+ *   = "true"/"1" → ON, anything else → OFF.
+ * When the env is UNSET it DEFAULTS to whether a real Vite env is present:
+ *   * a Vite build/dev (import.meta.env defined) → ON — the live bridge offers
+ *     newly-added rails automatically;
+ *   * `node --test` (no Vite transform, import.meta.env undefined) → OFF — the
+ *     UI/dropdown tests stay deterministic (no mount-time network fetch).
+ * Tests force either state via the `registryFetcher` prop.
+ */
+export function resolveDiscovery(env: Env, viteEnvPresent = false): boolean {
+  for (const name of ["NEXT_PUBLIC_FLAG_WARP_DISCOVERY", "VITE_FLAG_WARP_DISCOVERY", "WARP_DISCOVERY"]) {
+    const raw = env[name];
+    if (raw !== undefined && raw !== "") return raw.toLowerCase() === "true" || raw === "1";
+  }
+  return viteEnvPresent === true;
+}
+
 const flags = resolveFlags(readEnv());
+
+/**
+ * WARP_DISCOVERY — when ON, the form reads the live Warp config once on mount
+ * and merges discovered rails into the offerable set, gating everything on the
+ * config's paused/halted state (fail-closed: unknown rails are never guessed,
+ * paused lanes are never offered). Default: ON in a real Vite build, OFF under
+ * `node --test` — see resolveDiscovery.
+ */
+export const WARP_DISCOVERY: boolean = resolveDiscovery(readEnv(), import.meta.env != null);
 
 /**
  * Whether the Teleport Console (the v2 hardware-console front door) is

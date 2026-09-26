@@ -66,27 +66,46 @@ import {
 import { SimulationError } from "../lib/simulateTx.js";
 import { LiFiApprovalValidationError } from "../lib/lifiApproval.js";
 import { WARP_LIVE_SEND } from "../lib/flags.ts";
+import { WARP_DISCOVERY } from "../lib/flags.ts";
 import { FEE_WALLETS } from "../lib/fees.ts";
-import { X1_FORWARD_TOKENS, X1_REVERSE_TOKENS } from "../warpBridge.js";
+import {
+  X1_FORWARD_TOKENS,
+  X1_REVERSE_TOKENS,
+  WARP_API,
+  fetchWarpRegistry,
+  registerDiscoveredRails,
+  getDiscoveredRails,
+  offerableWarpTokenKeys,
+  warpRailHealth,
+} from "../warpBridge.js";
 import BalancesLine from "./BalancesLine.jsx";
 
 /**
  * The X1 tokens this v2 form may offer — ONLY the ones the v2 Warp executor
- * can actually move (USDC.x / wSOL.X — see warpBridge.js X1_REVERSE_TOKENS /
- * X1_FORWARD_TOKENS).
+ * can actually move, resolved from the executor's own rails (warpBridge.js
+ * X1_REVERSE_TOKENS ∪ X1_FORWARD_TOKENS). The identity registry (tokenResolver)
+ * carries the full listed set; this filter intersects it with the executor's
+ * rails so a token that would silently fall back to USDC.x (a WRONG-TOKEN
+ * burn) can never be chosen.
  *
- * The identity registry (tokenResolver) now carries MORE X1 tokens — the 9
- * xStock twins ported from the Starport wallet (SPCXx…GOOGLx) — but THIS v2
- * executor does not yet burn/bridge them, and runReverse/
- * buildReverseBurnWithSkim fall back to USDC.x for an unknown symbol (a silent
- * WRONG-TOKEN burn). So the dropdown stays the executor-supported set; the
- * wider coverage lives in the registry/engine and surfaces once the executor
- * learns those rails (the plan's UX pass).
+ * The 9 xStock twins (SPCXx…GOOGLx) are IN the executor's rails (the
+ * Starport wallet's xStock port landed in warpBridge.js — forward + reverse +
+ * the destination minimums), so they surface here automatically alongside
+ * USDC.x / wSOL.X. A token stays gated out ONLY while it is genuinely absent
+ * from both rail maps (e.g. ETH.X / cbBTC.X remain registry-flagged
+ * `listed:false` and are engine/reverse-only today).
+ *
+ * DYNAMIC + HEALTH-AWARE: the known list is then passed through
+ * offerableWarpTokenKeys(), which (a) APPENDS rails discovered from the LIVE
+ * Warp config (Jack/XDEX add tokens over time) and (b) DROPS anything the
+ * config reports paused and returns [] when the whole lane is paused —
+ * fail-closed (a halted lane surfaces no route).
  */
 function x1WarpTokens() {
-  return tokensFor("x1").filter(
+  const known = tokensFor("x1").filter(
     (t) => t in X1_REVERSE_TOKENS || t in X1_FORWARD_TOKENS,
   );
+  return offerableWarpTokenKeys(known);
 }
 
 /**
@@ -314,7 +333,7 @@ const PLACEHOLDER_EVM = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
  *   (the toggle resets the phase, so a reverse-phase test needs the
  *   direction set at mount). Defaults to "forward".
  */
-export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, reverseStage1Runner = defaultReverseStage1Runner, reverseStage2Runner = defaultReverseStage2Runner, releasePoller = defaultReleasePoller, onConnectWallet, balancesDeps = {}, initialPhase, initialDirection }) {
+export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, reverseStage1Runner = defaultReverseStage1Runner, reverseStage2Runner = defaultReverseStage2Runner, releasePoller = defaultReleasePoller, onConnectWallet, balancesDeps = {}, initialPhase, initialDirection, registryFetcher }) {
   // direction: "forward" = EVM → X1 (the proven on-ramp), "reverse" = X1 → EVM
   // (the off-ramp: Warp burn X1→Solana, then LiFi Solana→EVM). The forward
   // flow is byte-identical in behavior — the toggle only adds the reverse path.
@@ -347,6 +366,33 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   // Bumped after a bridge completes — BalancesLine refetches so the user sees
   // the post-bridge wallet state (what's left, and what it's now worth).
   const [balanceRefresh, setBalanceRefresh] = useState(0);
+  // Dynamic rails (WARP_DISCOVERY): the live Warp config is read once on mount;
+  // registering it bumps railVersion so x1WarpTokens() re-derives the offer
+  // list (discovered rails + lane health). Fail-closed: a failed read registers
+  // ok:false (the known baseline stays, no discovered rails appear).
+  const [railVersion, setRailVersion] = useState(0);
+
+  useEffect(() => {
+    const fetcher = registryFetcher || (WARP_DISCOVERY ? () => fetchWarpRegistry(WARP_API.mainnet) : null);
+    if (!fetcher) return undefined; // discovery off (default under node --test) → baseline only
+    let cancelled = false;
+    (async () => {
+      let rails;
+      try { rails = await fetcher(); } catch (e) { rails = { ok: false, error: e?.message }; }
+      if (cancelled) return;
+      registerDiscoveredRails(rails);
+      setRailVersion((v) => v + 1);
+    })();
+    return () => { cancelled = true; };
+  }, [registryFetcher]);
+
+  // Lane health + discovered-token view, recomputed whenever the rails change.
+  // railVersion is the re-render signal (bumped when the live registry
+  // resolves) — referenced so the dependency is explicit.
+  const rails = getDiscoveredRails();
+  const discoveredCount = rails.tokens ? rails.tokens.length : 0;
+  const lanePaused = warpRailHealth().chainPaused === true;
+  void railVersion;
 
   const evmReady = Boolean(evmSession?.address);
   const solReady = Boolean(solSession?.address);
@@ -791,6 +837,18 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         {...balancesDeps}
       />
       <div style={S.hint}>No minimum to bridge into X1 — any amount works (Teleporter fee 0.5%, max $250; land as USDC.x — flat $1 Warp fee — or wSOL.X — 0.25% Warp fee). Warp's own ~$10 bridge floor still applies on-chain.</div>
+      {/* Dynamic rails: honest lane-health + discovery surface (fail-closed —
+          a paused lane shows no route, never a silent dead-end). */}
+      {lanePaused && (
+        <div data-testid="lane-paused" style={S.hint}>
+          ⛔ The Warp lane is currently paused — routes are unavailable until the bridge reopens.
+        </div>
+      )}
+      {discoveredCount > 0 && (
+        <div data-testid="discovered-rails" style={S.hint}>
+          + {discoveredCount} newly-discovered Warp rail{discoveredCount === 1 ? "" : "s"} available from the live registry.
+        </div>
+      )}
 
       {/* wallet guidance — honest, never a silent dead-end; actionable
           (opens the connect modal) when the tab wires onConnectWallet */}

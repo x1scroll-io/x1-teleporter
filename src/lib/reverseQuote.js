@@ -65,6 +65,16 @@ const X1_WARP_FEES = {
   "wSOL.X": { kind: "pct", bps: 25, decimals: requireToken("wSOL.X", "x1").decimals },
   "ETH.X": { kind: "pct", bps: 25, decimals: requireToken("ETH.X", "x1").decimals },
   "cbBTC.X": { kind: "pct", bps: 25, decimals: requireToken("cbBTC.X", "x1").decimals },
+  // Stock rails — 25 bps pct, 8 dec (live Warp config; flat $1 is USDC.x-ONLY).
+  "SPCXx": { kind: "pct", bps: 25, decimals: 8 },
+  "METAx": { kind: "pct", bps: 25, decimals: 8 },
+  "TSLAx": { kind: "pct", bps: 25, decimals: 8 },
+  "COINx": { kind: "pct", bps: 25, decimals: 8 },
+  "PLTRx": { kind: "pct", bps: 25, decimals: 8 },
+  "NVDAx": { kind: "pct", bps: 25, decimals: 8 },
+  "AMDx": { kind: "pct", bps: 25, decimals: 8 },
+  "SPYx": { kind: "pct", bps: 25, decimals: 8 },
+  "GOOGLx": { kind: "pct", bps: 25, decimals: 8 },
 };
 
 /** The DEFAULT Warp fee shape for an UNKNOWN X1 token: 25 bps pct — flat $1

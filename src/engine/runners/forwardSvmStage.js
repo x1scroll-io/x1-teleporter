@@ -31,7 +31,7 @@
  *        feeWalletSvm, connections: { solana, x1 }, createX1Ata? }
  */
 import { legById } from "../routePlanner.js";
-import { assertSolanaFeePayer, X1_FORWARD_TOKENS } from "../../warpBridge.js";
+import { assertSolanaFeePayer, resolveForwardToken } from "../../warpBridge.js";
 import { PublicKey } from "@solana/web3.js";
 
 export function toPubkey(pk) {
@@ -75,7 +75,7 @@ export async function runForwardSvmStage({
   const ataLeg = legById(route, "x1-ata-create");
   let prep = null;
   if (createX1Ata && connections.x1 && ataLeg) {
-    const fwd = X1_FORWARD_TOKENS[destToken] || X1_FORWARD_TOKENS["USDC.x"];
+    const fwd = resolveForwardToken(destToken);
     const ataCtx = {
       connection: connections.x1,
       userPubkey,
