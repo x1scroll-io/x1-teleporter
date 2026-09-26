@@ -357,14 +357,69 @@ test("unified source union: the long-tail coins (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH)
     const body = container.querySelector('[data-testid="teleport-console"]');
     assert.ok(body.textContent.includes("Monero → X1"), "route readout names the real chains");
     assert.ok(!body.textContent.includes("ChangeNOW"), "the rail is never named");
-    // Amount set → the honest supported-state strip (never a false "ready").
+    // Amount set → the deposit route is announced (the step reveals the
+    // payin address on TELEPORT; never a false "not ready").
     setInput(container.querySelector('[data-testid="amount"]'), "0.5");
     const strip = container.querySelector('[data-testid="quote-strip"]');
-    assert.ok(strip.textContent.includes("SOURCE SUPPORTED"), "honest long-tail strip");
+    assert.ok(strip.textContent.includes("DEPOSIT ROUTE READY"), "the long-tail deposit route is announced");
     // And back: EVM source restores the LiFi/Warp surface.
     setSelect(container.querySelector('[data-testid="from-chain"]'), "eth");
     assert.equal(container.querySelector('[data-testid="token"]').value, "USDC");
     assert.ok(container.querySelector('[data-testid="x1-token"]'), "land-as picker back on the EVM rail");
+  } finally {
+    unmount();
+  }
+});
+
+test("unified flow: a long-tail source routes into the deposit step on TELEPORT — create → payin address + memo → status poll (rail never named)", async () => {
+  const createCalls = [];
+  const fakeCreate = async (opts) => {
+    createCalls.push(opts);
+    return {
+      ok: true,
+      deposit: { id: "ex1", payinAddress: "4MoneroDepositAddr", payinExtraId: "PID-123", payoutAddress: SOL_ADDR, amountFrom: 0.5, amountTo: 60 },
+      request: opts,
+    };
+  };
+  let pollDeps = null;
+  const fakePoller = (deps) => {
+    pollDeps = deps;
+    return { start() { deps.onUpdate?.({ status: "waiting", terminal: false }); }, stop() {} };
+  };
+  const { container, unmount } = renderConsole({
+    consoleProps: { changeNowDeps: { createExchange: fakeCreate, createPoller: fakePoller } },
+  });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "xmr");
+    setInput(container.querySelector('[data-testid="amount"]'), "0.5");
+    click(container.querySelector('[data-testid="teleport-now"]'));
+    const step = container.querySelector('[data-testid="cn-deposit-step"]');
+    assert.ok(step, "the long-tail deposit step renders");
+    assert.ok(step.textContent.includes("Sending XMR from Monero → X1"), "step context names the real chains, not a rail");
+    await flush();
+    // The create fired with the pinned source identity + the session payout
+    // address (never a typed one).
+    assert.equal(createCalls.length, 1, "one exchange created");
+    assert.equal(createCalls[0].fromChain, "xmr");
+    assert.equal(createCalls[0].address, SOL_ADDR, "payout = the connected Solana/X1 session");
+    // The payin address + the REQUIRED payment id render.
+    assert.ok(container.querySelector('[data-testid="cn-payin-address"]').textContent.includes("4MoneroDepositAddr"));
+    assert.ok(container.querySelector('[data-testid="cn-extra-id"]').textContent.includes("PID-123"), "the required memo is rendered");
+    assert.ok(container.querySelector('[data-testid="cn-amount-to-send"]').textContent.includes("0.5"), "the exact amount to send");
+    // The rail is invisible and the old fail-closed copy is gone.
+    const body = container.querySelector('[data-testid="teleport-console"]').textContent;
+    assert.ok(!body.includes("ChangeNOW"), "the rail is never named");
+    assert.ok(!body.includes("SOURCE SUPPORTED"), "the old fail-closed copy is gone");
+    // The status readout reflects the step + the poller's first report.
+    assert.ok(container.querySelector('[data-testid="console-status"]').textContent.includes("DEPOSIT"), "status: DEPOSIT");
+    assert.ok(container.querySelector('[data-testid="cn-status-label"]').textContent.includes("Waiting"));
+    // A terminal (finished) status flips the panel to the done banner.
+    act(() => pollDeps.onUpdate?.({ status: "finished", terminal: true }));
+    assert.ok(container.querySelector('[data-testid="cn-done"]'), "finished → the done banner");
+    // Back to the route keeps the pick.
+    click(container.querySelector('[data-testid="back-to-route"]'));
+    assert.ok(container.querySelector('[data-testid="console-coords"]'), "back on the route coordinates");
+    assert.equal(container.querySelector('[data-testid="from-chain"]').value, "xmr", "route kept");
   } finally {
     unmount();
   }

@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 import quoteHandler, { buildEstimateUrl } from "../../../api/changenow/quote.js";
 import createHandler, { buildExchangeBody, FORWARD_FIELDS } from "../../../api/changenow/create.js";
 import minAmountHandler, { buildMinAmountUrl } from "../../../api/changenow/minAmount.js";
+import statusHandler, { buildStatusUrl } from "../../../api/changenow/status.js";
 
 const UPSTREAM = "https://api.changenow.io";
 
@@ -69,6 +70,12 @@ test("changenow proxy: the min-amount URL forwards the pair + networks only", ()
   assert.ok(!url.includes("junk"), "non-whitelisted fields never pass through");
 });
 
+test("changenow proxy: the status URL is /v2/exchange/{id} with the id as an encoded path segment", () => {
+  assert.equal(buildStatusUrl("ex1"), `${UPSTREAM}/v2/exchange/ex1`);
+  assert.equal(buildStatusUrl("a/b"), `${UPSTREAM}/v2/exchange/a%2Fb`, "a crafted id can never break out of the path");
+  assert.equal(buildStatusUrl("  ex2  "), `${UPSTREAM}/v2/exchange/ex2`, "trimmed");
+});
+
 test("changenow proxy: the create body pins the network(s) and defaults flow/type", () => {
   assert.ok(FORWARD_FIELDS.includes("fromNetwork") && FORWARD_FIELDS.includes("toNetwork"), "network fields are whitelisted");
   const body = buildExchangeBody({
@@ -96,6 +103,7 @@ test("changenow proxy: every handler FAILS CLOSED (502 no_api_key) with no upstr
       [quoteHandler, fakeReq({ query: { fromCurrency: "xmr", toCurrency: "usdc" } })],
       [minAmountHandler, fakeReq({ query: { fromCurrency: "xmr", toCurrency: "usdc" } })],
       [createHandler, fakeReq({ method: "POST", body: { fromCurrency: "xmr", toCurrency: "usdc", fromAmount: "1", address: "a" } })],
+      [statusHandler, fakeReq({ query: { id: "ex1" } })],
     ]) {
       const res = fakeRes();
       await handler(req, res);
@@ -154,6 +162,49 @@ test("changenow proxy: the create handler refuses a payout-less request before t
     assert.equal(res.statusCode, 400);
     assert.equal(res.body.error, "missing_params");
     assert.equal(called, false, "no upstream call for an unpayable exchange");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prev === undefined) delete process.env.CHANGENOW_API_KEY;
+    else process.env.CHANGENOW_API_KEY = prev;
+  }
+});
+
+test("changenow proxy: the status handler refuses a missing id before the upstream call", async () => {
+  const prev = process.env.CHANGENOW_API_KEY;
+  process.env.CHANGENOW_API_KEY = "k-server";
+  let called = false;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => { called = true; return { ok: true, status: 200, json: async () => ({}) }; };
+  try {
+    const res = fakeRes();
+    await statusHandler(fakeReq({ query: {} }), res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, "missing_params");
+    assert.equal(called, false, "no upstream call without an exchange id");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (prev === undefined) delete process.env.CHANGENOW_API_KEY;
+    else process.env.CHANGENOW_API_KEY = prev;
+  }
+});
+
+test("changenow proxy: the status handler forwards the id to /v2/exchange/{id} with the server key", async () => {
+  const prev = process.env.CHANGENOW_API_KEY;
+  process.env.CHANGENOW_API_KEY = "k-server";
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({ id: "ex1", status: "finished" }) };
+  };
+  try {
+    const res = fakeRes();
+    await statusHandler(fakeReq({ query: { id: "ex1" } }), res);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.status, "finished");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, `${UPSTREAM}/v2/exchange/ex1`);
+    assert.equal(calls[0].init.headers["x-changenow-api-key"], "k-server", "the SERVER key travels in the header");
   } finally {
     globalThis.fetch = realFetch;
     if (prev === undefined) delete process.env.CHANGENOW_API_KEY;

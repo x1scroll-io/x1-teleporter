@@ -92,6 +92,10 @@ import { getPricesUSD, usdValue } from "../lib/prices.js";
 import ConnectModal from "./ConnectModal.jsx";
 import THORChainDeposit from "./THORChainDeposit.jsx";
 import THORChainProgress from "./THORChainProgress.jsx";
+// The ChangeNOW long-tail rail's deposit-address step (create exchange → payin
+// address + memo → status poll). Rail-neutral host wiring, same shape as the
+// native deposit step above.
+import ChangeNowDeposit from "./ChangeNowDeposit.jsx";
 // The deposit-address rail's storage/balance handles arrive through the
 // lane's public doorway component — the lane internals stay contained
 // behind it (the containment gate enforces the boundary).
@@ -476,7 +480,7 @@ function statusFor(phase, armed, busy) {
   if (phase === "quoted") return armed ? "ARMED" : "READY";
   if (phase === "done") return "COMPLETE";
   if (phase === "handoff") return "HANDOFF";
-  if (phase === "deposit") return "DEPOSIT";
+  if (phase === "deposit" || phase === "cn-deposit") return "DEPOSIT";
   if (phase === "tracking" || phase === "relaying" || phase === "step2") return "IN FLIGHT";
   return "READY";
 }
@@ -1057,12 +1061,12 @@ export default function TeleportConsole({
       return;
     }
     if (rail === RAIL.INSTANTSWAP) {
-      // The ChangeNOW long-tail rail is wired at the rail layer + the quote/
-      // execute client (src/lib/changenow/*), so a long-tail source is OFFERED
-      // in the picker — but the console's unified deposit step for this rail is
-      // not built yet. Fail CLOSED with an honest, rail-neutral message; NEVER
-      // misroute a long-tail source into the LiFi/Warp path.
-      setError("This source's route isn't available in the app right now — check back soon.");
+      // The ChangeNOW long-tail rail's DEPOSIT-ADDRESS step: create the
+      // exchange, reveal the payin address (+ memo for the assets that need
+      // one), then poll the exchange status. The send is out-of-band from the
+      // user's own external wallet — the console never signs. Never misroute a
+      // long-tail source into the LiFi/Warp path.
+      setPhase("cn-deposit");
       return;
     }
     if (phase !== "quoted") { runQuote(); return; }
@@ -1092,6 +1096,9 @@ export default function TeleportConsole({
   const depositStoreRef = useRef(null);
   if (!depositStoreRef.current) depositStoreRef.current = createThorchainStorage();
   const depositDeps = consoleProps.depositDeps || {};
+  // DI seams for the ChangeNOW long-tail deposit step (injected in tests; the
+  // real network path is the api/changenow/* proxies).
+  const changeNowDeps = consoleProps.changeNowDeps || {};
   // Source-family sessions prefill the deposit step's refund address (the
   // wallet layer's deposit rows for BTC/DOGE/LTC/XRP — same read as the
   // classic THORChain tab).
@@ -1350,13 +1357,14 @@ export default function TeleportConsole({
       );
     }
     if (rail === RAIL.INSTANTSWAP && amount && parseFloat(amount) > 0) {
-      // The long-tail (ChangeNOW) source: offered in the picker, but the
-      // console's in-app deposit step for this rail is not built yet. Honest,
-      // rail-neutral copy — no fabricated route, no false "ready".
+      // The long-tail (ChangeNOW) source: TELEPORT reveals the deposit-address
+      // step (payin address + memo + status poll); the user sends from their
+      // own external wallet. Rail-neutral copy — the rail is never named.
       return (
         <div className="tc-strip-hint">
-          <b>SOURCE SUPPORTED</b> — this source is accepted, but the in-app
-          deposit step isn't ready yet. You'll be able to complete it here soon.
+          <b>DEPOSIT ROUTE READY</b> — press TELEPORT to reveal your deposit
+          address{isLongtailChain(from) && LONGTAIL_CHAINS[from] ? ` (${LONGTAIL_CHAINS[from].asset})` : ""} and status; you send
+          from your own wallet and it hops to X1.
         </div>
       );
     }
@@ -1439,6 +1447,37 @@ export default function TeleportConsole({
                         sourceLocked
                         initialAmount={amount}
                         copy={DEPOSIT_NEUTRAL_COPY}
+                      />
+                    </div>
+                  ) : phase === "cn-deposit" ? (
+                    /* ── CHANGE NOW LONG-TAIL DEPOSIT STEP (the rail decision
+                       landed here invisibly): the exchange is created, its
+                       payin address (+ memo) is revealed, and the exchange
+                       status is polled to completion. Neutral copy — the rail
+                       is never named. The user sends from their own wallet;
+                       the console never signs. ── */
+                    <div className="tc-tab-body" data-testid="cn-deposit-step" role="tabpanel" aria-label="Deposit step">
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 6 }}>
+                        <span className="tc-sub" style={{ marginTop: 0 }} data-testid="cn-deposit-step-context">
+                          {longtailMeta ? `Sending ${longtailMeta.asset} from ${longtailMeta.name} → X1` : "Deposit route"}
+                        </span>
+                        <button type="button" data-testid="back-to-route" className="tc-ghost" style={{ width: "auto", padding: "4px 12px", marginTop: 0 }} onClick={() => setPhase("idle")}>
+                          ← Adjust route
+                        </button>
+                      </div>
+                      <ChangeNowDeposit
+                        source={longtailMeta}
+                        amount={amount}
+                        destination={solSession?.address ?? null}
+                        destinationConnected={solReady}
+                        refundAddress={null}
+                        createExchange={changeNowDeps.createExchange}
+                        createPoller={changeNowDeps.createPoller}
+                        fetchImpl={changeNowDeps.fetchImpl}
+                        statusBaseUrl={changeNowDeps.statusBaseUrl}
+                        pollIntervalMs={changeNowDeps.pollIntervalMs}
+                        initialDeposit={changeNowDeps.initialDeposit}
+                        copy={changeNowDeps.copy}
                       />
                     </div>
                   ) : phase === "tracking" ? (
@@ -1587,7 +1626,7 @@ export default function TeleportConsole({
                     >
                       {phase === "quoting"
                         ? "CALCULATING ROUTE…"
-                        : phase === "quoted" || (rail === RAIL.THORCHAIN && amount && parseFloat(amount) > 0)
+                        : phase === "quoted" || ((rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) && amount && parseFloat(amount) > 0)
                           ? "◉ TELEPORT"
                           : "TELEPORT"}
                     </button>
