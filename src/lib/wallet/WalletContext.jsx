@@ -48,10 +48,14 @@ import {
   useRef,
   useState,
 } from "react";
-import { isWalletFamily } from "./families.js";
-import { canConnect, createInitialState, walletReducer } from "./walletReducer.js";
+import { isWalletFamily, WALLET_FAMILIES } from "./families.js";
+import { CONNECTED, canConnect, createInitialState, walletReducer } from "./walletReducer.js";
 import { createMockProvider } from "./mockProviders.js";
 import { STARPORT_NAMES, isStarportKey } from "./modalLogic.js";
+import {
+  setConnectedSession,
+  clearConnectedSession,
+} from "./connectedSessions.js";
 
 export const WalletContext = createContext(null);
 
@@ -141,6 +145,22 @@ export function WalletProvider({ children, providerFactory, initialState, discov
   // spawning a second provider while the first is still connecting. Belt and
   // braces on top of the reducer-level idempotency.
   const connectingRef = useRef(new Set());
+
+  // Publish the live sessions to the React-free connectedSessions registry so
+  // non-React engine modules (warpBridge.js) resolve the signer from the
+  // wallet the user ACTUALLY connected — never an injected global. A
+  // disconnected/errored family is cleared so a stale signer can never be
+  // resolved after a disconnect.
+  useEffect(() => {
+    for (const family of WALLET_FAMILIES) {
+      const session = state[family];
+      if (session?.status === CONNECTED && session.provider) {
+        setConnectedSession(family, session);
+      } else {
+        clearConnectedSession(family);
+      }
+    }
+  }, [state]);
 
   // Discovery lifecycle: start on mount, subscribe to late-announcing
   // wallets, stop on unmount. No-op when no discovery handle is provided.

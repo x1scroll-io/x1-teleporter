@@ -36,6 +36,12 @@ import {
 } from "@solana/spl-token";
 import { simulateSolanaTx, guardedSendSolanaTx } from "./lib/simulateTx.js";
 import { FEE_RATES } from "./lib/fees.ts";
+// Signer resolution — the Warp leg signs through the wallet the user ACTUALLY
+// connected via discovery, resolved from the WalletContext session layer (the
+// same resolvers the React path uses). This replaces the old hardcoded
+// injected-global fallback with the React-free connectedSessions seam.
+import { resolveSolanaAdapter } from "./lib/wallet/sessionProviders.js";
+import { getConnectedSession } from "./lib/wallet/connectedSessions.js";
 // TOKEN IDENTITY (mints, decimals) reads from the canonical registry — see
 // docs/TOKEN-RESOLVER.md. requireToken throws at import time if a pinned
 // entry ever goes missing (loud config failure, never a silent null mint).
@@ -409,6 +415,27 @@ export async function ensureX1RecipientAta({ connection, userPubkey, payer = nul
   return { needsCreation: true, transaction: tx, ata };
 }
 
+/**
+ * Resolve the Solana/X1 signer for the Warp legs.
+ *
+ * The engine passes the sign-capable adapter it already resolved from the
+ * connected WalletContext session (SignerResolver → sessionProviders.js). When
+ * no explicit provider is given (legacy/direct callers), fall back to the
+ * CURRENTLY CONNECTED Solana session — resolved through the SAME session layer
+ * (resolveSolanaAdapter over the connectedSessions registry the WalletContext
+ * publishes into). NEVER a hardcoded injected global: the bridge signs through
+ * whatever wallet the user actually connected via discovery.
+ *
+ * @param {object} [provider] the explicit provider from the caller (preferred)
+ * @returns {Promise<object|null>} a sign-capable adapter
+ *   (`publicKey` + signTransaction/signAndSendTransaction), or null when no
+ *   connected wallet can sign (the caller surfaces the connect-a-wallet error).
+ */
+async function resolveWarpSolanaSigner(provider) {
+  if (provider) return provider;
+  return resolveSolanaAdapter(getConnectedSession("solana"));
+}
+
 // Guarded broadcast of the X1 ATA-creation tx: simulate on the X1 RPC first
 // (fail-closed — a rejection or an unreachable RPC blocks the send), then let
 // the connected wallet sign + broadcast on the X1 network.
@@ -420,8 +447,7 @@ export async function ensureX1RecipientAta({ connection, userPubkey, payer = nul
 // the X1 accounts don't exist and the RPC rejects it. A fresh blockhash is
 // applied at the last moment to avoid RPC-sync "Blockhash not found" errors.
 export async function sendX1AtaCreation(connection, transaction, provider) {
-  const p = provider ||
-    (typeof window !== "undefined" ? window.solana || window.phantom?.solana : null);
+  const p = await resolveWarpSolanaSigner(provider);
   if (!p) throw new Error("No Solana/X1 wallet found to sign the X1 account-creation tx");
 
   // Fresh blockhash applied BEFORE the guarded send, so the simulation gates
@@ -582,10 +608,10 @@ export async function simulateStage2(connection, transaction) {
 }
 
 export async function sendStage2ViaPhantom(connection, transaction, provider) {
-  // Use the provider the user actually connected (Backpack/Phantom/X1), not a
-  // hardcoded window.solana.
-  const p = provider ||
-    (typeof window !== "undefined" ? window.solana || window.phantom?.solana : null);
+  // Use the wallet the user actually connected via discovery — the explicit
+  // provider from the engine, or the CURRENTLY CONNECTED Solana session
+  // resolved through the session layer. Never an injected global.
+  const p = await resolveWarpSolanaSigner(provider);
   if (!p) throw new Error("No Solana wallet found to sign the Warp tx");
 
   // PREFER signTransaction + OUR broadcast through the SAME connection the tx

@@ -14,13 +14,29 @@ test("eth has multiple verified venues (Uniswap V2/V3 + Balancer + Sushi)", () =
 });
 
 test("unverified placeholders are dropped (fail closed)", () => {
-  // curve + uni-v4 on eth are unverified -> not routable
+  // curve + uni-v4 on eth remain unverified -> not routable
   const ids = venuesFor("eth").map((v) => v.id);
   assert.ok(!ids.includes("curve"));
   assert.ok(!ids.includes("uni-v4"));
-  // sui has only unverified placeholders -> no venues
-  assert.equal(venuesFor("sui").length, 0);
-  assert.equal(hasVenues("sui"), false);
+  // cardano still has only unverified placeholders -> no venues
+  assert.equal(venuesFor("cardano").length, 0);
+  assert.equal(hasVenues("cardano"), false);
+});
+
+test("the ported venue registry now carries the verified Sui + Solana venues", () => {
+  // Headline port (Starport → V2): Sui's Cetus/Turbos/DeepBook and Solana's
+  // Raydium/Orca/Meteora are now VERIFIED (were null/false in V2's partial
+  // registry), so the MEV/routing surface sees real routers on those chains.
+  const sui = venuesFor("sui")
+    .map((v) => v.id)
+    .sort();
+  assert.deepEqual(sui, ["cetus", "deepbook", "turbos"]);
+  assert.equal(hasVenues("sui"), true);
+  const sol = venuesFor("sol")
+    .map((v) => v.id)
+    .sort();
+  assert.deepEqual(sol, ["meteora", "orca", "raydium", "raydium-amm"]);
+  assert.equal(hasVenues("sol"), true);
 });
 
 test("every verified venue has a router (never a null router while verified)", () => {

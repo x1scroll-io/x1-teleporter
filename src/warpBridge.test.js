@@ -52,6 +52,11 @@ import {
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { SimulationError } from "./lib/simulateTx.js";
 import { FEE_RATES } from "./lib/fees.ts";
+import {
+  setConnectedSession,
+  clearConnectedSession,
+  clearAllConnectedSessions,
+} from "./lib/wallet/connectedSessions.js";
 
 // Real keypairs so the mock wallet can produce VALID signatures (web3.js
 // serialize() verifies ed25519 signatures by default).
@@ -272,11 +277,66 @@ test("sendX1AtaCreation falls back to signAndSendTransaction when signTransactio
 });
 
 test("sendX1AtaCreation throws the no-wallet error when no provider is available", async () => {
+  clearAllConnectedSessions();
   const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
   await assert.rejects(
     () => sendX1AtaCreation(conn, makeLegacyTx(), null),
     /No Solana\/X1 wallet found to sign the X1 account-creation tx/,
   );
+});
+
+// ── The "reach out to the CONNECTED wallet" fix (V2 cutover) ──
+// The Warp leg no longer falls back to a hardcoded injected Solana global.
+// When the engine omits an explicit provider, the signer is resolved from the
+// CURRENTLY CONNECTED WalletContext session via the React-free
+// connectedSessions registry + the proven sessionProviders resolver.
+
+test("sendX1AtaCreation: with NO explicit provider, signs through the CONNECTED Solana session (never an injected global)", async () => {
+  clearAllConnectedSessions();
+  const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
+  const adapter = mockWallet({ keypairs: [K1] });
+  // Real wrapper shape: the session provider is the CONNECT adapter whose
+  // sign-capable surface lives at `.adapter` (resolveSolanaAdapter unwraps it).
+  setConnectedSession("solana", {
+    status: "connected",
+    address: K1.publicKey.toBase58(),
+    provider: { family: "solana", adapter },
+  });
+  try {
+    const tx = makeLegacyTx();
+    const sig = await sendX1AtaCreation(conn, tx, undefined);
+    assert.equal(sig, "raw-sig");
+    assert.deepEqual(adapter.calls.map((c) => c.method), ["signTransaction"], "the CONNECTED session's adapter signed");
+  } finally {
+    clearAllConnectedSessions();
+  }
+});
+
+test("sendStage2ViaPhantom: with NO explicit provider, signs through the CONNECTED Solana session", async () => {
+  clearAllConnectedSessions();
+  const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
+  const adapter = mockWallet({ keypairs: [K1] });
+  // Raw sign-capable adapter directly on the session provider (the other
+  // shape resolveSolanaAdapter accepts).
+  setConnectedSession("solana", { status: "connected", address: K1.publicKey.toBase58(), provider: adapter });
+  try {
+    const sig = await sendStage2ViaPhantom(conn, makeLegacyTx(), undefined);
+    assert.equal(sig, "raw-sig");
+    assert.deepEqual(adapter.calls.map((c) => c.method), ["signTransaction"]);
+  } finally {
+    clearAllConnectedSessions();
+  }
+});
+
+test("sendStage2ViaPhantom: a DISCONNECTED session resolves to null — honest no-wallet error, nothing signed", async () => {
+  setConnectedSession("solana", { status: "connected", address: K1.publicKey.toBase58(), provider: mockWallet() });
+  clearConnectedSession("solana"); // disconnect clears the published session
+  const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
+  await assert.rejects(
+    () => sendStage2ViaPhantom(conn, makeLegacyTx(), undefined),
+    /No Solana wallet found to sign the Warp tx/,
+  );
+  assert.ok(!conn.calls.includes("sendRawTransaction"), "nothing broadcast without a signer");
 });
 
 // ── Step 1.3C fee-unification guard ──

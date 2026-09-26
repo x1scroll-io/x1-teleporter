@@ -67,7 +67,27 @@ import { SimulationError } from "../lib/simulateTx.js";
 import { LiFiApprovalValidationError } from "../lib/lifiApproval.js";
 import { WARP_LIVE_SEND } from "../lib/flags.ts";
 import { FEE_WALLETS } from "../lib/fees.ts";
+import { X1_FORWARD_TOKENS, X1_REVERSE_TOKENS } from "../warpBridge.js";
 import BalancesLine from "./BalancesLine.jsx";
+
+/**
+ * The X1 tokens this v2 form may offer — ONLY the ones the v2 Warp executor
+ * can actually move (USDC.x / wSOL.X — see warpBridge.js X1_REVERSE_TOKENS /
+ * X1_FORWARD_TOKENS).
+ *
+ * The identity registry (tokenResolver) now carries MORE X1 tokens — the 9
+ * xStock twins ported from the Starport wallet (SPCXx…GOOGLx) — but THIS v2
+ * executor does not yet burn/bridge them, and runReverse/
+ * buildReverseBurnWithSkim fall back to USDC.x for an unknown symbol (a silent
+ * WRONG-TOKEN burn). So the dropdown stays the executor-supported set; the
+ * wider coverage lives in the registry/engine and surfaces once the executor
+ * learns those rails (the plan's UX pass).
+ */
+function x1WarpTokens() {
+  return tokensFor("x1").filter(
+    (t) => t in X1_REVERSE_TOKENS || t in X1_FORWARD_TOKENS,
+  );
+}
 
 /**
  * truncateAddress — display helper for the destination-address lines.
@@ -724,7 +744,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         <span style={S.rowCol}>
           <span style={S.label}>Receive</span>
           <select data-testid="x1-token" value={destToken} onChange={(e) => changeDestToken(e.target.value)} style={S.select} aria-label="Token on X1">
-            {tokensFor("x1").map((t) => (
+            {x1WarpTokens().map((t) => (
               <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
             ))}
           </select>
@@ -897,7 +917,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         <span style={S.rowCol}>
           <span style={S.label}>Burn</span>
           <select data-testid="x1-token" value={reverseToken} onChange={(e) => changeReverseToken(e.target.value)} style={S.select} aria-label="Token burned on X1">
-            {tokensFor("x1").map((t) => (
+            {x1WarpTokens().map((t) => (
               <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
             ))}
           </select>
@@ -926,7 +946,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         <span style={S.rowCol}>
           <span style={S.label}>Token</span>
           <select data-testid="token" value={reverseToken} onChange={(e) => changeReverseToken(e.target.value)} style={S.select} aria-label="Token to burn on X1">
-            {tokensFor("x1").map((t) => (
+            {x1WarpTokens().map((t) => (
               <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
             ))}
           </select>

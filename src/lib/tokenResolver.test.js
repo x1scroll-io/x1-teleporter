@@ -308,21 +308,26 @@ test("resolve: USDG on rbn is Robinhood Chain's canonical stable (PR #57) — US
 // ────────────────────────────────────────────────────────────────────────────
 // 5. MIGRATION REGRESSION — teleportConstants TOKENS byte-identical
 // ────────────────────────────────────────────────────────────────────────────
-/** The exact pre-resolver TOKENS literal (v2 @ 204e808) — pinned forever.
- *  The Robinhood Chain leg (PR #57, 2026-09-07) appends the rbn chain key
- *  (Paxos USDG — the resolver TOKEN_TABLE USDG row's projection); every
- *  pre-existing row stays byte-identical. */
+/** The exact TOKENS literal baseline — pinned. Two evolutions, both additive
+ *  (every pre-existing row stays byte-identical):
+ *    • Robinhood Chain (PR #57, 2026-09-07) appends the rbn chain key (Paxos
+ *      USDG — the resolver TOKEN_TABLE USDG row's projection).
+ *    • V2 cutover (2026-09-26, Starport engine port) appends the 9 xStock
+ *      Warp-bridged equity rails (SPCX…GOOGL + their X1 twins SPCXx…GOOGLx)
+ *      to sol + x1 — the wallet tokenResolver's +250-line coverage expansion.
+ *      (The v2 FORM still gates its X1 dropdown to the executor-supported set
+ *      via x1WarpTokens() — this projection is the DATA layer.) */
 const HISTORICAL_TOKENS = {
   eth:   { USDC: { decimals: 6, address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" }, USDT: { decimals: 6, address: "0xdAC17F958D2ee523a2206206994597C13D831ec7" }, DAI: { decimals: 18, address: "0x6B175474E89094C44Da98b954EedeAC495271d0F" } },
   bsc:   { USDC: { decimals: 18, address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d" }, USDT: { decimals: 18, address: "0x55d398326f99059fF775485246999027B3197955" }, DAI: { decimals: 18, address: "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3" } },
-  sol:   { USDC: { decimals: 6, address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }, USDT: { decimals: 6, address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" }, WSOL: { decimals: 9, address: "So11111111111111111111111111111111111111112" }, ETH: { decimals: 8, address: "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs" }, cbBTC: { decimals: 8, address: "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij" } },
+  sol:   { USDC: { decimals: 6, address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" }, USDT: { decimals: 6, address: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB" }, WSOL: { decimals: 9, address: "So11111111111111111111111111111111111111112" }, ETH: { decimals: 8, address: "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs" }, cbBTC: { decimals: 8, address: "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij" }, SPCX: { decimals: 8, address: "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8" }, META: { decimals: 8, address: "Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu" }, TSLA: { decimals: 8, address: "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB" }, COIN: { decimals: 8, address: "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu" }, PLTR: { decimals: 8, address: "XsoBhf2ufR8fTyNSjqfU71DYGaE6Z3SUGAidpzriAA4" }, NVDA: { decimals: 8, address: "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh" }, AMD: { decimals: 8, address: "XsXcJ6GZ9kVnjqGsjBnktRcuwMBmvKWh8S93RefZ1rF" }, SPY: { decimals: 8, address: "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W" }, GOOGL: { decimals: 8, address: "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN" } },
   arb:   { USDC: { decimals: 6, address: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" }, USDT: { decimals: 6, address: "0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9" }, DAI: { decimals: 18, address: "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1" } },
   bas:   { USDC: { decimals: 6, address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" }, DAI: { decimals: 18, address: "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb" } },
   opt:   { USDC: { decimals: 6, address: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85" }, USDT: { decimals: 6, address: "0x94b008aA00579c1307B0EF2c499aD98a8ce58e58" }, DAI: { decimals: 18, address: "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1" } },
   pol:   { USDC: { decimals: 6, address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" }, USDT: { decimals: 6, address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F" }, DAI: { decimals: 18, address: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063" } },
   avax:  { USDC: { decimals: 6, address: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E" }, USDT: { decimals: 6, address: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7" }, DAI: { decimals: 18, address: "0xd586E7F844cEa2F87f50152665BCbc2C279D8d70" } },
   sonic: { USDC: { decimals: 6, address: "0x29219dd400f2Bf60E5a23d13Be72B486D4038894" }, USDT: { decimals: 6, address: "0xE5DA20F15420aD15DE0fa650600aFc998bbE3955" } },
-  x1:    { "USDC.x": { decimals: 6, address: "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq" }, "wSOL.X": { decimals: 9, address: "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8" } },
+  x1:    { "USDC.x": { decimals: 6, address: "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq" }, "wSOL.X": { decimals: 9, address: "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8" }, SPCXx: { decimals: 8, address: "CCqoyVud4QNCccV9EJtWEFPaC6jBaGJsaFTnyD8Ss47m" }, METAx: { decimals: 8, address: "36fxZScbKNXxAfJoiqk76egFGm5b7wWFutjJfXTU5nhT" }, TSLAx: { decimals: 8, address: "47wNUaHJyuiknQswU5qsfYKjaZ9ijueRB63ZrsxuRb4F" }, COINx: { decimals: 8, address: "44QsUuVsKVGk5A1X5Vx7MnevsNe7UTVnijfkbSi3rtpY" }, PLTRx: { decimals: 8, address: "2EPkJGy9C4CwdXFc7zpa4VxeansMRcRVdPnR52nBVZbW" }, NVDAx: { decimals: 8, address: "4JfDXUw8N7b1VJ1og1K3Nc4Z6nwtWxWJUSQKYBcdsiJz" }, AMDx: { decimals: 8, address: "7Y5bai9oWEjZMYMkHxVBUzpUXJqAcwaHi8MptdcDhKk2" }, SPYx: { decimals: 8, address: "5Z7K1BaM36ubfNHkXbiDm5GW3KGzVSt3DFxD2b7p4VtJ" }, GOOGLx: { decimals: 8, address: "E3v5m81RLR3ZAjNuCeMjbniCmwBUd1j2iWsvtpXiBVe5" } },
   rbn:   { USDG: { decimals: 6, address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" } },
 };
 
@@ -468,7 +473,16 @@ test("table hygiene: every entry's chain is known; listed entries have addresses
   // The canonical symbol list, in table order (docs/TOKEN-RESOLVER.md).
   assert.deepEqual(
     canonicalSymbols(),
-    ["USDC", "USDT", "DAI", "WSOL", "USDC.x", "wSOL.X", "ETH", "ETH.X", "cbBTC", "cbBTC.X", "wXNT", "XNT", "SUI", "HYPE", "BTC", "DOGE", "LTC", "XRP", "DGN", "xencat", "USDG"],
+    [
+      // core stables + wraps + native raws
+      "USDC", "USDT", "DAI", "WSOL", "USDC.x", "wSOL.X", "ETH", "ETH.X", "cbBTC", "cbBTC.X", "wXNT", "XNT",
+      // other native raws
+      "SUI", "HYPE", "BTC", "DOGE", "LTC", "XRP", "DGN", "xencat", "USDG",
+      // the 9 xStock Warp-bridged equity rails (Solana native → X1 wrapped twin),
+      // ported from the Starport wallet registry (live Warp config 2026-09-20)
+      "SPCX", "SPCXx", "META", "METAx", "TSLA", "TSLAx", "COIN", "COINx",
+      "PLTR", "PLTRx", "NVDA", "NVDAx", "AMD", "AMDx", "SPY", "SPYx", "GOOGL", "GOOGLx",
+    ],
     "canonical symbol list (docs/TOKEN-RESOLVER.md table order)",
   );
 });
