@@ -336,6 +336,40 @@ test("unified source union: a native source (Bitcoin) locks the deposit-address 
   }
 });
 
+test("unified source union: the long-tail coins (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH) are listed and lock the ChangeNOW deposit route; DOT is absent", () => {
+  const { container, unmount } = renderConsole({});
+  try {
+    const fromOptions = [...container.querySelector('[data-testid="from-chain"]').options].map((o) => o.value);
+    for (const c of ["xmr", "ada", "atom", "near", "zec", "dash", "bch"]) {
+      assert.ok(fromOptions.includes(c), `source picker lists long-tail ${c}`);
+    }
+    assert.ok(!fromOptions.includes("polkadot"), "DOT is NOT offered (ChangeNOW does not support it)");
+    // Select Monero: single asset locked, destination X1, no land-as picker.
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "xmr");
+    assert.equal(container.querySelector('[data-testid="from-chain"]').value, "xmr");
+    assert.ok(container.querySelector('[data-testid="from-slot"]').textContent.includes("Monero"), "long-tail chain label");
+    const token = container.querySelector('[data-testid="token"]');
+    assert.equal(token.value, "XMR", "long-tail chain carries its one asset");
+    assert.equal(token.disabled, true, "the single long-tail asset is not a picker");
+    assert.equal(container.querySelector('[data-testid="to-chain"]').value, "x1");
+    assert.equal(container.querySelector('[data-testid="x1-token"]'), null, "no land-as picker on the long-tail rail");
+    assert.ok(container.querySelector('[data-testid="to-slot"]').textContent.includes("arrives as USDC.x on X1"), "fixed land-as readout");
+    const body = container.querySelector('[data-testid="teleport-console"]');
+    assert.ok(body.textContent.includes("Monero → X1"), "route readout names the real chains");
+    assert.ok(!body.textContent.includes("ChangeNOW"), "the rail is never named");
+    // Amount set → the honest supported-state strip (never a false "ready").
+    setInput(container.querySelector('[data-testid="amount"]'), "0.5");
+    const strip = container.querySelector('[data-testid="quote-strip"]');
+    assert.ok(strip.textContent.includes("SOURCE SUPPORTED"), "honest long-tail strip");
+    // And back: EVM source restores the LiFi/Warp surface.
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "eth");
+    assert.equal(container.querySelector('[data-testid="token"]').value, "USDC");
+    assert.ok(container.querySelector('[data-testid="x1-token"]'), "land-as picker back on the EVM rail");
+  } finally {
+    unmount();
+  }
+});
+
 // ── THE REAL QUOTE PATH ─────────────────────────────────────────────────────
 
 test("forward quote: pinned query (no fee param) → fee lines 0.5% + $1 flat, honest net, To-address on X1", async () => {

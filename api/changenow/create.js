@@ -6,8 +6,13 @@
 //
 // POST body whitelist: fromCurrency / toCurrency / fromAmount / address (payout)
 // / refundAddress / extraId (memo/destination-tag for XRP/ADA-style payouts) /
-// flow / type. `address` is REQUIRED (the payout destination) — the server
-// refuses to create an exchange that cannot pay out.
+// flow / type / fromNetwork / toNetwork. `address` is REQUIRED (the payout
+// destination) — the server refuses to create an exchange that cannot pay out.
+//
+// fromNetwork/toNetwork are forwarded because ChangeNOW keys a ticker to a
+// NETWORK — a same-name ticker on another chain is a DIFFERENT asset. The rail
+// pins the network (src/lib/teleportRail.js LONGTAIL_CHAINS + src/lib/changenow/
+// index.js).
 
 import { cors } from "../_cors.js";
 
@@ -17,7 +22,8 @@ export const CHANGENOW_KEY_HEADER = "x-changenow-api-key";
 
 /** Whitelist of client-forwardable body fields (empty values dropped). */
 export const FORWARD_FIELDS = Object.freeze([
-  "fromCurrency", "toCurrency", "fromAmount", "address", "refundAddress", "extraId", "flow", "type",
+  "fromCurrency", "toCurrency", "fromAmount", "fromNetwork", "toNetwork",
+  "address", "refundAddress", "extraId", "flow", "type",
 ]);
 
 export function buildExchangeBody(body) {

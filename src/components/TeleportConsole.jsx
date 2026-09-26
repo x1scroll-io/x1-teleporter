@@ -59,11 +59,13 @@ import { CHAINS, TOKENS, WARP_BRIDGE_URL } from "../lib/teleportConstants.js";
 import {
   RAIL,
   NATIVE_CHAINS,
+  LONGTAIL_CHAINS,
   SOURCE_CHAINS,
   chainName,
   chainGlyph,
   tokensOn,
   isNativeChain,
+  isLongtailChain,
   pickRail,
 } from "../lib/teleportRail.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
@@ -532,6 +534,11 @@ export default function TeleportConsole({
   const rail = railMeta.rail;
   const nativeMeta = isNativeChain(from) ? NATIVE_CHAINS[from] : null;
   const nativeAsset = nativeMeta ? nativeMeta.asset : null;
+  // The long-tail source (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH — the ChangeNOW rail,
+  // RAIL.INSTANTSWAP): a single-asset, deposit-address source the DEX rails
+  // can't carry. It locks the source token + destination exactly like a native
+  // source; the rail is derived (pickRail) and never named.
+  const longtailMeta = isLongtailChain(from) ? LONGTAIL_CHAINS[from] : null;
 
   // ── Flow state (mirrors TeleportForm's phase machine exactly; the native
   //    deposit-address rail adds two phases — "deposit" (the vault-address +
@@ -598,6 +605,13 @@ export default function TeleportConsole({
       // The rail lands USDC.x on X1 (the auto-advance's Warp leg) — the
       // land-as choice is fixed for this rail (no token picker ambiguity).
       setToken(NATIVE_CHAINS[c].asset);
+      setTo("x1");
+      setToToken((prev) => (tokensOn("eth").includes(prev) ? prev : "USDC"));
+    } else if (isLongtailChain(c)) {
+      // Long-tail source (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH) → the ChangeNOW
+      // deposit-address rail, dest X1. Same shape as a native source: the
+      // single asset is fixed and the destination locks to X1.
+      setToken(LONGTAIL_CHAINS[c].asset);
       setTo("x1");
       setToToken((prev) => (tokensOn("eth").includes(prev) ? prev : "USDC"));
     } else {
@@ -724,10 +738,11 @@ export default function TeleportConsole({
   // ── THE REAL QUOTE PATH (forward + reverse — same builders the classic
   //    form uses; no fakes) ─────────────────────────────────────────────────
   const runQuote = useCallback(async () => {
-    // The native deposit-address rail never quotes over LiFi — its quote gate
-    // lives in the deposit step (THORChainDeposit). TELEPORT on that rail
-    // routes straight to the deposit-address step instead of runQuote.
-    if (rail === RAIL.THORCHAIN) return;
+    // The deposit-address rails (native THORChain sources AND the long-tail
+    // ChangeNOW sources) never quote over LiFi — their quote gate lives in the
+    // deposit step. TELEPORT on those rails routes straight to the
+    // deposit-address step instead of runQuote.
+    if (rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) return;
     const amt = parseFloat(amount);
     if (!amount || !(amt > 0)) { setError("Enter an amount"); setPhase("idle"); return; }
     if (direction === "forward") {
@@ -795,7 +810,7 @@ export default function TeleportConsole({
   // is the deposit step's own) — never auto-fire it.
   useEffect(() => {
     if (phase !== "idle") return;
-    if (rail === RAIL.THORCHAIN) return;
+    if (rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) return;
     const amt = parseFloat(amount);
     if (!amount || !(amt > 0)) return;
     const t = setTimeout(() => { runQuote(); }, debounceMs);
@@ -1041,6 +1056,15 @@ export default function TeleportConsole({
       setPhase("deposit");
       return;
     }
+    if (rail === RAIL.INSTANTSWAP) {
+      // The ChangeNOW long-tail rail is wired at the rail layer + the quote/
+      // execute client (src/lib/changenow/*), so a long-tail source is OFFERED
+      // in the picker — but the console's unified deposit step for this rail is
+      // not built yet. Fail CLOSED with an honest, rail-neutral message; NEVER
+      // misroute a long-tail source into the LiFi/Warp path.
+      setError("This source's route isn't available in the app right now — check back soon.");
+      return;
+    }
     if (phase !== "quoted") { runQuote(); return; }
     if (direction === "forward") executeStage1();
     else executeReverseStage1();
@@ -1117,15 +1141,14 @@ export default function TeleportConsole({
   // The destination token the DONE readout names — the native rail always
   // lands USDC.x on X1 (its Warp leg is USDC.x-fixed); LiFi/Warp rails land
   // the chosen land-as/receive token.
-  const doneTokenLabel = rail === RAIL.THORCHAIN ? "USDC.x" : (quote?.recvToken || x1Token);
+  const doneTokenLabel = (rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) ? "USDC.x" : (quote?.recvToken || x1Token);
 
   // Wallet guidance (which wallet the CURRENT route needs next).
   const missingWallets = [];
-  if (rail === RAIL.THORCHAIN) {
-    // The deposit-address rail needs ONLY the Solana/X1 wallet — the deposit
+  if (rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) {
+    // The deposit-address rails need ONLY the Solana/X1 wallet — the deposit
     // destination (funds land there before the X1 hop). The source send is
-    // out-of-band from the user's own BTC/DOGE/LTC/XRP wallet — never asked
-    // for in-app.
+    // out-of-band from the user's own external wallet — never asked for in-app.
     if (!solReady) missingWallets.push("Solana/X1 (Phantom / Backpack) — where your deposit lands before X1");
   } else if (direction === "forward") {
     if (!evmReady) missingWallets.push("EVM (Rabby / MetaMask) — the source wallet");
@@ -1243,7 +1266,7 @@ export default function TeleportConsole({
     <div className="quote-box" data-testid="quote-box">
       <div className="tc-quote-row">
         <span className="tc-quote-key">You send</span>
-        <span className="tc-quote-val">{quote.amount} {token} on {direction === "forward" ? CHAINS[from].name : "X1"}</span>
+        <span className="tc-quote-val">{quote.amount} {token} on {direction === "forward" ? chainName(from) : "X1"}</span>
       </div>
       {(quote.feeLines || []).map((l) => (
         <div key={l.id} data-testid={`fee-line-${l.id}`} className="tc-quote-row">
@@ -1323,6 +1346,17 @@ export default function TeleportConsole({
         <div className="tc-strip-hint">
           <b>DEPOSIT ROUTE READY</b> — press TELEPORT to reveal your deposit
           address + memo; the network fees are shown before you send.
+        </div>
+      );
+    }
+    if (rail === RAIL.INSTANTSWAP && amount && parseFloat(amount) > 0) {
+      // The long-tail (ChangeNOW) source: offered in the picker, but the
+      // console's in-app deposit step for this rail is not built yet. Honest,
+      // rail-neutral copy — no fabricated route, no false "ready".
+      return (
+        <div className="tc-strip-hint">
+          <b>SOURCE SUPPORTED</b> — this source is accepted, but the in-app
+          deposit step isn't ready yet. You'll be able to complete it here soon.
         </div>
       );
     }
@@ -1466,12 +1500,12 @@ export default function TeleportConsole({
                           <select data-testid="to-chain" value="x1" onChange={() => {}} className="tc-select" aria-label="Destination chain (fixed: X1)" disabled style={{ opacity: 0.9 }}>
                             <option value="x1">X1 {chainGlyph("x1")}</option>
                           </select>
-                          <span className="tc-sub">{rail === RAIL.THORCHAIN ? "destination · arrives as USDC.x on X1" : `destination · land as ${x1Token}`}</span>
+                          <span className="tc-sub">{(rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) ? "destination · arrives as USDC.x on X1" : `destination · land as ${x1Token}`}</span>
                         </>
                       ) : (
                         <>
                           <select data-testid="to-chain" value={to} onChange={(e) => changeTo(e.target.value)} className="tc-select" aria-label="To chain">
-                            {SOURCE_CHAINS.filter((c) => !isNativeChain(c) && c !== "x1").map((c) => (
+                            {SOURCE_CHAINS.filter((c) => !isNativeChain(c) && !isLongtailChain(c) && c !== "x1").map((c) => (
                               <option key={c} value={c}>{chainGlyph(c)} {chainName(c)}</option>
                             ))}
                           </select>
@@ -1486,7 +1520,7 @@ export default function TeleportConsole({
                     <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 150 }} data-testid="token-slot">
                       <span className="tc-label">{direction === "forward" ? "Token" : "Burn token"}</span>
                       {direction === "forward" ? (
-                        <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} className="tc-select" aria-label="Token" disabled={Boolean(nativeMeta)}>
+                        <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} className="tc-select" aria-label="Token" disabled={Boolean(nativeMeta) || Boolean(longtailMeta)}>
                           {tokensOn(from).map((t) => <option key={t} value={t}>{t}</option>)}
                         </select>
                       ) : (
@@ -1495,7 +1529,7 @@ export default function TeleportConsole({
                         </select>
                       )}
                     </div>
-                    {direction === "forward" && !nativeMeta && (
+                    {direction === "forward" && !nativeMeta && !longtailMeta && (
                       <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 120 }} data-testid="x1-token-slot">
                         <span className="tc-label">Land as</span>
                         <select data-testid="x1-token" value={x1Token} onChange={(e) => changeX1Token(e.target.value)} className="tc-select" aria-label="Token on X1">
