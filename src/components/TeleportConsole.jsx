@@ -70,7 +70,7 @@ import {
 } from "../lib/teleportRail.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
-import { SignerResolver, RoutePlanner, runForwardEvmStage } from "../engine/index.js";
+import { SignerResolver, RoutePlanner, runForwardEvmStage, getLiveCaptureSession } from "../engine/index.js";
 import { SimulationError } from "../lib/simulateTx.js";
 import { LiFiApprovalValidationError } from "../lib/lifiApproval.js";
 import { WARP_LIVE_SEND } from "../lib/flags.ts";
@@ -117,6 +117,37 @@ import {
 export const QUOTE_REFRESH_SECONDS = 30;
 /** Debounce before an auto-quote fires after route/amount edits. */
 export const AUTO_QUOTE_DEBOUNCE_MS = 600;
+
+// ── MEV CAPTURE PIPELINE (the live-flow wiring) ────────────────────────────
+// After every quote the console runs the capture pipeline (src/lib/mev/): it
+// OBSERVES the cross-venue capture gap on the quotes on hand and — when a
+// capture is detected — RECORDS the drop-as-is intent in the ledger and
+// ROUTES the pile through the batch-sweep planner.
+//
+// 🔴 READ-ONLY on the user's money path + FAIL-CLOSED: the call is
+// fire-and-forget — it never sets React state, never throws, and never
+// touches the quote/send flow. The capture is the venue SPREAD, never the
+// user's own funds. The engine is ARMED by default (MEV_CAPTURE_ENABLED —
+// vite.config.js) with an instant env kill switch; unarmed it degrades to the
+// sandbox-measurement fallback. Venue quotes arrive through the optional DI
+// provider (consoleProps.captureQuotes); the LiFi bridge hop itself holds no
+// same-chain venues today, so the pipeline honestly reports "no quotes" and
+// records nothing until a venue-quoting layer supplies them.
+const CAPTURE_SESSION = getLiveCaptureSession();
+function observeLiveCapture(venueQuotes) {
+  try {
+    const v = venueQuotes && typeof venueQuotes === "object" ? venueQuotes : {};
+    return CAPTURE_SESSION.process({
+      buyQuotes: v.buyQuotes ?? null,
+      sellQuotes: v.sellQuotes ?? null,
+      route: v.route ?? null,
+      pair: v.pair ?? null,
+      chain: v.chain ?? null,
+    });
+  } catch {
+    return null; // observation must never break the money path
+  }
+}
 
 // ── Neutral copy for the deposit-address rail (the THORChain ENGINE path
 //    rendered inside the unified flow). Mr. Esters: the user picks an asset
@@ -580,6 +611,11 @@ export default function TeleportConsole({
   const quoteSeq = useRef(0);
   const canStage2 = solanaSessionCanSign(solSession);
   const debounceMs = consoleProps.autoQuoteDebounceMs ?? AUTO_QUOTE_DEBOUNCE_MS;
+  // DI seam: an optional venue-quote provider for the capture pipeline
+  // (consoleProps.captureQuotes) — kept in a ref so it never churns the
+  // quote callback's dependency list.
+  const captureQuotesRef = useRef(consoleProps.captureQuotes);
+  captureQuotesRef.current = consoleProps.captureQuotes;
 
   const stage2Runner = formProps.stage2Runner || defaultStage2Runner;
   const reverseStage1Runner = formProps.reverseStage1Runner || defaultReverseStage1Runner;
@@ -770,6 +806,14 @@ export default function TeleportConsole({
         setQuote({ amount: amt, ...derived, lifiData: d });
         setRefreshLeft(QUOTE_REFRESH_SECONDS);
         setPhase("quoted");
+        // LIVE-FLOW CAPTURE WIRING — observe the cross-venue gap on this
+        // quote (fire-and-forget, read-only, fail-closed). Never affects the
+        // user's route/quote/send.
+        observeLiveCapture({
+          ...((captureQuotesRef.current && captureQuotesRef.current({ direction: "forward", from, to, token, x1Token, toToken, amount: amt, liFiData: d })) || {}),
+          pair: { from: token, to: x1Token },
+          chain: from,
+        });
       } catch (e) {
         console.error("[Teleport Console] quote failed:", e);
         if (seq !== quoteSeq.current) return;
@@ -801,6 +845,14 @@ export default function TeleportConsole({
         setQuote({ amount: amt, to, toToken, ...derived, lifiData });
         setRefreshLeft(QUOTE_REFRESH_SECONDS);
         setPhase("quoted");
+        // LIVE-FLOW CAPTURE WIRING — observe the cross-venue gap on this
+        // quote (fire-and-forget, read-only, fail-closed). Never affects the
+        // user's route/quote/send.
+        observeLiveCapture({
+          ...((captureQuotesRef.current && captureQuotesRef.current({ direction: "reverse", from, to, token, x1Token, toToken, amount: amt, liFiData })) || {}),
+          pair: { from: token, to: toToken },
+          chain: to,
+        });
       } catch (e) {
         console.error("[Teleport Console] reverse quote failed:", e);
         if (seq !== quoteSeq.current) return;

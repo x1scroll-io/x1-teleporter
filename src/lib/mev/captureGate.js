@@ -44,8 +44,10 @@
  *     arm/test is Mr. Esters' alone (the same discipline as WARP_LIVE_SEND).
  *
  * The gate flag is read from flags.ts (MEV_CAPTURE_ENABLED — env names
- * VITE_MEV_CAPTURE_ENABLED / NEXT_PUBLIC_FLAG_MEV_CAPTURE_ENABLED, default
- * FALSE; pinned false in the repo's main build by the vite define).
+ * VITE_MEV_CAPTURE_ENABLED / NEXT_PUBLIC_FLAG_MEV_CAPTURE_ENABLED). The
+ * safety default (env unset — e.g. `node --test`) is FALSE; a REAL build
+ * PINS it TRUE by default and it can be killed instantly via the env
+ * override (vite.config.js) — see flags.ts.
  */
 
 import { MEV_CAPTURE_ENABLED } from "../flags.ts";

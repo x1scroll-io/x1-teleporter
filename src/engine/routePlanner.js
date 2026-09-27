@@ -120,6 +120,10 @@ import { createRaydiumSwapLeg } from "./legs/dexDirect/raydiumSwapLeg.js";
 import { buildCctpLegs } from "./legs/cctp/index.js";
 import { createOrcaSwapLeg } from "./legs/dexDirect/orcaSwapLeg.js";
 import { runCaptureScan, runRouteCaptureScan, captureGate, capturePayoutForChain, dropAsIsRecords } from "../lib/mev/captureGate.js";
+// The live-flow PIPELINE (quote → detect → record ledger → sweep plan) — the
+// orchestrator joining the detector/gate/ledger/planner. Fail-closed: the
+// hook below NEVER throws into the money path (see src/lib/mev/capturePipeline.js).
+import { runCapturePipeline, createCapturePipeline, getLiveCaptureSession } from "../lib/mev/capturePipeline.js";
 
 /** The forward route's leg ids in execution order (the planner contract). */
 export const FORWARD_LEG_IDS = Object.freeze([
@@ -903,6 +907,35 @@ export function observeRouteCapture(route) {
 }
 
 /**
+ * runCapturePipelineForSwap — the routing layer's LIVE-FLOW hook (the wiring
+ * the engine was missing). Call it right after a route is quoted: pass the
+ * same-chain cross-venue quotes the routing layer already holds (buyQuotes =
+ * X→Y across venues, sellQuotes = Y→X across venues), or a multi-hop `route`
+ * whose legs carry per-venue quotes. It runs the gap detection, and when a
+ * capture is detected it RECORDS the drop-as-is intent in the capture ledger
+ * and ROUTES the accumulated pile through the batch-sweep planner.
+ *
+ * 🔴 READ-ONLY ON THE USER'S MONEY PATH: it reads quote objects, records
+ * INTENT, and returns plans — it constructs no user transaction, holds no
+ * keys, and NEVER throws (fail-closed: any failure returns { ok:false } and
+ * is logged; the user's swap is never jeopardized for a capture). The capture
+ * is the SPREAD across venues, never the user's own funds.
+ *
+ * 🔴 KILL SWITCH: the gate is MEV_CAPTURE_ENABLED (captureGate.js). Armed →
+ * real detection records + sweep plan; unarmed → the same value recorded as
+ * sandbox measurement (the non-capture fallback). Even armed, every sweep
+ * plan is executable:false (signable artifacts only — no autonomous
+ * broadcast at any flag value).
+ *
+ * @param {object} args see runCapturePipeline (src/lib/mev/capturePipeline.js)
+ * @returns {object} the pipeline result { ok, armed, mode, detection…,
+ *   records, ledgerState, sweep, report }
+ */
+export function runCapturePipelineForSwap(args) {
+  return runCapturePipeline(args);
+}
+
+/**
  * planCaptureRouteJourney — the multi-hop capture-route CONSTRUCTOR
  * (dead-gated). Folds composeRoute over an ordered list of per-leg ROUTES
  * (one existing planner route per hop — e.g. the optimal sub-path the
@@ -1002,6 +1035,9 @@ export const RoutePlanner = Object.freeze({
   observeCaptureForSwap,
   observeRouteCapture,
   planCaptureRouteJourney,
+  runCapturePipelineForSwap,
+  createCapturePipeline,
+  getLiveCaptureSession,
   capturePayoutForChain,
   dropAsIsRecords,
 });
@@ -1009,6 +1045,11 @@ export const RoutePlanner = Object.freeze({
 // Named re-exports of the payout/drop-as-is wiring (the routing-layer seam
 // of the treasury design — docs/MEV-PAYOUT.md): capturePayoutForChain gives
 // the drop-as-is destination for a chain; dropAsIsRecords turns a scan
-// result into the captureLedger record drafts (measurement first — gated
-// OFF by default; recording moves no funds).
+// result into the captureLedger record drafts (measurement first; recording
+// moves no funds).
 export { capturePayoutForChain, dropAsIsRecords };
+
+// Named re-exports of the live-flow PIPELINE (quote → detect → record →
+// sweep-plan) so the engine facade + the console wire capture through one
+// seam. Fail-closed + kill-switchable (MEV_CAPTURE_ENABLED).
+export { runCapturePipeline, createCapturePipeline, getLiveCaptureSession };

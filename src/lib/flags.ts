@@ -183,8 +183,12 @@ export const WARP_LIVE_SEND: boolean = flags.WARP_LIVE_SEND;
 /**
  * MEV_CAPTURE_ENABLED — env-driven gate for the MEV/price-gap CAPTURE
  * ENGINE (the same-chain cross-DEX price-gap detector — src/lib/mev/).
- * DEFAULT: false, always, everywhere except a branch whose build pins it
- * true (vite.config.js MEV_ARMED_BRANCHES — mirrors WARP_LIVE_SEND).
+ * DEFAULT: false when the env is unset (the safety default — this is what
+ * `node --test` sees, so the unit suite stays deterministic and the
+ * sandbox/measurement fallback holds). A REAL build (vite.config.js) PINS it
+ * TRUE by default (the capture engine is the revenue path — 2026-09-27
+ * activation) with an instant env KILL SWITCH (MEV_CAPTURE_ENABLED=false /
+ * VITE_MEV_CAPTURE_ENABLED=false overrides win).
  *
  * WHAT THE GATE MEANS (read src/lib/mev/captureGate.js): while false the
  * detector RUNS (read-only quote observation + gap math) and the engine
