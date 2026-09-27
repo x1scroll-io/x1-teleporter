@@ -165,16 +165,24 @@ export function isRangoChain(chain) {
 /**
  * The LONG-TAIL source chains (2026-09-26 — the ChangeNOW rail): the sources
  * the DEX rails CANNOT serve — the privacy coins (XMR/ZEC/DASH; a DEX cannot
- * route them) and chains with no native rail wired (ADA/ATOM/NEAR/BCH). They
- * are NOT DEX-routable, so they FALL THROUGH to ChangeNOW (RAIL.INSTANTSWAP —
- * deposit-address execution: the user sends from their own external wallet; the
- * console never signs). This is the "any token anywhere" tail the DEX rails
- * leave behind — ChangeNOW is their SERVING rail, not a fallback behind a DEX.
+ * route them) and chains with no native rail wired (ADA/ATOM/NEAR/BCH + the
+ * second wave: ALGO/XTZ/FIL/HBAR/VET/THETA/OSMO). They are NOT DEX-routable,
+ * so they FALL THROUGH to ChangeNOW (RAIL.INSTANTSWAP — deposit-address
+ * execution: the user sends from their own external wallet; the console never
+ * signs). This is the "any token anywhere" tail the DEX rails leave behind —
+ * ChangeNOW is their SERVING rail, not a fallback behind a DEX.
  *
  * VERIFIED LIVE against ChangeNOW's /v1/currencies + /v2/exchange/estimated-amount
  * (2026-09-26): xmr, ada, atom, near, zec, dash and bch are all listed and
- * quotable. Polkadot (DOT) is NOT supported by ChangeNOW — it stays
- * unofferable (COVERAGE_MATRIX.polkadot = []) and is deliberately absent here.
+ * quotable. SECOND WAVE (2026-09-27) VERIFIED LIVE against ChangeNOW's
+ * /v1/currencies + /v2/exchange/currencies (flow=standard): algo, xtz, fil,
+ * hbar, vet, theta and osmo are all listed; their NATIVE network equals the
+ * ticker (ChangeNOW keys the native token to the ticker — e.g. fromNetwork="algo"
+ * for Algorand, NOT "algorand"). XTZ/FIL/VET also carry a `bsc` WRAPPED
+ * variant — pinning fromNetwork is what keeps the rail off the wrong token.
+ * Polkadot (DOT) is NOT supported as a native source by ChangeNOW (only bsc /
+ * assethub WRAPPED rows exist, no native DOT) — it stays unofferable
+ * (COVERAGE_MATRIX.polkadot = []) and is deliberately absent here.
  *
  *   `ticker`   = the ChangeNOW `fromCurrency` (its canonical code),
  *   `network`  = the `fromNetwork` query/body param. These are single-network
@@ -194,6 +202,17 @@ export const LONGTAIL_CHAINS = Object.freeze({
   zec:  { id: "zec",  name: "Zcash",        glyph: "ⓩ", asset: "ZEC",  decimals: 8,  ticker: "zec",  network: "zec",  family: "zcash" },
   dash: { id: "dash", name: "Dash",         glyph: "Đ", asset: "DASH", decimals: 8,  ticker: "dash", network: "dash", family: "dash" },
   bch:  { id: "bch",  name: "Bitcoin Cash", glyph: "Ƀ", asset: "BCH",  decimals: 8,  ticker: "bch",  network: "bch",  family: "bitcoincash" },
+  // ── Second wave (2026-09-27): verified live against ChangeNOW's currencies
+  //    API. Each is single-network and the NATIVE network string equals the
+  //    ticker; XTZ/FIL/VET also have a bsc WRAPPED variant, so the pinned
+  //    network is what prevents a cross to the wrong asset.
+  algo: { id: "algo", name: "Algorand",     glyph: "Ⓐ", asset: "ALGO",  decimals: 6,  ticker: "algo",  network: "algo",  family: "algorand" },
+  xtz:  { id: "xtz",  name: "Tezos",        glyph: "ꜩ", asset: "XTZ",   decimals: 6,  ticker: "xtz",   network: "xtz",   family: "tezos" },
+  fil:  { id: "fil",  name: "Filecoin",     glyph: "⨎", asset: "FIL",   decimals: 18, ticker: "fil",   network: "fil",   family: "filecoin" },
+  hbar: { id: "hbar", name: "Hedera",       glyph: "ℏ", asset: "HBAR",  decimals: 8,  ticker: "hbar",  network: "hbar",  family: "hedera" },
+  vet:  { id: "vet",  name: "VeChain",      glyph: "Ⓥ", asset: "VET",   decimals: 18, ticker: "vet",   network: "vet",   family: "vechain" },
+  theta:{ id: "theta",name: "Theta",        glyph: "θ", asset: "THETA", decimals: 18, ticker: "theta", network: "theta", family: "theta" },
+  osmo: { id: "osmo", name: "Osmosis",      glyph: "Ⓞ", asset: "OSMO",  decimals: 6,  ticker: "osmo",  network: "osmo",  family: "osmosis" },
 });
 
 /** The long-tail chain ids, in display order. */
@@ -222,9 +241,13 @@ export function isLongtailChain(chain) {
  *       /v2/exchange/estimated-amount; NONE of them is DEX-routable (privacy
  *       coins can't go through a DEX; ADA/ATOM/NEAR/BCH have no DEX rail
  *       wired). ADA was NO-RAIL before ChangeNOW; it is a ChangeNOW source now.)
+ *   algo/xtz/fil/hbar/vet/theta/osmo → INSTANTSWAP (the long-tail SECOND
+ *       wave, 2026-09-27 — verified live via ChangeNOW /v1/currencies +
+ *       /v2/exchange/currencies; native network == ticker. XTZ/FIL/VET also
+ *       have a bsc-wrapped row — the pinned network keeps the native token.)
  *   polkadot         → NO RAIL             (Rango ❌; THORChain ❌; XFlows has
- *       no Polkadot row at all; ChangeNOW does NOT list DOT). Do NOT list as
- *       a console source.
+ *       no Polkadot row at all; ChangeNOW has no NATIVE DOT — only bsc/
+ *       assethub WRAPPED rows). Do NOT list as a console source.
  *   evm stables/x1    → LiFi/Warp          (unchanged; Wanchain EVM routes
  *       land EVM/Wanchain-L1 — never Solana/X1 — so no overlap)
  *
@@ -270,14 +293,25 @@ export const COVERAGE_MATRIX = Object.freeze({
   zec: Object.freeze([RAIL.INSTANTSWAP]),
   dash: Object.freeze([RAIL.INSTANTSWAP]),
   bch: Object.freeze([RAIL.INSTANTSWAP]),
-  // Polkadot: NO RAIL — ChangeNOW does not list DOT; nothing else serves it.
+  // Second wave (2026-09-27) — same long-tail group: verified live listed by
+  // ChangeNOW (native network, no DEX rail wired) → ChangeNOW serves.
+  algo: Object.freeze([RAIL.INSTANTSWAP]),
+  xtz: Object.freeze([RAIL.INSTANTSWAP]),
+  fil: Object.freeze([RAIL.INSTANTSWAP]),
+  hbar: Object.freeze([RAIL.INSTANTSWAP]),
+  vet: Object.freeze([RAIL.INSTANTSWAP]),
+  theta: Object.freeze([RAIL.INSTANTSWAP]),
+  osmo: Object.freeze([RAIL.INSTANTSWAP]),
+  // Polkadot: NO RAIL — ChangeNOW has no NATIVE DOT (only bsc/assethub
+  // WRAPPED rows); nothing else serves it.
   polkadot: Object.freeze([]),
 });
 
 /** The source-chain picker's full option list: EVM chains (LiFi/Warp stables
  *  + the native gas tokens when the engine grows them), the native chains
  *  (THORChain rail), the LONG-TAIL chains (ChangeNOW rail — XMR/ADA/ATOM/NEAR/
- *  ZEC/DASH/BCH), then X1 (the reverse off-ramp source). */
+ *  ZEC/DASH/BCH + ALGO/XTZ/FIL/HBAR/VET/THETA/OSMO), then X1 (the reverse
+ *  off-ramp source). */
 export const SOURCE_CHAINS = Object.freeze([...EVM_CHAINS, ...NATIVE_CHAIN_IDS, ...LONGTAIL_CHAIN_IDS, "x1"]);
 
 /** Human chain name for any source/destination option. */
@@ -315,9 +349,10 @@ export function tokensOn(chain) {
  *     Wanchain-family rows (COVERAGE_MATRIX).
  *   - Rango-native chains (SUI/TRON — RANGO_CHAINS): Rango only (their
  *     serving rail; THORChain can't serve them).
- *   - Long-tail chains (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH — LONGTAIL_CHAINS):
- *     ChangeNOW (RAIL.INSTANTSWAP, deposit-address) — they are NOT
- *     DEX-routable, so ChangeNOW is their serving rail.
+ *   - Long-tail chains (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH + ALGO/XTZ/FIL/HBAR/
+ *     VET/THETA/OSMO — LONGTAIL_CHAINS): ChangeNOW (RAIL.INSTANTSWAP,
+ *     deposit-address) — they are NOT DEX-routable, so ChangeNOW is their
+ *     serving rail.
  *   - EVM/X1 sources: the LiFi/Warp rail (unchanged).
  *
  * @param {{fromChain: string}} route
@@ -343,11 +378,11 @@ export function railCandidates({ fromChain }) {
   if (isRangoChain(fromChain)) {
     return [{ rail: RAIL.INSTANTSWAP, execution: EXECUTION.DEPOSIT_ADDRESS }];
   }
-  // Long-tail chains (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH): NOT DEX-routable, so
-  // ChangeNOW is their SERVING rail (deposit-address execution — the send is
-  // out-of-band from the user's own external wallet). The COVERAGE_MATRIX
-  // already lists them as [INSTANTSWAP]; this branch keeps the serving rail
-  // explicit if the matrix ever drifts.
+  // Long-tail chains (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH + ALGO/XTZ/FIL/HBAR/VET/
+  // THETA/OSMO): NOT DEX-routable, so ChangeNOW is their SERVING rail
+  // (deposit-address execution — the send is out-of-band from the user's own
+  // external wallet). The COVERAGE_MATRIX already lists them as [INSTANTSWAP];
+  // this branch keeps the serving rail explicit if the matrix ever drifts.
   if (isLongtailChain(fromChain)) {
     return [{ rail: RAIL.INSTANTSWAP, execution: EXECUTION.DEPOSIT_ADDRESS }];
   }

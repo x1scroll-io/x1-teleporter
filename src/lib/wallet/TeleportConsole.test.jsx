@@ -340,7 +340,7 @@ test("unified source union: the long-tail coins (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH)
   const { container, unmount } = renderConsole({});
   try {
     const fromOptions = [...container.querySelector('[data-testid="from-chain"]').options].map((o) => o.value);
-    for (const c of ["xmr", "ada", "atom", "near", "zec", "dash", "bch"]) {
+    for (const c of ["xmr", "ada", "atom", "near", "zec", "dash", "bch", "algo", "xtz", "fil", "hbar", "vet", "theta", "osmo"]) {
       assert.ok(fromOptions.includes(c), `source picker lists long-tail ${c}`);
     }
     assert.ok(!fromOptions.includes("polkadot"), "DOT is NOT offered (ChangeNOW does not support it)");
@@ -362,6 +362,18 @@ test("unified source union: the long-tail coins (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH)
     setInput(container.querySelector('[data-testid="amount"]'), "0.5");
     const strip = container.querySelector('[data-testid="quote-strip"]');
     assert.ok(strip.textContent.includes("DEPOSIT ROUTE READY"), "the long-tail deposit route is announced");
+    // Second-wave long-tail coins lock the SAME deposit route (single asset,
+    // dest X1, no land-as picker, rail never named).
+    for (const [chain, asset] of [["algo", "ALGO"], ["xtz", "XTZ"], ["fil", "FIL"], ["hbar", "HBAR"], ["vet", "VET"], ["theta", "THETA"], ["osmo", "OSMO"]]) {
+      setSelect(container.querySelector('[data-testid="from-chain"]'), chain);
+      assert.equal(container.querySelector('[data-testid="from-chain"]').value, chain);
+      const twToken = container.querySelector('[data-testid="token"]');
+      assert.equal(twToken.value, asset, `${chain} carries its one asset`);
+      assert.equal(twToken.disabled, true, `${chain}: single asset is not a picker`);
+      assert.equal(container.querySelector('[data-testid="to-chain"]').value, "x1", `${chain}: dest locks to X1`);
+      assert.equal(container.querySelector('[data-testid="x1-token"]'), null, `${chain}: no land-as picker`);
+      assert.ok(container.querySelector('[data-testid="to-slot"]').textContent.includes("arrives as USDC.x on X1"), `${chain}: fixed land-as readout`);
+    }
     // And back: EVM source restores the LiFi/Warp surface.
     setSelect(container.querySelector('[data-testid="from-chain"]'), "eth");
     assert.equal(container.querySelector('[data-testid="token"]').value, "USDC");

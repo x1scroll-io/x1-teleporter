@@ -58,6 +58,14 @@ test("changenow: the source identity pins the ticker AND the network (fromCurren
     zec: { fromCurrency: "zec", fromNetwork: "zec", asset: "ZEC" },
     dash: { fromCurrency: "dash", fromNetwork: "dash", asset: "DASH" },
     bch: { fromCurrency: "bch", fromNetwork: "bch", asset: "BCH" },
+    // Second wave (2026-09-27) — verified live: native network == ticker.
+    algo: { fromCurrency: "algo", fromNetwork: "algo", asset: "ALGO" },
+    xtz: { fromCurrency: "xtz", fromNetwork: "xtz", asset: "XTZ" },
+    fil: { fromCurrency: "fil", fromNetwork: "fil", asset: "FIL" },
+    hbar: { fromCurrency: "hbar", fromNetwork: "hbar", asset: "HBAR" },
+    vet: { fromCurrency: "vet", fromNetwork: "vet", asset: "VET" },
+    theta: { fromCurrency: "theta", fromNetwork: "theta", asset: "THETA" },
+    osmo: { fromCurrency: "osmo", fromNetwork: "osmo", asset: "OSMO" },
   })) {
     const src = changeNowSourceFor(chain);
     assert.ok(src, `${chain} has a ChangeNOW source identity`);
@@ -70,6 +78,32 @@ test("changenow: the source identity pins the ticker AND the network (fromCurren
   for (const c of ["eth", "btc", "sui", "x1", "polkadot"]) {
     assert.equal(changeNowSourceFor(c), null, `${c} is not a ChangeNOW long-tail source`);
   }
+});
+
+test("changenow: the SECOND-WAVE long-tail coins pin their native network and DOT has no identity (2026-09-27)", () => {
+  // Each second-wave coin is single-network with network == ticker; the query
+  // pins BOTH so a same-ticker wrapped variant (e.g. fil on bsc) can never
+  // cross. DOT is not a ChangeNOW source here at all (fail-closed null).
+  for (const c of ["algo", "xtz", "fil", "hbar", "vet", "theta", "osmo"]) {
+    const src = changeNowSourceFor(c);
+    assert.ok(src, `${c} has a ChangeNOW source identity`);
+    assert.equal(src.fromCurrency, c);
+    assert.equal(src.fromNetwork, c, `${c}: fromNetwork pinned (native network == ticker)`);
+    const built = buildChangeNowQuoteQuery({ fromChain: c, toCurrency: "usdc", toNetwork: "sol", amount: 2 });
+    assert.ok(built, `${c}: quote query builds`);
+    assert.equal(built.qs.get("fromCurrency"), c);
+    assert.equal(built.qs.get("fromNetwork"), c, `${c}: fromNetwork always sent`);
+    assert.equal(built.qs.get("toCurrency"), "usdc");
+    assert.equal(built.qs.get("toNetwork"), "sol");
+    assert.equal(built.qs.get("fromAmount"), "2");
+  }
+  assert.equal(changeNowSourceFor("polkadot"), null, "polkadot is NOT a ChangeNOW source");
+  assert.equal(buildChangeNowQuoteQuery({ fromChain: "polkadot", toCurrency: "usdc", amount: 1 }), null);
+  assert.equal(
+    buildChangeNowCreateBody({ fromChain: "polkadot", toCurrency: "usdc", amount: 1, address: "a" }),
+    null,
+    "DOT: create body is null (fail-closed)",
+  );
 });
 
 test("changenow: the quote query sends fromCurrency + fromNetwork + toCurrency + fromAmount (and toNetwork when given)", () => {
