@@ -640,7 +640,13 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         token: reverseToken,       // "USDC.x" | "wSOL.X" — the burn's mint/decimals/fee account
       });
       if (!res.success) {
-        if (res.sim?.simUnavailable) {
+        if (res.stage === "destination-minimum") {
+          // F8 fail-closed: the net (burn − Warp fee) can't clear the
+          // destination minimum, so the runner REFUSED before burning —
+          // nothing was built, signed, or sent. Surface the actionable reason
+          // (never a generic "Burn sim failed: undefined").
+          setError(res.reason || "Amount is below the destination minimum after the Warp fee — nothing was sent.");
+        } else if (res.sim?.simUnavailable) {
           setError(`Burn sim couldn't run (RPC: ${res.sim?.rpcError || "unknown"}) — send blocked. Retry when the RPC is reachable.`);
         } else {
           const logs = res.sim?.logs || [];
@@ -703,7 +709,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         // attempt, never a loop (the step2Busy guard serializes re-entry).
         await executeReverseStage2();
       } else if (res?.terminal) {
-        setError("The Warp release failed terminally — your USDC.x is safe on X1. Contact support.");
+        // The Warp side reported a PERMANENT failure (e.g. the release
+        // reverted BelowMinimum). Distinguish it from "still pending" (the
+        // timedOut branch below): the burn is on X1, the release can never
+        // land, so go straight to an honest handoff — never leave the user
+        // waiting on a release that will not come. The reason from the status
+        // payload rides along when present.
+        setError(
+          "The Warp release failed permanently — your " + (reverseToken === "wSOL.X" ? "WSOL.X" : "USDC.x") +
+          " is safe on X1. Contact support." + (res.reason ? ` (${res.reason})` : ""),
+        );
         setHandoffReason("terminal");
         setPhase("handoff");
       } else {

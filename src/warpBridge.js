@@ -1842,7 +1842,10 @@ export async function fetchWarpLimits(api = WARP_API.mainnet) {
 // `api` is the ORIGIN-RELATIVE base ("" = same origin); kept as a param so
 // tests can inject a base or a fake fetch. The completion-detection logic
 // below (nested `transaction` shape, destTxSig, executed/complete/success,
-// fail/terminal) is unchanged from fix/warp-poll-desttxsig (#34).
+// fail/terminal) is unchanged from fix/warp-poll-desttxsig (#34), EXTENDED to
+// distinguish a PERMANENT failure (a terminal status, or an explicit error in
+// the payload — e.g. the release's `BelowMinimum(6000)` revert) from a release
+// that is merely still PENDING (the timedOut return, funds safe).
 export async function pollWarpStatus(sourceSig, { api = "", from = "sol", onUpdate = () => {}, maxMs = 180000, intervalMs = 4000 } = {}) {
   const start = Date.now();
   let sawSigs = false;
@@ -1874,13 +1877,28 @@ export async function pollWarpStatus(sourceSig, { api = "", from = "sol", onUpda
         const t = tj.transaction && typeof tj.transaction === "object" ? tj.transaction : tj;
         const dest = t.destinationTxSignature || t.destination_tx || t.destTxSig || t.destTx;
         const final = (t.status || t.executionStatus || "").toString().toLowerCase();
+        // Permanent-failure detection (runs BEFORE the completion check so a
+        // failed release that still carries a stale status can never be read
+        // as complete). The release reverts BridgeInV2 `BelowMinimum(6000)`
+        // when the net (burn − Warp fee) lands under the destination token
+        // minimum — a FOREVER failure the reverse must never wait on. Read
+        // the explicit error fields on both the nested and top-level shapes.
+        const errText = [t.error, t.errorCode, t.err, t.reason, tj.error, tj.errorCode, tj.reason, tj.message]
+          .filter((v) => v !== undefined && v !== null && String(v) !== "" && String(v).toLowerCase() !== "null")
+          .join(" ")
+          .toLowerCase();
+        const belowMinimum = /belowminimum|below[_ -]?minimum/.test(errText) || /(^|\D)6000(\D|$)/.test(errText);
+        const failedFinal = final.includes("fail") || final.includes("terminal") || final.includes("reject");
+        if (belowMinimum || failedFinal || /belowminimum|below[_ -]?minimum/.test(final)) {
+          const reason = belowMinimum
+            ? "the release reverted BelowMinimum (net below the destination minimum)"
+            : (errText || final || "the Warp bridge reported a terminal failure");
+          onUpdate("failed", { raw: tj, reason, permanent: true });
+          return { ok: false, terminal: true, permanent: true, reason, raw: tj };
+        }
         if (dest || final.includes("complete") || final.includes("executed") || final.includes("success")) {
           onUpdate("complete", { destinationTx: dest, raw: tj });
           return { ok: true, destinationTx: dest, raw: tj };
-        }
-        if (final.includes("fail") || final.includes("terminal") || final.includes("reject")) {
-          onUpdate("failed", { raw: tj });
-          return { ok: false, terminal: true, raw: tj };
         }
       } else if (tresp.status === 404) {
         // Before the relay detects the burn the status endpoint 404s — same

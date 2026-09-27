@@ -1200,6 +1200,55 @@ test("pollWarpStatus: a pending status does NOT complete early — keeps polling
   } finally { mock.restore(); }
 });
 
+test("pollWarpStatus: a PERMANENT failure (BelowMinimum revert) is terminal — distinguished from pending", async () => {
+  // The reverse release reverts BridgeInV2 `BelowMinimum(6000)` when the net
+  // lands under the destination minimum — a FOREVER failure. The poller must
+  // return terminal (never keep waiting) and carry a reason, NOT a timeout.
+  const mock = mockWarpFetch({
+    statusBody: { transaction: { status: "failed", error: "BridgeInV2: BelowMinimum", errorCode: 6000 } },
+  });
+  try {
+    const stages = [];
+    const res = await pollWarpStatus(POLL_SIG, {
+      from: "x1", intervalMs: 5, maxMs: 2000,
+      onUpdate: (s, d) => stages.push([s, d]),
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.terminal, true, "terminal failure");
+    assert.equal(res.permanent, true);
+    assert.match(res.reason, /BelowMinimum/i);
+    assert.notEqual(res.timedOut, true, "a permanent failure is NOT a timeout/pending");
+    const failed = stages.find(([s]) => s === "failed");
+    assert.ok(failed, "failed stage fired");
+    assert.equal(failed[1].permanent, true);
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: an explicit error field (no fail status) is still terminal, never read as pending", async () => {
+  // Some Warp shapes carry the error beside a non-terminal status. The
+  // explicit error (here a BelowMinimum marker) must still trip terminal.
+  const mock = mockWarpFetch({
+    statusBody: { transaction: { status: "relaying" }, error: "release reverted: below minimum (6000)" },
+  });
+  try {
+    const res = await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 2000 });
+    assert.equal(res.ok, false);
+    assert.equal(res.terminal, true);
+    assert.equal(res.permanent, true);
+    assert.notEqual(res.timedOut, true);
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: a completed release is STILL complete even though error fields are absent (no false terminal)", async () => {
+  const mock = mockWarpFetch({ statusBody: { transaction: { status: "executed", destTxSig: DEST_SIG } } });
+  try {
+    const res = await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 2000 });
+    assert.equal(res.ok, true);
+    assert.equal(res.destinationTx, DEST_SIG);
+    assert.equal(res.terminal, undefined);
+  } finally { mock.restore(); }
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 //  WSOL / wSOL.X — the SOL rail (feat/wsol-path). Ground truth: live Warp
 //  config (api.bridge.mainnet.x1.xyz/config, Sep 2026): wSOL.X is a WRAPPED

@@ -9,18 +9,37 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveFlags, THORCHAIN, ANYSWAP, REVERSE_ENABLED, LEGACY_UI, selectRootCard } from "./flags.ts";
 
-test("flags default to false when no env vars are set", () => {
+test("flags default to false when no env vars are set (REVERSE_ENABLED is the exception — default ON)", () => {
   // Singleton values (resolved from the real environment at module load —
   // which has no flags set under node --test, so this exercises the default).
   assert.equal(THORCHAIN, false);
   assert.equal(ANYSWAP, false);
-  assert.equal(REVERSE_ENABLED, false);
+  // The X1 → EVM off-ramp ships ENABLED (kill-switch model — see flags.ts).
+  assert.equal(REVERSE_ENABLED, true);
 
   // Explicit empty env: same result via the pure resolver.
   const flags = resolveFlags({});
   assert.equal(flags.THORCHAIN, false);
   assert.equal(flags.ANYSWAP, false);
-  assert.equal(flags.REVERSE_ENABLED, false);
+  assert.equal(flags.REVERSE_ENABLED, true);
+});
+
+test("REVERSE_ENABLED: default ON; env is a KILL SWITCH (false/0 disables, true/1 keeps on)", () => {
+  // Unset → enabled (the off-ramp ships on).
+  assert.equal(resolveFlags({}).REVERSE_ENABLED, true);
+  assert.equal(resolveFlags({}).REVERSE_ENABLED, true, "unset defaults ON");
+  // Explicit disable via either name.
+  assert.equal(resolveFlags({ VITE_FLAG_REVERSE_ENABLED: "false" }).REVERSE_ENABLED, false);
+  assert.equal(resolveFlags({ VITE_FLAG_REVERSE_ENABLED: "0" }).REVERSE_ENABLED, false);
+  assert.equal(resolveFlags({ NEXT_PUBLIC_FLAG_REVERSE_ENABLED: "false" }).REVERSE_ENABLED, false);
+  // Explicit enable stays on.
+  assert.equal(resolveFlags({ VITE_FLAG_REVERSE_ENABLED: "true" }).REVERSE_ENABLED, true);
+  assert.equal(resolveFlags({ VITE_FLAG_REVERSE_ENABLED: "1" }).REVERSE_ENABLED, true);
+  // NEXT_PUBLIC_ wins over VITE_ (same precedence as every other flag).
+  assert.equal(
+    resolveFlags({ NEXT_PUBLIC_FLAG_REVERSE_ENABLED: "false", VITE_FLAG_REVERSE_ENABLED: "true" }).REVERSE_ENABLED,
+    false,
+  );
 });
 
 test("NEXT_PUBLIC_ flag name takes precedence over VITE_ name", () => {

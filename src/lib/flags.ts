@@ -48,10 +48,26 @@ export function resolveFlags(env: Env): {
     return false;
   };
 
+  // onByDefault — the KILL-SWITCH read for flags whose shipped default is ON.
+  // First present name wins (same precedence rule as `on`); a present value
+  // of "false"/"0" turns the flag OFF, anything else (incl. "true"/"1") turns
+  // it ON, and an UNSET env resolves to the default (true). Used by
+  // REVERSE_ENABLED: the X1 → EVM off-ramp ships enabled, but an operator can
+  // set VITE_FLAG_REVERSE_ENABLED=false to disable it without a code change.
+  const onByDefault = (names: string[]): boolean => {
+    for (const name of names) {
+      const raw = env[name];
+      if (raw !== undefined && raw !== "") {
+        return raw.toLowerCase() !== "false" && raw !== "0";
+      }
+    }
+    return true;
+  };
+
   return {
     THORCHAIN: on(["NEXT_PUBLIC_FLAG_THORCHAIN", "VITE_FLAG_THORCHAIN"]),
     ANYSWAP: on(["NEXT_PUBLIC_FLAG_ANYSWAP", "VITE_FLAG_ANYSWAP"]),
-    REVERSE_ENABLED: on(["NEXT_PUBLIC_FLAG_REVERSE_ENABLED", "VITE_FLAG_REVERSE_ENABLED"]),
+    REVERSE_ENABLED: onByDefault(["NEXT_PUBLIC_FLAG_REVERSE_ENABLED", "VITE_FLAG_REVERSE_ENABLED"]),
     WARP_LIVE_SEND: on(["NEXT_PUBLIC_FLAG_WARP_LIVE_SEND", "VITE_WARP_LIVE_SEND"]),
     MEV_CAPTURE_ENABLED: on(["NEXT_PUBLIC_FLAG_MEV_CAPTURE_ENABLED", "VITE_MEV_CAPTURE_ENABLED"]),
     LEGACY_UI: on(["NEXT_PUBLIC_FLAG_LEGACY_UI", "VITE_FLAG_LEGACY_UI"]),
@@ -131,22 +147,35 @@ export const THORCHAIN: boolean = flags.THORCHAIN;
 export const ANYSWAP: boolean = flags.ANYSWAP;
 
 /**
- * Whether the X1 → Solana reverse (off-ramp) route is enabled in the UI.
- * Default: false.
+ * Whether the X1 → EVM reverse (off-ramp) route is enabled in the UI.
  *
- * Step 1.2: the reverse self-relay was REMOVED from the user-facing path —
- * the route was dead at step one (fee ATA missing on X1) and a partial fix
- * would let burns go out with no working completion behind them. While this
- * flag is false, the route builder rejects every X1-source route, so no
- * X1 → Solana (x1_reverse) or X1 → onward (x1_onward) route can be
- * constructed by the UI. Do NOT flip this on without a verified, working
- * completion path for X1 burns.
+ * DEFAULT: TRUE (kill-switch model). The off-ramp is COMPLETE and
+ * fail-closed end to end — the X1 Warp burn (fee-wallet ATA bundled, 0.5%
+ * skim once), the submitter release-wait (permanent-fail vs pending
+ * distinguished), and the LiFi Solana→EVM onward leg that only fires after
+ * the Solana release lands. The destination-minimum preflight REFUSES before
+ * burning so a doomed reverse never strands funds.
+ *
+ * HISTORY (why this used to default false): at the Step 1.2 cutover the
+ * reverse self-relay was removed and the route was genuinely DEAD at step one
+ * (fee ATA missing on X1) — a partial fix would have let burns go out with no
+ * working completion behind them, so the route builder rejected every
+ * X1-source route. That completion path now exists (routing-engine Phase 2:
+ * x1-burn → release-wait → lifi-solana-out, proven by the golden reverse
+ * oracle), so the gate is un-gated. The flag survives as a KILL SWITCH: set
+ * NEXT_PUBLIC_FLAG_REVERSE_ENABLED=false (or VITE_FLAG_REVERSE_ENABLED=false)
+ * to disable every X1-source route without a code change.
+ *
+ * While this flag is false, `determineRoute` returns "direct" for every
+ * X1-source pair, so no x1_reverse / x1_onward route can be constructed by
+ * the UI (fail-closed).
  */
 export const REVERSE_ENABLED: boolean = flags.REVERSE_ENABLED;
 
 /**
  * WARP_LIVE_SEND — env-driven gate for REAL Warp bridge sends (forward + reverse).
- * MUST NEVER be true without a working completion path (step 1.2). Default: false.
+ * Default: false — real broadcasts stay OPERATOR-ARMED even though the reverse
+ * completion path is now complete (see REVERSE_ENABLED).
  * Set VITE_WARP_LIVE_SEND=true in Vercel Preview only when the live hop is ready.
  */
 export const WARP_LIVE_SEND: boolean = flags.WARP_LIVE_SEND;
@@ -168,6 +197,11 @@ export const WARP_LIVE_SEND: boolean = flags.WARP_LIVE_SEND;
  * broadcast exists at any flag value. The live arm is Mr. Esters' alone.
  */
 export const MEV_CAPTURE_ENABLED: boolean = flags.MEV_CAPTURE_ENABLED;
+// NOTE: the value above is resolved from the env at module load. Under the
+// test runner the env is unset → false (safety default). A real Vite build
+// pins import.meta.env.VITE_MEV_CAPTURE_ENABLED to "true" (vite.config.js)
+// unless an explicit env override disarms it — so the gate arms by default
+// in production and can be killed instantly without a code change.
 
 /**
  * Whether the app mounts the legacy v1 Teleporter card instead of the v2
