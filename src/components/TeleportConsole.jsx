@@ -70,6 +70,10 @@ import {
 } from "../lib/teleportRail.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
+// The F8 reverse pre-flight (pure): refuse a burn whose NET after the Warp fee
+// can't clear the destination minimum, so the console WARNS up-front + disables
+// TELEPORT instead of only failing at burn time. Same math the runner burns.
+import { planReverseRelease } from "../warpBridge.js";
 import { SignerResolver, RoutePlanner, runForwardEvmStage, getLiveCaptureSession } from "../engine/index.js";
 import { SimulationError } from "../lib/simulateTx.js";
 import { LiFiApprovalValidationError } from "../lib/lifiApproval.js";
@@ -823,6 +827,14 @@ export default function TeleportConsole({
       if (!solReady) { setError("Connect your Solana/X1 wallet to get a quote"); setPhase("idle"); return; }
       if (!evmReady) { setError("Connect your EVM wallet to get a quote"); setPhase("idle"); return; }
       const legs = computeReverseLegs({ amount: amt, token });
+      // F8 PRE-FLIGHT (pure, fail-closed): the guardians RELEASE
+      // `net = burn − Warp fee` on the destination chain, which enforces a
+      // minimum — a net below it can't be released. Run the SAME check the
+      // runner runs (burnHuman = the post-skim bridge gross), so a tiny
+      // X1→EVM amount gets an inline ⚠️ warning + a DISABLED TELEPORT button
+      // instead of a normal quote that only blows up at burn time.
+      const minPlan = planReverseRelease({ burnHuman: legs.burnAmount, token });
+      const reverseMinReason = minPlan.ok ? null : minPlan.reason;
       const built = buildReverseLifiQuoteParams({
         to,
         toTokenSymbol: toToken,
@@ -842,7 +854,7 @@ export default function TeleportConsole({
           if (!(d?.error || d?.message) && d?.estimate?.toAmount) lifiData = d;
         }
         const derived = deriveReverseQuote({ data: lifiData, to, amount: amt, token, toToken });
-        setQuote({ amount: amt, to, toToken, ...derived, lifiData });
+        setQuote({ amount: amt, to, toToken, ...derived, lifiData, reverseMinReason });
         setRefreshLeft(QUOTE_REFRESH_SECONDS);
         setPhase("quoted");
         // LIVE-FLOW CAPTURE WIRING — observe the cross-venue gap on this
@@ -993,7 +1005,12 @@ export default function TeleportConsole({
         token,
       });
       if (!res.success) {
-        if (res.sim?.simUnavailable) {
+        if (res.stage === "destination-minimum") {
+          // F8: the burn would release a net below the destination minimum —
+          // nothing was built or burned. Surface the runner's honest reason
+          // (never the generic "Burn sim failed: undefined").
+          setError(res.reason || "amount below destination minimum after fee — increase the amount to proceed.");
+        } else if (res.sim?.simUnavailable) {
           setError(`Burn sim couldn't run (RPC: ${res.sim?.rpcError || "unknown"}) — send blocked. Retry when the RPC is reachable.`);
         } else {
           const logs = res.sim?.logs || [];
@@ -1195,6 +1212,27 @@ export default function TeleportConsole({
 
   const busy = phase === "bridging" || phase === "quoting" || step2Busy;
   const armed = phase === "quoted" && Boolean(quote);
+  // F8: the reverse pre-flight's honest reason (null when the net clears the
+  // destination minimum). When set, the console warns inline AND disarms
+  // TELEPORT — the fail-closed click-time check stays as the backstop.
+  const reverseMinReason = direction === "reverse" ? (quote?.reverseMinReason || null) : null;
+  const reverseMinBlocked = Boolean(reverseMinReason);
+  // Fee breakdown — network gas + total. DISPLAY-ONLY: the fee numbers above
+  // are untouched. Gas is a real USD figure only when LiFi reported it; else
+  // an honest "—" with an itemized total instead of a guessed number (the
+  // wallet's renderFeeBreakdown pattern).
+  const gasKnown = typeof quote?.gasUsd === "number" && Number.isFinite(quote.gasUsd);
+  const gasDisplay = gasKnown ? `$${quote.gasUsd.toFixed(2)}` : "—";
+  const totalDisplay = (() => {
+    if (!quote) return gasDisplay;
+    const parts = [quote.teleporterFeeUsd, quote.thirdPartyFeeUsd, gasKnown ? quote.gasUsd : null];
+    if (parts.every((v) => typeof v === "number" && Number.isFinite(v))) {
+      return `$${parts.reduce((a, b) => a + b, 0).toFixed(2)}`;
+    }
+    const comps = (quote.feeLines || []).map((l) => `$${Number(l.amountUsd).toFixed(2)}`);
+    comps.push(gasKnown ? gasDisplay : "network gas");
+    return comps.join(" + ");
+  })();
   const tickerDisplay = useTicker(quote?.net ?? 0, { active: phase === "quoted" });
   const routeReadout = direction === "reverse" ? `X1 → ${chainName(to)}` : `${chainName(from)} → X1`;
   // The destination token the DONE readout names — the native rail always
@@ -1333,6 +1371,14 @@ export default function TeleportConsole({
           <span className="tc-quote-val">${l.amountUsd.toFixed(2)}</span>
         </div>
       ))}
+      <div data-testid="fee-line-network-gas" className="tc-quote-row">
+        <span className="tc-quote-key">Network gas</span>
+        <span className="tc-quote-val">{gasDisplay}</span>
+      </div>
+      <div data-testid="fee-line-total" className="tc-quote-row tc-quote-total">
+        <span className="tc-quote-key">Total cost</span>
+        <span className="tc-quote-val">{totalDisplay}</span>
+      </div>
       <div className="tc-quote-row">
         <span className="tc-quote-key">Est. received</span>
         <span data-testid="you-receive" className="tc-quote-hi">≈ {tickerDisplay} {quote.recvToken} on {quote.recvChain}</span>
@@ -1347,6 +1393,11 @@ export default function TeleportConsole({
         <div className="tc-quote-row" data-testid="dest-address">
           <span className="tc-quote-key">To</span>
           <span className="tc-quote-val" title={evmSession.address}>{truncateAddress(evmSession.address)} ({CHAINS[quote?.to || to]?.name})</span>
+        </div>
+      )}
+      {reverseMinReason && (
+        <div className="tc-note tc-warn" data-testid="reverse-min-warning" style={{ color: "#f0b429" }}>
+          ⚠️ {reverseMinReason} — increase the amount to proceed.
         </div>
       )}
       {direction === "reverse" && !quote.lifiQuoted && (
@@ -1672,9 +1723,9 @@ export default function TeleportConsole({
                     <button
                       type="button"
                       data-testid="teleport-now"
-                      className={armed ? "tc-fire tc-fire-armed" : "tc-fire"}
+                      className={(armed && !reverseMinBlocked) ? "tc-fire tc-fire-armed" : "tc-fire"}
                       onClick={onFire}
-                      disabled={busy || !amount || !(parseFloat(amount) > 0)}
+                      disabled={busy || reverseMinBlocked || !amount || !(parseFloat(amount) > 0)}
                     >
                       {phase === "quoting"
                         ? "CALCULATING ROUTE…"

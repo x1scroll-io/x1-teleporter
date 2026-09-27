@@ -15,7 +15,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildLifiQuoteParams, deriveQuoteFromLifi } from "./teleportQuote.js";
+import { buildLifiQuoteParams, deriveQuoteFromLifi, deriveGasUsd } from "./teleportQuote.js";
 
 const EVM_ADDR = "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6";
 const SOL_ADDR = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
@@ -98,6 +98,31 @@ test("deriveQuoteFromLifi: fee lines from quoteFees — 0.5% skim (max $250) + W
 test("deriveQuoteFromLifi: malformed response throws (no silent NaN quote)", () => {
   assert.throws(() => deriveQuoteFromLifi({ data: {}, from: "eth", token: "USDC", amount: 100 }), /Malformed/);
   assert.throws(() => deriveQuoteFromLifi({ data: { estimate: {} }, from: "eth", token: "USDC", amount: 100 }), /Malformed/);
+});
+
+// ── NETWORK GAS (display-only) — the fee-breakdown's gas line ───────────────
+// LiFi reports the source-chain tx gas in estimate.gasCosts[]; deriveGasUsd
+// sums the USD figures and returns null when nothing usable is present (the
+// caller then renders an honest "—" + an itemized total, never a guess).
+
+test("deriveGasUsd: sums LiFi estimate.gasCosts[].amountUSD; null when absent/empty/unusable", () => {
+  assert.equal(deriveGasUsd({ estimate: { gasCosts: [{ amountUSD: "2.50" }] } }), 2.5);
+  assert.equal(deriveGasUsd({ estimate: { gasCosts: [{ amountUSD: "1.25" }, { amountUSD: "0.75" }] } }), 2.0);
+  assert.equal(deriveGasUsd({ estimate: {} }), null, "no gasCosts → null");
+  assert.equal(deriveGasUsd({ estimate: { gasCosts: [] } }), null, "empty array → null");
+  assert.equal(deriveGasUsd({}), null);
+  assert.equal(deriveGasUsd(null), null);
+  assert.equal(deriveGasUsd({ estimate: { gasCosts: [{ amountUSD: "nope" }] } }), null, "unparseable → null (no guessed number)");
+});
+
+test("deriveQuoteFromLifi: carries gasUsd through (network-gas display); null when the quote has no gasCosts", () => {
+  const withGas = deriveQuoteFromLifi({
+    data: { estimate: { toAmount: "99000000", gasCosts: [{ amountUSD: "3.10" }] } },
+    from: "eth", token: "USDC", amount: 100,
+  });
+  assert.equal(withGas.gasUsd, 3.1, "gas surfaced for the fee breakdown");
+  const noGas = deriveQuoteFromLifi({ data: { estimate: { toAmount: "99000000" } }, from: "eth", token: "USDC", amount: 100 });
+  assert.equal(noGas.gasUsd, null, "no gasCosts → null (the console shows \"—\")");
 });
 
 // ── FORWARD LEG PER-ASSET WARP FEE — pct default for every non-USDC.x dest ──

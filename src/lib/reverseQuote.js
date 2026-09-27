@@ -47,6 +47,8 @@
 
 import { CHAINS, TOKENS, X1_REVERSE_MIN } from "./teleportConstants.js";
 import { quoteFees, FEE_RATES, LIFI_INTEGRATOR_ACCOUNT } from "./fees.ts";
+// The LiFi network-gas reader (shared with the forward leg) — display-only.
+import { deriveGasUsd } from "./teleportQuote.js";
 // Token identity (decimals) + the Warp-twin relation read from the canonical
 // registry — see docs/TOKEN-RESOLVER.md.
 import { requireToken, resolveTwin } from "./tokenResolver.js";
@@ -338,6 +340,9 @@ export function deriveReverseQuote({ data, to, amount, token = "USDC.x", toToken
     feeLines: legs.feeQuote.feeLines,
     teleporterFeeUsd: legs.feeQuote.teleporterFeeUsd,
     thirdPartyFeeUsd: legs.feeQuote.thirdPartyFeeUsd,
+    // Network gas (the Solana → EVM leg's source tx cost), display-only; null
+    // when LiFi reports no usable gasCosts (console renders "—" + itemized total).
+    gasUsd: deriveGasUsd(data),
     net: out,
     recvToken: lifiQuoted ? toToken : solanaSymbol, // the SELECTED destination stable when quoted; the Solana landing token in the handoff
     recvChain: lifiQuoted ? destName : "Solana",

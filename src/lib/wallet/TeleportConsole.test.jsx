@@ -185,11 +185,15 @@ function makeSolAdapter() {
  *  (base units of the LiFi destination token — 6 decimals in these tests).
  *  No approvalAddress → the approval leg is skipped, keeping tests focused
  *  on the quote/fee/gate behavior. Records every requested URL. */
-function mockQuoteFetch({ toAmount = "100000000", error = null } = {}) {
+function mockQuoteFetch({ toAmount = "100000000", error = null, gasCosts = null } = {}) {
   const calls = [];
   const lifiQuote = {
     id: "0xmock-quote",
-    estimate: { toAmount, fromAmount: "100000000" },
+    estimate: {
+      toAmount,
+      fromAmount: "100000000",
+      ...(gasCosts ? { gasCosts } : {}),
+    },
     transactionRequest: { chainId: 1, to: "0x1234", data: "0xabcdef", value: "0x0", gasLimit: "0x5208" },
     action: {
       fromToken: { address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", chainId: 1 },
@@ -533,6 +537,137 @@ test("reverse quote per-asset: burning wSOL.X shows the 0.25% Warp line", async 
     const pct = container.querySelector('[data-testid="fee-line-warp-pct"]');
     assert.ok(pct && pct.textContent.includes("Warp bridge fee (0.25%)"), `pct line, got: ${pct?.textContent}`);
     assert.equal(container.querySelector('[data-testid="fee-line-warp-flat"]'), null, "no flat line for wSOL.X");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+// ── FIX 1: REVERSE MINIMUM — inline warning + DISARMED TELEPORT ─────────────
+// ported from the wallet's F8 pre-flight (planReverseRelease). A tiny X1→EVM
+// burn whose net (after the Warp fee) can't clear the destination floor must
+// warn the user UP-FRONT and disable TELEPORT — not show a normal quote that
+// only fails at burn time ("Burn sim failed: undefined").
+
+test("reverse MINIMUM: a tiny X1→Ethereum amount warns inline + DISARMS TELEPORT (planReverseRelease pre-flight)", async () => {
+  const qf = mockQuoteFetch({ toAmount: "98500000" });
+  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "x1");
+    // 10 USDC.x → burn 9.95 → net 8.95 < $15 destination floor → blocked.
+    await quoteAmount(container, "10");
+    const warn = container.querySelector('[data-testid="reverse-min-warning"]');
+    assert.ok(warn, "inline reverse-minimum warning rendered");
+    assert.ok(/below destination minimum after fee/.test(warn.textContent), `honest reason, got: ${warn?.textContent}`);
+    assert.ok(warn.textContent.includes("nothing was burned"), "the reason states nothing was burned");
+    const fire = container.querySelector('[data-testid="teleport-now"]');
+    assert.equal(fire.disabled, true, "TELEPORT is DISABLED while the net is below the destination minimum");
+    assert.ok(!fire.className.includes("tc-fire-armed"), "the armed glow is suppressed while blocked");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("reverse MINIMUM: raising the amount above the floor clears the warning + REARMS TELEPORT", async () => {
+  const qf = mockQuoteFetch({ toAmount: "98500000" });
+  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "x1");
+    await quoteAmount(container, "10");
+    assert.ok(container.querySelector('[data-testid="reverse-min-warning"]'), "blocked at 10");
+    // 100 USDC.x → burn 99.5 → net 98.5 ≥ $15 → clears.
+    await quoteAmount(container, "100");
+    assert.equal(container.querySelector('[data-testid="reverse-min-warning"]'), null, "warning cleared above the floor");
+    assert.equal(container.querySelector('[data-testid="teleport-now"]').disabled, false, "TELEPORT re-armed");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("reverse destination-minimum SURFACE: the click-time runner reason lands honestly (never \"Burn sim failed: undefined\")", async () => {
+  const qf = mockQuoteFetch({ toAmount: "98500000" });
+  const reason = "amount below destination minimum after fee — need ≥ 16.080402 USDC (net 8.95 < destination min 15); nothing was burned";
+  const { container, unmount } = renderConsole({
+    evmProvider: makeEvmProvider(),
+    solProvider: makeSolAdapter(),
+    // The large amount passes the pre-flight; the runner is the fail-closed
+    // backstop and returns the destination-minimum stage (simulating the
+    // click-time guard). Its reason must surface verbatim.
+    formProps: { reverseStage1Runner: async () => ({ stage: "destination-minimum", success: false, reason }) },
+  });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "x1");
+    await quoteAmount(container, "100");
+    click(container.querySelector('[data-testid="teleport-now"]'));
+    await flush();
+    const err = container.querySelector('[data-testid="form-error"]');
+    assert.ok(err && err.textContent.includes("below destination minimum"), `reason surfaced, got: ${err?.textContent}`);
+    assert.ok(!/Burn sim failed: undefined/.test(err.textContent), "never the generic Burn-sim string");
+    assert.ok(container.querySelector('[data-testid="teleport-now"]'), "stays on the quoted panel (nothing was burned, TELEPORT still present)");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+// ── FIX 2: FEE BREAKDOWN — network gas line + total line ────────────────────
+// The console now shows a Network-gas row (from LiFi's estimate.gasCosts, an
+// honest "—" when unknown) AND a Total-cost row. The total is a real USD
+// number only when every figure is known; otherwise it's the itemized
+// expression (never a guessed number). Existing fee numbers are untouched.
+
+test("fee breakdown: network gas line + a REAL USD total when LiFi reports gasCosts", async () => {
+  const qf = mockQuoteFetch({ toAmount: "100000000", gasCosts: [{ type: "SEND", amountUSD: "2.50" }] });
+  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+  try {
+    await quoteAmount(container, "100");
+    const gas = container.querySelector('[data-testid="fee-line-network-gas"]');
+    assert.ok(gas && gas.textContent.includes("Network gas") && gas.textContent.includes("$2.50"), `gas row, got: ${gas?.textContent}`);
+    const total = container.querySelector('[data-testid="fee-line-total"]');
+    assert.ok(total && total.textContent.includes("Total cost"), `total row, got: ${total?.textContent}`);
+    // 0.5% of the $100 delivered = $0.50 + $1.00 Warp + $2.50 gas = $4.00
+    assert.ok(total.textContent.includes("$4.00"), `real USD total (all figures known), got: ${total?.textContent}`);
+    // The existing fee lines are untouched.
+    assert.ok(container.querySelector('[data-testid="fee-line-warp-skim"]').textContent.includes("$0.50"));
+    assert.ok(container.querySelector('[data-testid="fee-line-warp-flat"]').textContent.includes("$1.00"));
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("fee breakdown: gas UNKNOWN → network gas shows \"—\" and the total is the honest itemized expression", async () => {
+  const qf = mockQuoteFetch({ toAmount: "100000000" }); // no gasCosts → gas unknown
+  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+  try {
+    await quoteAmount(container, "100");
+    const gas = container.querySelector('[data-testid="fee-line-network-gas"]');
+    assert.ok(gas && gas.textContent.includes("—"), `gas unknown → "—", got: ${gas?.textContent}`);
+    const total = container.querySelector('[data-testid="fee-line-total"]');
+    assert.ok(total && total.textContent.includes("network gas"), `itemized total, got: ${total?.textContent}`);
+    assert.ok(/\$0\.50 \+ \$1\.00 \+ network gas/.test(total.textContent), `$0.50 + $1.00 + network gas, got: ${total?.textContent}`);
+    assert.ok(!/\$\d+\.\d\d$/.test(total.textContent.replace("network gas", "")), "no guessed USD total when gas is unknown");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+// ── FIX 2 (reverse): the reverse quote also carries the gas + total rows ────
+
+test("fee breakdown (reverse): X1→Ethereum shows network gas + total alongside Teleporter/Warp lines", async () => {
+  const qf = mockQuoteFetch({ toAmount: "98500000", gasCosts: [{ type: "SEND", amountUSD: "0.12" }] });
+  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "x1");
+    await quoteAmount(container, "100");
+    const gas = container.querySelector('[data-testid="fee-line-network-gas"]');
+    assert.ok(gas && gas.textContent.includes("$0.12"), `reverse gas row, got: ${gas?.textContent}`);
+    const total = container.querySelector('[data-testid="fee-line-total"]');
+    // $0.50 skim + $1.00 flat + $0.12 gas = $1.62
+    assert.ok(total && total.textContent.includes("$1.62"), `reverse total, got: ${total?.textContent}`);
   } finally {
     qf.restore();
     unmount();

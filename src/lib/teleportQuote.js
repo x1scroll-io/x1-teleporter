@@ -80,6 +80,29 @@ export function buildLifiQuoteParams({ from, token, amount, fromAddress, toAddre
 }
 
 /**
+ * Sum the LiFi NETWORK GAS cost (USD) from a quote response — the source-chain
+ * tx gas the user actually pays. LiFi returns `estimate.gasCosts` as an array
+ * of rows (usually one SEND row) with an `amountUSD` string each. We sum the
+ * finite figures and return null when there is nothing usable — the caller
+ * then renders an honest "—" and an itemized total instead of guessing.
+ * DISPLAY-ONLY — this never affects routing or any fee number.
+ *
+ * @param {?object} data the /api/lifi/quote response (forward OR reverse leg)
+ * @returns {?number} the summed network gas in USD, or null when unknown
+ */
+export function deriveGasUsd(data) {
+  const costs = data?.estimate?.gasCosts;
+  if (!Array.isArray(costs) || costs.length === 0) return null;
+  let sum = 0;
+  let seen = false;
+  for (const c of costs) {
+    const v = Number(c?.amountUSD);
+    if (Number.isFinite(v)) { sum += v; seen = true; }
+  }
+  return seen ? sum : null;
+}
+
+/**
  * Derive the full quote-box picture from a live LiFi response (the x1 route).
  * Ported from v1's getQuote LIVE branch — every fee line comes from
  * computeFee via quoteFees, never hardcoded:
@@ -122,6 +145,9 @@ export function deriveQuoteFromLifi({ data, from, token, amount, destToken = "US
     feeLines: qf.feeLines,
     teleporterFeeUsd: qf.teleporterFeeUsd,
     thirdPartyFeeUsd: qf.thirdPartyFeeUsd,
+    // Network gas (source-chain tx cost) — display-only; null when LiFi
+    // reports no usable gasCosts (the console renders "—" + an itemized total).
+    gasUsd: deriveGasUsd(data),
     net: qf.netUsd,
     recvToken: destToken,   // USDC.x or wSOL.X — what the guardians mint on X1
     recvChain: "X1",
