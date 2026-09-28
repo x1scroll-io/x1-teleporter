@@ -52,3 +52,20 @@ test("main.jsx wires bitcoinLaserEyes + bitcoinBalanceFetcher into createWalletD
     "createWalletDiscovery must be called with bitcoinLaserEyes: createLaserEyesHandle() and bitcoinBalanceFetcher: createBtcBalanceFetcher() — without them every LaserEyes-covered Bitcoin wallet's connect fails with the 'LaserEyes handle is not wired' banner",
   );
 });
+
+test("main.jsx gates the dev/test mock off for real users (allowMockFallback={MOCK_WALLETS}, default false)", () => {
+  // The bridge must NEVER hand a real user a mock wallet. main.jsx arms the
+  // WalletContext mock fallback ONLY via the MOCK_WALLETS flag (default off),
+  // so a user with MetaMask/Phantom — or no wallet at all — gets either their
+  // real wallet or an honest error, never a phantom mock "connected" session.
+  assert.match(
+    MAIN_SOURCE,
+    /import\s*\{[^}]*\bMOCK_WALLETS\b[^}]*\}\s*from\s*["']\.\/lib\/flags\.ts["']/,
+    "main.jsx must import MOCK_WALLETS from flags.ts",
+  );
+  assert.match(
+    MAIN_SOURCE,
+    /<WalletProvider[^>]*allowMockFallback=\{MOCK_WALLETS\}/,
+    "WalletProvider must receive allowMockFallback={MOCK_WALLETS} (default off — mock never serves a real user)",
+  );
+});

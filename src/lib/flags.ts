@@ -37,6 +37,7 @@ export function resolveFlags(env: Env): {
   WARP_LIVE_SEND: boolean;
   MEV_CAPTURE_ENABLED: boolean;
   CONSOLE_UI: boolean;
+  MOCK_WALLETS: boolean;
 } {
   const on = (names: string[]): boolean => {
     for (const name of names) {
@@ -72,7 +73,35 @@ export function resolveFlags(env: Env): {
     MEV_CAPTURE_ENABLED: on(["NEXT_PUBLIC_FLAG_MEV_CAPTURE_ENABLED", "VITE_MEV_CAPTURE_ENABLED"]),
     LEGACY_UI: on(["NEXT_PUBLIC_FLAG_LEGACY_UI", "VITE_FLAG_LEGACY_UI"]),
     CONSOLE_UI: on(["NEXT_PUBLIC_FLAG_CONSOLE_UI", "VITE_FLAG_CONSOLE_UI"]),
+    // SAFETY DEFAULT FALSE: the dev/test mock wallet providers are NEVER armed
+    // for a real user unless an operator explicitly opts in (see
+    // resolveMockFallback).
+    MOCK_WALLETS: on(["NEXT_PUBLIC_FLAG_MOCK_WALLETS", "VITE_FLAG_MOCK_WALLETS"]),
   };
+}
+
+/**
+ * resolveMockFallback — explicit opt-in for the dev/test mock wallet providers
+ * (mockProviders.js). DEFAULT FALSE, always.
+ *
+ * The mock is a testing/development crutch, never a real user's wallet. A real
+ * user (with MetaMask/Phantom/Coinbase/Backpack/… — with or without a wallet
+ * installed) must NEVER be handed a mock "connected" session; the bridge
+ * discovers and connects their OWN wallets (EIP-6963 EVM + Wallet Standard
+ * Solana). This flag exists so a developer running the site WITHOUT any wallet
+ * extension can still exercise the connect/body UI — it is OFF in production
+ * and OFF under `node --test` (the unit suite injects providers directly).
+ *
+ * Set VITE_FLAG_MOCK_WALLETS=true (or NEXT_PUBLIC_FLAG_MOCK_WALLETS=true) to
+ * arm it. Even when armed, the mock only fires for a family with NO discovered
+ * wallet (see WalletContext.defaultResolveProvider).
+ */
+export function resolveMockFallback(env: Env): boolean {
+  for (const name of ["NEXT_PUBLIC_FLAG_MOCK_WALLETS", "VITE_FLAG_MOCK_WALLETS"]) {
+    const raw = env[name];
+    if (raw !== undefined && raw !== "") return raw.toLowerCase() === "true" || raw === "1";
+  }
+  return false;
 }
 
 /**
@@ -139,6 +168,14 @@ export const WARP_DISCOVERY: boolean = resolveDiscovery(readEnv(), import.meta.e
  * the classic card).
  */
 export const CONSOLE_UI: boolean = flags.CONSOLE_UI;
+
+/**
+ * Whether the dev/test mock wallet providers (mockProviders.js) are armed as a
+ * last-resort fallback when a family has NO discovered wallet. DEFAULT FALSE —
+ * a real user is never handed a mock. main.jsx passes this to WalletProvider's
+ * `allowMockFallback`; when off, an unresolved connect fails honestly instead.
+ */
+export const MOCK_WALLETS: boolean = flags.MOCK_WALLETS;
 
 /** Whether the THORCHAIN route is enabled in the UI. Default: false. */
 export const THORCHAIN: boolean = flags.THORCHAIN;

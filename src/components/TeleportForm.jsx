@@ -53,7 +53,7 @@ import {
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
-import { solanaSessionCanSign } from "../lib/wallet/sessionProviders.js";
+import { solanaSessionCanSign, resolveEvmProvider } from "../lib/wallet/sessionProviders.js";
 import {
   SignerResolver,
   RoutePlanner,
@@ -79,6 +79,14 @@ import {
   warpRailHealth,
 } from "../warpBridge.js";
 import BalancesLine from "./BalancesLine.jsx";
+import TokenSelect from "./TokenSelect.jsx";
+import { getPricesUSD } from "../lib/prices.js";
+import {
+  fetchEvmTokenBalance,
+  fetchSvmTokenBalances,
+  X1_RPC_LADDER,
+  X1_MINTS,
+} from "../lib/balances.js";
 
 /**
  * The X1 tokens this v2 form may offer — ONLY the ones the v2 Warp executor
@@ -366,11 +374,60 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   // Bumped after a bridge completes — BalancesLine refetches so the user sees
   // the post-bridge wallet state (what's left, and what it's now worth).
   const [balanceRefresh, setBalanceRefresh] = useState(0);
+  // Per-token balances + live prices for the token pickers (the From/To token
+  // dropdowns render icon + symbol + $ value + amount per option; balances come
+  // from the SAME DI'd fetchers the BalancesLine uses — fail-soft, "—" on a
+  // missing read, never a fabricated price).
+  const [pickerPrices, setPickerPrices] = useState(null);
+  const [pickerBalances, setPickerBalances] = useState({});
   // Dynamic rails (WARP_DISCOVERY): the live Warp config is read once on mount;
   // registering it bumps railVersion so x1WarpTokens() re-derives the offer
   // list (discovered rails + lane health). Fail-closed: a failed read registers
   // ok:false (the known baseline stays, no discovered rails appear).
   const [railVersion, setRailVersion] = useState(0);
+
+  // Token-picker data: live prices + per-token balances for the route tokens
+  // (the EVM side of the current leg + the X1 tokens). Fail-soft — a failed
+  // read leaves that token's amount as "—"; a missing price leaves its $ value
+  // as "—". Never blocks the form, never fabricates a number.
+  useEffect(() => {
+    let cancelled = false;
+    const deps = balancesDeps || {};
+    const priceFetcher = deps.priceFetcher || getPricesUSD;
+    const evmBalanceFetcher = deps.evmBalanceFetcher || fetchEvmTokenBalance;
+    const svmBalanceFetcher = deps.solBalanceFetcher || fetchSvmTokenBalances;
+    const resolveEvmProviderFn = deps.resolveEvmProviderFn || resolveEvmProvider;
+    (async () => {
+      let prices = null;
+      try { prices = await priceFetcher(); } catch { prices = null; }
+      if (cancelled) return;
+      setPickerPrices(prices);
+      const out = {};
+      const evmAddr = evmSession?.address;
+      const solAddr = solSession?.address;
+      const evmChain = direction === "forward" ? from : to;
+      try {
+        if (evmAddr && TOKENS[evmChain]) {
+          const provider = await resolveEvmProviderFn(evmSession);
+          for (const symbol of tokensFor(evmChain)) {
+            const tok = TOKENS[evmChain]?.[symbol];
+            if (!tok) continue;
+            out[symbol] = await evmBalanceFetcher({ provider, wallet: evmAddr, token: tok });
+          }
+        }
+      } catch { /* fail-soft: the option still shows symbol + $ value */ }
+      try {
+        if (solAddr) {
+          const res = await svmBalanceFetcher({ rpcs: X1_RPC_LADDER, wallet: solAddr, mints: X1_MINTS });
+          if (res) for (const [k, v] of Object.entries(res)) out[k] = v;
+        }
+      } catch { /* fail-soft */ }
+      if (cancelled) return;
+      setPickerBalances(out);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [direction, from, to, evmSession, solSession, balanceRefresh]);
 
   useEffect(() => {
     const fetcher = registryFetcher || (WARP_DISCOVERY ? () => fetchWarpRegistry(WARP_API.mainnet) : null);
@@ -804,11 +861,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         </span>
         <span style={S.rowCol}>
           <span style={S.label}>Receive</span>
-          <select data-testid="x1-token" value={destToken} onChange={(e) => changeDestToken(e.target.value)} style={S.select} aria-label="Token on X1">
-            {x1WarpTokens().map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
-          </select>
+          <TokenSelect
+            testid="x1-token"
+            value={destToken}
+            onChange={(e) => changeDestToken(e.target.value)}
+            symbols={x1WarpTokens()}
+            prices={pickerPrices}
+            balances={pickerBalances}
+            style={S.select}
+            ariaLabel="Token on X1"
+          />
         </span>
       </div>
 
@@ -817,11 +879,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       <div style={S.row}>
         <span style={S.rowCol}>
           <span style={S.label}>Token</span>
-          <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} style={S.select} aria-label="Token">
-            {tokensFor(from).map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
-          </select>
+          <TokenSelect
+            testid="token"
+            value={token}
+            onChange={(e) => changeToken(e.target.value)}
+            symbols={tokensFor(from)}
+            prices={pickerPrices}
+            balances={pickerBalances}
+            style={S.select}
+            ariaLabel="Token"
+          />
         </span>
         <span style={{ ...S.rowCol, flex: 1 }}>
           <span style={S.label}>Amount</span>
@@ -989,11 +1056,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         </span>
         <span style={S.rowCol}>
           <span style={S.label}>Burn</span>
-          <select data-testid="x1-token" value={reverseToken} onChange={(e) => changeReverseToken(e.target.value)} style={S.select} aria-label="Token burned on X1">
-            {x1WarpTokens().map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
-          </select>
+          <TokenSelect
+            testid="x1-token"
+            value={reverseToken}
+            onChange={(e) => changeReverseToken(e.target.value)}
+            symbols={x1WarpTokens()}
+            prices={pickerPrices}
+            balances={pickerBalances}
+            style={S.select}
+            ariaLabel="Token burned on X1"
+          />
         </span>
         <span style={S.rowCol}>
           <span style={S.label}>To</span>
@@ -1006,11 +1078,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
           </select>
           {/* destination token — the user chooses WHICH stable they receive on
               the destination EVM chain (USDC / USDT / DAI as TOKENS[to] defines) */}
-          <select data-testid="to-token" value={token} onChange={(e) => changeToken(e.target.value)} style={S.select} aria-label="Receive token">
-            {tokensFor(to).map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
-          </select>
+          <TokenSelect
+            testid="to-token"
+            value={token}
+            onChange={(e) => changeToken(e.target.value)}
+            symbols={tokensFor(to)}
+            prices={pickerPrices}
+            balances={pickerBalances}
+            style={S.select}
+            ariaLabel="Receive token"
+          />
         </span>
       </div>
 
@@ -1018,11 +1095,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       <div style={S.row}>
         <span style={S.rowCol}>
           <span style={S.label}>Token</span>
-          <select data-testid="token" value={reverseToken} onChange={(e) => changeReverseToken(e.target.value)} style={S.select} aria-label="Token to burn on X1">
-            {x1WarpTokens().map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
-          </select>
+          <TokenSelect
+            testid="token"
+            value={reverseToken}
+            onChange={(e) => changeReverseToken(e.target.value)}
+            symbols={x1WarpTokens()}
+            prices={pickerPrices}
+            balances={pickerBalances}
+            style={S.select}
+            ariaLabel="Token to burn on X1"
+          />
         </span>
         <span style={{ ...S.rowCol, flex: 1 }}>
           <span style={S.label}>Amount</span>

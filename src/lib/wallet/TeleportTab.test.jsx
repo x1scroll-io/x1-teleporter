@@ -717,6 +717,31 @@ test("direction toggle: default forward; X1→ETH switch flips the form to the r
   }
 });
 
+test("classic form token pickers: options carry symbol + $ value + amount, and the selected token renders an icon", async () => {
+  const { container, unmount } = renderForm(FORM_PROPS({
+    balancesDeps: {
+      priceFetcher: async () => ({ USDC: 1, USDT: 1, DAI: 1, "USDC.x": 1, "wSOL.X": 150 }),
+      evmBalanceFetcher: async () => 27.59,
+      solBalanceFetcher: async () => ({ "USDC.x": 27.59, "wSOL.X": 0.3 }),
+      x1BalanceFetcher: async () => ({ "USDC.x": 27.59, "wSOL.X": 0.3 }),
+    },
+  }));
+  try {
+    await flush();
+    const tokenSel = container.querySelector('[data-testid="token"]');
+    assert.ok(container.querySelector('[data-testid="token-icon"]'), "selected token icon renders");
+    const usdc = Array.from(tokenSel.options).find((o) => o.value === "USDC");
+    assert.equal(usdc.textContent, "USDC · $27.59 · 27.59");
+    const x1Sel = container.querySelector('[data-testid="x1-token"]');
+    assert.ok(container.querySelector('[data-testid="x1-token-icon"]'), "land-as icon renders");
+    const usdcx = Array.from(x1Sel.options).find((o) => o.value === "USDC.x");
+    assert.ok(usdcx.textContent.includes("USDC.x") && usdcx.textContent.includes("$27.59") && usdcx.textContent.includes("27.59"),
+      `land-as caption, got: ${usdcx?.textContent}`);
+  } finally {
+    unmount();
+  }
+});
+
 test("reverse quote flow: pinned SOL→EVM query (x1Class=1, fee OMITTED), fee lines 0.5% + $1, honest Ethereum net", async () => {
   const qf = mockReverseQuoteFetch();
   const { container, unmount } = renderForm(FORM_PROPS());

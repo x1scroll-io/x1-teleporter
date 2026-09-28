@@ -144,6 +144,21 @@ test("a discovered Starport wallet flips the pinned row to installed (still firs
   assert.equal(rows[0].installed, true, "Starport highlighted when discovered");
 });
 
+test("an EIP-6963 Starport announcement (real rdns) flips the pinned row — and is NOT duplicated", () => {
+  // The real wallet announces EVM via EIP-6963 with rdns "com.starportllc.starport"
+  // (inpage.ts). Before the rdns was a known Starport key, this rendered BOTH a
+  // pinned not-installed "Starport" row AND a separate announced "Starport" row.
+  const discovered = normalizeEvmDiscovered([
+    { uuid: "u1", name: "Starport", icon: "data:x", rdns: "com.starportllc.starport", provider: {} },
+    { uuid: "u2", name: "MetaMask", icon: "data:y", rdns: "io.metamask", provider: {} },
+  ]);
+  const rows = buildFamilyWalletRows({ family: "evm", discovered });
+  assert.equal(rows[0].id, STARPORT_ID, "Starport still pinned first");
+  assert.equal(rows[0].installed, true, "the announced EIP-6963 wallet marks the pinned row installed");
+  assert.equal(rows.filter((r) => r.name === "Starport").length, 1, "exactly one Starport row");
+  assert.ok(!rows.some((r) => r.id === "com.starportllc.starport"), "no separate announced Starport entry");
+});
+
 test("Solana matching uses adapter names; EVM uses rdns", () => {
   const solanaRows = buildFamilyWalletRows({
     family: "solana",

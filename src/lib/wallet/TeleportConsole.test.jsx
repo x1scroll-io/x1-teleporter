@@ -928,6 +928,79 @@ test("MAX + balance: the source balance shows under Amount; MAX fills the amount
   }
 });
 
+// ── TOKEN PICKERS: icon + symbol + $ value + amount per option ──────────────
+
+test("token dropdowns populate icon + symbol + $ value + token amount for every option", async () => {
+  const qf = mockQuoteFetch();
+  const { container, unmount } = renderConsole({
+    evmProvider: makeEvmProvider(),
+    solProvider: makeSolAdapter(),
+    formProps: {
+      balancesDeps: {
+        ...NOOP_BALANCES,
+        evmBalanceFetcher: async () => 25.5,
+        solBalanceFetcher: async () => ({ "USDC.x": 10, "wSOL.X": 0.3 }),
+        priceFetcher: async () => ({ USDC: 1, USDT: 1, DAI: 1, "USDC.x": 1, "wSOL.X": 150 }),
+      },
+    },
+  });
+  try {
+    await flush();
+    // The FROM-token dropdown: icon + symbol + $ value + amount per option.
+    const tokenSel = container.querySelector('[data-testid="token"]');
+    const tokenIconEl = container.querySelector('[data-testid="token-icon"]');
+    assert.ok(tokenIconEl && tokenIconEl.getAttribute("src").startsWith("data:image/svg+xml"),
+      "the selected token renders an icon");
+    const usdc = [...tokenSel.options].find((o) => o.value === "USDC");
+    assert.equal(usdc.textContent, "USDC · $25.50 · 25.5", "option caption = symbol + $ value + amount");
+    assert.equal(usdc.getAttribute("data-usd"), "$25.50");
+    assert.equal(usdc.getAttribute("data-amount"), "25.5");
+
+    // The TO-token (land-as / X1) dropdown: X1 balances + live USD.
+    const x1Sel = container.querySelector('[data-testid="x1-token"]');
+    assert.ok(container.querySelector('[data-testid="x1-token-icon"]'), "the land-as picker renders an icon");
+    const usdcx = [...x1Sel.options].find((o) => o.value === "USDC.x");
+    assert.ok(usdcx.textContent.includes("USDC.x") && usdcx.textContent.includes("$10.00") && usdcx.textContent.includes("10"),
+      `land-as caption, got: ${usdcx?.textContent}`);
+    const wsolx = [...x1Sel.options].find((o) => o.value === "wSOL.X");
+    assert.ok(wsolx.textContent.includes("$45.00") && wsolx.textContent.includes("0.3"),
+      `wSOL.X caption (0.3 × $150), got: ${wsolx?.textContent}`);
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("token dropdowns: a token with no balance shows '—' (never blank) and a missing price never fabricates one", async () => {
+  const qf = mockQuoteFetch();
+  const { container, unmount } = renderConsole({
+    evmProvider: makeEvmProvider(),
+    solProvider: makeSolAdapter(),
+    formProps: {
+      balancesDeps: {
+        ...NOOP_BALANCES,
+        // Only USDC resolves a balance; USDT/DAI are null → "—". And only
+        // USDC has a price; the rest must show "—" (never a fabricated value).
+        evmBalanceFetcher: async ({ token }) =>
+          (token?.address ?? "").toLowerCase() === "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" ? 12.5 : null,
+        solBalanceFetcher: async () => ({}),
+        priceFetcher: async () => ({ USDC: 1 }),
+      },
+    },
+  });
+  try {
+    await flush();
+    const tokenSel = container.querySelector('[data-testid="token"]');
+    const usdc = [...tokenSel.options].find((o) => o.value === "USDC");
+    assert.equal(usdc.textContent, "USDC · $12.50 · 12.5");
+    const usdt = [...tokenSel.options].find((o) => o.value === "USDT");
+    assert.equal(usdt.textContent, "USDT · — · —", "no balance + no price → dashes, never blank, never fabricated");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
 // ── NATIVE-SOURCE BAL/MAX (dead-button catalog #2): BTC/DOGE/LTC/XRP sources
 //    now read the connected source-family session through the wallet layer's
 //    OWN public-chain fetchers — BAL shows spendable human units, MAX fills

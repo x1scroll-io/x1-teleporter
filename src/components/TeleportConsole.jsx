@@ -94,6 +94,7 @@ import {
 } from "../lib/balances.js";
 import { getPricesUSD, usdValue } from "../lib/prices.js";
 import ConnectModal from "./ConnectModal.jsx";
+import TokenSelect from "./TokenSelect.jsx";
 import THORChainDeposit from "./THORChainDeposit.jsx";
 import THORChainProgress from "./THORChainProgress.jsx";
 // The ChangeNOW long-tail rail's deposit-address step (create exchange → payin
@@ -602,6 +603,13 @@ export default function TeleportConsole({
   const [connecting, setConnecting] = useState(false);
   const [seqVisible, setSeqVisible] = useState(false);
   const [sourceBalance, setSourceBalance] = useState(null); // { balance, symbol, usd } | null
+  // Live USD prices + per-token balances for the ROUTE pickers (the From-token
+  // and To-token dropdowns show icon + symbol + $ value + amount per option).
+  // sourceTokenBalances = the FROM-chain tokens the user can send; destTokenBalances
+  // = the destination-chain tokens (land-as on X1 forward / receive on EVM reverse).
+  const [priceMap, setPriceMap] = useState(null);
+  const [sourceTokenBalances, setSourceTokenBalances] = useState({});
+  const [destTokenBalances, setDestTokenBalances] = useState({});
   // True when the LATEST balance read failed (transport/HTTP) — the readout
   // shows "BAL —" plus a cheap ↻ retry instead of a silent dead read. Cleared
   // at the start of every read and on reset.
@@ -721,6 +729,9 @@ export default function TeleportConsole({
     const load = async () => {
       setSourceBalance(null);
       setBalanceFailed(false);
+      setPriceMap(null);
+      setSourceTokenBalances({});
+      setDestTokenBalances({});
       // Which source does the readout read? Forward: the EVM source wallet
       // (LiFi/Warp rail) OR the connected NATIVE source-family session
       // (BTC/DOGE/LTC/XRP — the deposit-address rail; the send itself is
@@ -732,8 +743,30 @@ export default function TeleportConsole({
       const evmAddr = evmSession?.address;
       const solAddr = solSession?.address;
       if (!evmAddr && !solAddr && !nativeAddr) return;
-      let priceMap = null;
-      try { priceMap = await priceFetcher(); } catch { priceMap = null; }
+      let prices = null;
+      try { prices = await priceFetcher(); } catch { prices = null; }
+      if (cancelled) return;
+      setPriceMap(prices);
+      // Per-token EVM balances for a chain's picker tokens (fail-soft: a token
+      // whose read fails maps to null → its option shows "—", never a fake 0).
+      const readEvmTokens = async (chain) => {
+        const out = {};
+        const provider = await resolveEvmProviderFn(evmSession);
+        for (const symbol of tokensOn(chain)) {
+          const tok = TOKENS[chain]?.[symbol];
+          if (!tok) continue;
+          out[symbol] = await evmBalanceFetcher({ provider, wallet: evmAddr, token: tok });
+        }
+        return out;
+      };
+      const readX1Tokens = async () => {
+        const res = await svmBalanceFetcher({ rpcs: X1_RPC_LADDER, wallet: solAddr, mints: X1_MINTS });
+        return res ?? {};
+      };
+      const balState = (bal, symbol) => {
+        const price = prices?.[symbol];
+        return bal == null ? null : { balance: bal, symbol, usd: price != null ? bal * price : null };
+      };
       try {
         if (nativeFamily && nativeAddr) {
           // Native source: the wallet layer's public-chain fetcher for the
@@ -745,22 +778,41 @@ export default function TeleportConsole({
           const baseUnits = await fetcher(nativeAddr);
           if (cancelled) return;
           const human = baseUnits / 10 ** nativeMeta.decimals;
-          const price = priceMap?.[nativeMeta.asset];
-          setSourceBalance(Number.isFinite(human) && human >= 0
-            ? { balance: human, symbol: nativeMeta.asset, usd: price != null ? human * price : null }
+          const ok = Number.isFinite(human) && human >= 0;
+          setSourceBalance(ok
+            ? { balance: human, symbol: nativeMeta.asset, usd: prices?.[nativeMeta.asset] != null ? human * prices[nativeMeta.asset] : null }
             : null);
-        } else if (direction === "forward" && evmAddr && TOKENS[from]?.[token]) {
-          const provider = await resolveEvmProviderFn(evmSession);
-          const bal = await evmBalanceFetcher({ provider, wallet: evmAddr, token: TOKENS[from][token] });
-          if (cancelled) return;
-          const price = priceMap?.[token];
-          setSourceBalance(bal == null ? null : { balance: bal, symbol: token, usd: price != null ? bal * price : null });
-        } else if (direction === "reverse" && solAddr) {
-          const res = await svmBalanceFetcher({ rpcs: X1_RPC_LADDER, wallet: solAddr, mints: X1_MINTS });
-          if (cancelled) return;
-          const bal = res?.[token];
-          const price = priceMap?.[token];
-          setSourceBalance(bal == null ? null : { balance: bal, symbol: token, usd: price != null ? bal * price : null });
+          setSourceTokenBalances(ok ? { [nativeMeta.asset]: human } : {});
+          return;
+        }
+        if (direction === "forward") {
+          // Source = the EVM source chain's tokens; destination = the X1 tokens
+          // (the land-as picker > USDC.x / wSOL.X).
+          if (evmAddr && TOKENS[from]) {
+            const src = await readEvmTokens(from);
+            if (cancelled) return;
+            setSourceTokenBalances(src);
+            setSourceBalance(balState(src[token], token));
+          }
+          if (solAddr) {
+            const x1 = await readX1Tokens();
+            if (cancelled) return;
+            setDestTokenBalances(x1);
+          }
+        } else {
+          // Reverse: source (burn) = the X1 tokens; destination = the EVM
+          // destination chain's tokens (the receive picker).
+          if (solAddr) {
+            const x1 = await readX1Tokens();
+            if (cancelled) return;
+            setSourceTokenBalances(x1);
+            setSourceBalance(balState(x1[token], token));
+          }
+          if (evmAddr && TOKENS[to]) {
+            const dst = await readEvmTokens(to);
+            if (cancelled) return;
+            setDestTokenBalances(dst);
+          }
         }
       } catch {
         if (!cancelled) { setSourceBalance(null); setBalanceFailed(true); } // fail-soft: "BAL —" + ↻ retry
@@ -768,7 +820,7 @@ export default function TeleportConsole({
     };
     load();
     return () => { cancelled = true; };
-  }, [direction, from, token, evmSession, solSession, sessions, nativeMeta, balanceRefresh, evmBalanceFetcher, svmBalanceFetcher, priceFetcher, resolveEvmProviderFn]);
+  }, [direction, from, to, token, evmSession, solSession, sessions, nativeMeta, balanceRefresh, evmBalanceFetcher, svmBalanceFetcher, priceFetcher, resolveEvmProviderFn]);
 
   const maxFromBalance = () => {
     if (!sourceBalance || !(sourceBalance.balance > 0)) return;
@@ -1662,29 +1714,58 @@ export default function TeleportConsole({
                     <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 150 }} data-testid="token-slot">
                       <span className="tc-label">{direction === "forward" ? "Token" : "Burn token"}</span>
                       {direction === "forward" ? (
-                        <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} className="tc-select" aria-label="Token" disabled={Boolean(nativeMeta) || Boolean(longtailMeta)}>
-                          {tokensOn(from).map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <TokenSelect
+                          testid="token"
+                          value={token}
+                          onChange={(e) => changeToken(e.target.value)}
+                          symbols={tokensOn(from)}
+                          prices={priceMap}
+                          balances={sourceTokenBalances}
+                          className="tc-select"
+                          ariaLabel="Token"
+                          disabled={Boolean(nativeMeta) || Boolean(longtailMeta)}
+                        />
                       ) : (
-                        <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} className="tc-select" aria-label="Token to burn on X1">
-                          {tokensOn("x1").map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <TokenSelect
+                          testid="token"
+                          value={token}
+                          onChange={(e) => changeToken(e.target.value)}
+                          symbols={tokensOn("x1")}
+                          prices={priceMap}
+                          balances={sourceTokenBalances}
+                          className="tc-select"
+                          ariaLabel="Token to burn on X1"
+                        />
                       )}
                     </div>
                     {direction === "forward" && !nativeMeta && !longtailMeta && (
                       <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 120 }} data-testid="x1-token-slot">
                         <span className="tc-label">Land as</span>
-                        <select data-testid="x1-token" value={x1Token} onChange={(e) => changeX1Token(e.target.value)} className="tc-select" aria-label="Token on X1">
-                          {tokensOn("x1").map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <TokenSelect
+                          testid="x1-token"
+                          value={x1Token}
+                          onChange={(e) => changeX1Token(e.target.value)}
+                          symbols={tokensOn("x1")}
+                          prices={priceMap}
+                          balances={destTokenBalances}
+                          className="tc-select"
+                          ariaLabel="Token on X1"
+                        />
                       </div>
                     )}
                     {direction === "reverse" && (
                       <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 120 }} data-testid="to-token-slot">
                         <span className="tc-label">Receive</span>
-                        <select data-testid="to-token" value={toToken} onChange={(e) => changeToToken(e.target.value)} className="tc-select" aria-label="Receive token">
-                          {tokensOn(to).map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <TokenSelect
+                          testid="to-token"
+                          value={toToken}
+                          onChange={(e) => changeToToken(e.target.value)}
+                          symbols={tokensOn(to)}
+                          prices={priceMap}
+                          balances={destTokenBalances}
+                          className="tc-select"
+                          ariaLabel="Receive token"
+                        />
                       </div>
                     )}
                     <div className="tc-slot tc-slot-grow" style={{ flex: 2 }} data-testid="amount-slot">

@@ -7,7 +7,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { resolveFlags, THORCHAIN, ANYSWAP, REVERSE_ENABLED, LEGACY_UI, selectRootCard } from "./flags.ts";
+import { resolveFlags, resolveMockFallback, THORCHAIN, ANYSWAP, REVERSE_ENABLED, LEGACY_UI, MOCK_WALLETS, selectRootCard } from "./flags.ts";
 
 test("flags default to false when no env vars are set (REVERSE_ENABLED is the exception — default ON)", () => {
   // Singleton values (resolved from the real environment at module load —
@@ -114,3 +114,23 @@ test("NEXT_PUBLIC_FLAG_WARP_LIVE_SEND takes precedence over VITE_WARP_LIVE_SEND"
   });
   assert.equal(flags.WARP_LIVE_SEND, true);
 })
+
+test("MOCK_WALLETS defaults OFF — a real user is never handed a mock wallet", () => {
+  // The safety default: unset env → off (both in the pure resolver and the
+  // module singleton resolved under node --test).
+  assert.equal(resolveFlags({}).MOCK_WALLETS, false);
+  assert.equal(resolveMockFallback({}), false);
+  assert.equal(MOCK_WALLETS, false);
+});
+
+test("MOCK_WALLETS — explicit opt-in only (VITE_ or NEXT_PUBLIC_, true/1); precedence NEXT_PUBLIC_ first", () => {
+  assert.equal(resolveMockFallback({ VITE_FLAG_MOCK_WALLETS: "true" }), true);
+  assert.equal(resolveMockFallback({ NEXT_PUBLIC_FLAG_MOCK_WALLETS: "1" }), true);
+  assert.equal(resolveMockFallback({ VITE_FLAG_MOCK_WALLETS: "false" }), false);
+  assert.equal(resolveMockFallback({ VITE_FLAG_MOCK_WALLETS: "0" }), false);
+  assert.equal(
+    resolveMockFallback({ NEXT_PUBLIC_FLAG_MOCK_WALLETS: "false", VITE_FLAG_MOCK_WALLETS: "true" }),
+    false,
+    "NEXT_PUBLIC_ name wins",
+  );
+});
