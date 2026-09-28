@@ -62,9 +62,16 @@ export {
   planCaptureSide,
   planCaptureSwapPair,
   observeCaptureForSwap,
+  observeRouteCapture,
+  planCaptureRouteJourney,
+  runCapturePipelineForSwap,
   capturePayoutForChain,
   dropAsIsRecords,
 } from "./routePlanner.js";
+// The live-flow capture pipeline (quote → detect → record ledger → sweep
+// plan). Fail-closed + kill-switchable (MEV_CAPTURE_ENABLED) — read-only on
+// the user's money path.
+export { runCapturePipeline, createCapturePipeline, getLiveCaptureSession } from "../lib/mev/capturePipeline.js";
 export { runForwardEvmStage, ensureEvmChain } from "./runners/forwardEvmStage.js";
 export { runForwardSvmStage } from "./runners/forwardSvmStage.js";
 export { runReverseX1Stage } from "./runners/reverseX1Stage.js";

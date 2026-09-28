@@ -165,6 +165,18 @@ test("deriveReverseQuote: destination name reflects the chosen EVM chain", () =>
   assert.equal(q.out, 97);
 });
 
+test("deriveReverseQuote: carries network gas (gasUsd) through; null on an unquoted/gaS-less leg", () => {
+  const quoted = deriveReverseQuote({
+    data: { estimate: { toAmount: "97500000", gasCosts: [{ amountUSD: "0.12" }] } },
+    to: "eth", amount: 100,
+  });
+  assert.equal(quoted.gasUsd, 0.12, "the fee-breakdown gas line for the reverse leg");
+  const noGas = deriveReverseQuote({ data: { estimate: { toAmount: "97500000" } }, to: "eth", amount: 100 });
+  assert.equal(noGas.gasUsd, null, "no gasCosts → null (console shows \"—\")");
+  const handoff = deriveReverseQuote({ data: null, to: "eth", amount: 100 });
+  assert.equal(handoff.gasUsd, null, "unquoted leg → no gas figure (never a guess)");
+});
+
 test("deriveReverseQuote: USDT destination → recvToken USDT, 6-decimal toAmount", () => {
   const q = deriveReverseQuote({ data: { estimate: { toAmount: "97020000" } }, to: "eth", amount: 100, toToken: "USDT" });
   assert.equal(q.recvToken, "USDT", "you-receive names the SELECTED destination stable");

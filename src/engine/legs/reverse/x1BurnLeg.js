@@ -35,7 +35,7 @@ import {
   buildReverseBurnWithSkim,
   simulateStage2,
   sendStage2ViaPhantom,
-  X1_REVERSE_TOKENS,
+  resolveReverseToken,
   toBaseUnits,
   WARP_PROGRAM_ID,
 } from "../../../warpBridge.js";
@@ -65,7 +65,7 @@ export function shapeReverseBurnArtifact({
   if (blockhash) tx.recentBlockhash = blockhash; // pin (belt+braces, like the golden rebuild)
   const bytes = tx.serialize({ requireAllSignatures: false });
 
-  const tok = X1_REVERSE_TOKENS[token] || X1_REVERSE_TOKENS["USDC.x"];
+  const tok = resolveReverseToken(token);
   const decimals = tok.decimals;
   const grossBase = toBaseUnits(
     grossHuman ?? Number(amountHuman) + Number(feeAmount),

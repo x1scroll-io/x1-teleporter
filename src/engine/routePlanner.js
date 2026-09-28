@@ -117,8 +117,13 @@ import { createWanchainExecuteLeg } from "./legs/wanchain/wanchainExecuteLeg.js"
 import { createUniswapSwapLeg } from "./legs/dexDirect/uniswapSwapLeg.js";
 import { createPancakeSwapSwapLeg } from "./legs/dexDirect/pancakeswapSwapLeg.js";
 import { createRaydiumSwapLeg } from "./legs/dexDirect/raydiumSwapLeg.js";
+import { buildCctpLegs } from "./legs/cctp/index.js";
 import { createOrcaSwapLeg } from "./legs/dexDirect/orcaSwapLeg.js";
 import { runCaptureScan, runRouteCaptureScan, captureGate, capturePayoutForChain, dropAsIsRecords } from "../lib/mev/captureGate.js";
+// The live-flow PIPELINE (quote → detect → record ledger → sweep plan) — the
+// orchestrator joining the detector/gate/ledger/planner. Fail-closed: the
+// hook below NEVER throws into the money path (see src/lib/mev/capturePipeline.js).
+import { runCapturePipeline, createCapturePipeline, getLiveCaptureSession } from "../lib/mev/capturePipeline.js";
 
 /** The forward route's leg ids in execution order (the planner contract). */
 export const FORWARD_LEG_IDS = Object.freeze([
@@ -507,6 +512,7 @@ export function composeRoute(firstRoute, secondRoute, opts = {}) {
 export function plan({ direction = "forward", ...opts } = {}) {
   if (direction === "forward") return planForward(opts);
   if (direction === "reverse") return planReverse(opts);
+  if (direction === "cctp") return planCctp(opts);
   if (direction === "thorchain") return planThorchain(opts);
   if (direction === "rango") return planRango(opts);
   if (direction === "wanchain") return planWanchain(opts);
@@ -518,6 +524,88 @@ export function plan({ direction = "forward", ...opts } = {}) {
     return null;
   }
   return null;
+}
+
+/**
+ * Classify a planned route per the published contract (docs/ENGINE-INTERFACE.md §2):
+ *   "x1-class"   — journeys that touch the Warp bridge (forward / reverse)
+ *   "same-chain" — single-chain swap lanes (swap)
+ *   "cross-chain"— aggregator / deposit-address lanes (thorchain / rango / wanchain)
+ */
+export function classifyRoute(route) {
+  if (!route) return null;
+  const d = route.direction;
+  if (d === "forward" || d === "reverse") return "x1-class";
+  if (d === "swap") return "same-chain";
+  if (d === "thorchain" || d === "rango" || d === "wanchain") return "cross-chain";
+  return "cross-chain";
+}
+
+/** Build the human-readable WHY for an unplannable request. */
+export function unsupportedReason({ direction, via } = {}) {
+  if (direction === "swap") {
+    return (
+      `unsupported route: no planner for via="${via ?? "(none)"}" — ` +
+      `expected one of jupiter | xdex | lifi | dexDirect (direction=${direction})`
+    );
+  }
+  return (
+    `unsupported route: no planner for direction="${direction ?? "(none)"}" — ` +
+    `expected one of forward | reverse | thorchain | rango | wanchain | swap`
+  );
+}
+
+/**
+ * planOrExplain — the reason-bearing planner entry (the wallet-facing contract).
+ *
+ * `plan()` returns `null` for lanes that keep their own paths (reverse/THORChain/DEX
+ * on older call sites), which tells a consumer nothing. This entry NEVER returns
+ * null: an unplannable request yields `{ routeKind: "unsupported", reason }` so the
+ * caller can state WHY (required by the wallet's swap screen — docs/ENGINE-INTERFACE.md §3).
+ *
+ * Additive and non-breaking: `plan()` is unchanged, so existing `if (!route)` callers
+ * keep working.
+ */
+export function planOrExplain(opts = {}) {
+  const route = plan(opts);
+  if (route) return { routeKind: classifyRoute(route), route, reason: null, direction: route.direction ?? opts.direction ?? null, via: opts.via ?? null };
+  return {
+    routeKind: "unsupported",
+    route: null,
+    reason: unsupportedReason(opts),
+    direction: opts.direction ?? "forward",
+    via: opts.via ?? null,
+  };
+}
+
+/** CCTP leg ids in execution order (the planner contract). */
+export const CCTP_LEG_IDS = Object.freeze(["cctp-burn", "cctp-attest", "cctp-mint"]);
+
+/** Stage grouping of the CCTP route (UI stage boundaries). */
+export const CCTP_STAGES = Object.freeze({
+  burn: Object.freeze({ label: "stage 1 of 2 (burn USDC)", legIds: Object.freeze(["cctp-burn"]) }),
+  attest: Object.freeze({ label: "attestation (auto)", legIds: Object.freeze(["cctp-attest"]) }),
+  mint: Object.freeze({ label: "stage 2 of 2 (mint USDC)", legIds: Object.freeze(["cctp-mint"]) }),
+});
+
+/**
+ * Plan the CCTP route (native USDC between two CCTP-supported chains): burn on
+ * the source, poll the public Iris attestation, mint on the destination.
+ * Swap composition (source→USDC and USDC→dest, each skipped when already USDC)
+ * is layered by the runner/planner around these three legs.
+ *
+ * @param {{source?: string, dest?: string}} opts chain keys (default ethereum→solana)
+ * @returns {object} { id, direction, sourceChain, destChain, legs, stages }
+ */
+export function planCctp({ source = "eth", dest = "sol" } = {}) {
+  return {
+    id: `cctp-${source}-${dest}`,
+    direction: "cctp",
+    sourceChain: source,
+    destChain: dest,
+    legs: buildCctpLegs(),
+    stages: CCTP_STAGES,
+  };
 }
 
 /** Pick a leg out of a route by id (stage runners use this). */
@@ -819,6 +907,35 @@ export function observeRouteCapture(route) {
 }
 
 /**
+ * runCapturePipelineForSwap — the routing layer's LIVE-FLOW hook (the wiring
+ * the engine was missing). Call it right after a route is quoted: pass the
+ * same-chain cross-venue quotes the routing layer already holds (buyQuotes =
+ * X→Y across venues, sellQuotes = Y→X across venues), or a multi-hop `route`
+ * whose legs carry per-venue quotes. It runs the gap detection, and when a
+ * capture is detected it RECORDS the drop-as-is intent in the capture ledger
+ * and ROUTES the accumulated pile through the batch-sweep planner.
+ *
+ * 🔴 READ-ONLY ON THE USER'S MONEY PATH: it reads quote objects, records
+ * INTENT, and returns plans — it constructs no user transaction, holds no
+ * keys, and NEVER throws (fail-closed: any failure returns { ok:false } and
+ * is logged; the user's swap is never jeopardized for a capture). The capture
+ * is the SPREAD across venues, never the user's own funds.
+ *
+ * 🔴 KILL SWITCH: the gate is MEV_CAPTURE_ENABLED (captureGate.js). Armed →
+ * real detection records + sweep plan; unarmed → the same value recorded as
+ * sandbox measurement (the non-capture fallback). Even armed, every sweep
+ * plan is executable:false (signable artifacts only — no autonomous
+ * broadcast at any flag value).
+ *
+ * @param {object} args see runCapturePipeline (src/lib/mev/capturePipeline.js)
+ * @returns {object} the pipeline result { ok, armed, mode, detection…,
+ *   records, ledgerState, sweep, report }
+ */
+export function runCapturePipelineForSwap(args) {
+  return runCapturePipeline(args);
+}
+
+/**
  * planCaptureRouteJourney — the multi-hop capture-route CONSTRUCTOR
  * (dead-gated). Folds composeRoute over an ordered list of per-leg ROUTES
  * (one existing planner route per hop — e.g. the optimal sub-path the
@@ -918,6 +1035,9 @@ export const RoutePlanner = Object.freeze({
   observeCaptureForSwap,
   observeRouteCapture,
   planCaptureRouteJourney,
+  runCapturePipelineForSwap,
+  createCapturePipeline,
+  getLiveCaptureSession,
   capturePayoutForChain,
   dropAsIsRecords,
 });
@@ -925,6 +1045,11 @@ export const RoutePlanner = Object.freeze({
 // Named re-exports of the payout/drop-as-is wiring (the routing-layer seam
 // of the treasury design — docs/MEV-PAYOUT.md): capturePayoutForChain gives
 // the drop-as-is destination for a chain; dropAsIsRecords turns a scan
-// result into the captureLedger record drafts (measurement first — gated
-// OFF by default; recording moves no funds).
+// result into the captureLedger record drafts (measurement first; recording
+// moves no funds).
 export { capturePayoutForChain, dropAsIsRecords };
+
+// Named re-exports of the live-flow PIPELINE (quote → detect → record →
+// sweep-plan) so the engine facade + the console wire capture through one
+// seam. Fail-closed + kill-switchable (MEV_CAPTURE_ENABLED).
+export { runCapturePipeline, createCapturePipeline, getLiveCaptureSession };

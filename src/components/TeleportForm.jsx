@@ -53,7 +53,7 @@ import {
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
-import { solanaSessionCanSign } from "../lib/wallet/sessionProviders.js";
+import { solanaSessionCanSign, resolveEvmProvider } from "../lib/wallet/sessionProviders.js";
 import {
   SignerResolver,
   RoutePlanner,
@@ -66,8 +66,55 @@ import {
 import { SimulationError } from "../lib/simulateTx.js";
 import { LiFiApprovalValidationError } from "../lib/lifiApproval.js";
 import { WARP_LIVE_SEND } from "../lib/flags.ts";
+import { WARP_DISCOVERY } from "../lib/flags.ts";
 import { FEE_WALLETS } from "../lib/fees.ts";
+import {
+  X1_FORWARD_TOKENS,
+  X1_REVERSE_TOKENS,
+  WARP_API,
+  fetchWarpRegistry,
+  registerDiscoveredRails,
+  getDiscoveredRails,
+  offerableWarpTokenKeys,
+  warpRailHealth,
+} from "../warpBridge.js";
 import BalancesLine from "./BalancesLine.jsx";
+import TokenSelect from "./TokenSelect.jsx";
+import { getPricesUSD } from "../lib/prices.js";
+import {
+  fetchEvmTokenBalance,
+  fetchSvmTokenBalances,
+  X1_RPC_LADDER,
+  X1_MINTS,
+} from "../lib/balances.js";
+
+/**
+ * The X1 tokens this v2 form may offer — ONLY the ones the v2 Warp executor
+ * can actually move, resolved from the executor's own rails (warpBridge.js
+ * X1_REVERSE_TOKENS ∪ X1_FORWARD_TOKENS). The identity registry (tokenResolver)
+ * carries the full listed set; this filter intersects it with the executor's
+ * rails so a token that would silently fall back to USDC.x (a WRONG-TOKEN
+ * burn) can never be chosen.
+ *
+ * The 9 xStock twins (SPCXx…GOOGLx) are IN the executor's rails (the
+ * Starport wallet's xStock port landed in warpBridge.js — forward + reverse +
+ * the destination minimums), so they surface here automatically alongside
+ * USDC.x / wSOL.X. A token stays gated out ONLY while it is genuinely absent
+ * from both rail maps (e.g. ETH.X / cbBTC.X remain registry-flagged
+ * `listed:false` and are engine/reverse-only today).
+ *
+ * DYNAMIC + HEALTH-AWARE: the known list is then passed through
+ * offerableWarpTokenKeys(), which (a) APPENDS rails discovered from the LIVE
+ * Warp config (Jack/XDEX add tokens over time) and (b) DROPS anything the
+ * config reports paused and returns [] when the whole lane is paused —
+ * fail-closed (a halted lane surfaces no route).
+ */
+function x1WarpTokens() {
+  const known = tokensFor("x1").filter(
+    (t) => t in X1_REVERSE_TOKENS || t in X1_FORWARD_TOKENS,
+  );
+  return offerableWarpTokenKeys(known);
+}
 
 /**
  * truncateAddress — display helper for the destination-address lines.
@@ -294,7 +341,7 @@ const PLACEHOLDER_EVM = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
  *   (the toggle resets the phase, so a reverse-phase test needs the
  *   direction set at mount). Defaults to "forward".
  */
-export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, reverseStage1Runner = defaultReverseStage1Runner, reverseStage2Runner = defaultReverseStage2Runner, releasePoller = defaultReleasePoller, onConnectWallet, balancesDeps = {}, initialPhase, initialDirection }) {
+export default function TeleportForm({ evmSession, solSession, stage2Runner = defaultStage2Runner, reverseStage1Runner = defaultReverseStage1Runner, reverseStage2Runner = defaultReverseStage2Runner, releasePoller = defaultReleasePoller, onConnectWallet, balancesDeps = {}, initialPhase, initialDirection, registryFetcher }) {
   // direction: "forward" = EVM → X1 (the proven on-ramp), "reverse" = X1 → EVM
   // (the off-ramp: Warp burn X1→Solana, then LiFi Solana→EVM). The forward
   // flow is byte-identical in behavior — the toggle only adds the reverse path.
@@ -327,6 +374,82 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   // Bumped after a bridge completes — BalancesLine refetches so the user sees
   // the post-bridge wallet state (what's left, and what it's now worth).
   const [balanceRefresh, setBalanceRefresh] = useState(0);
+  // Per-token balances + live prices for the token pickers (the From/To token
+  // dropdowns render icon + symbol + $ value + amount per option; balances come
+  // from the SAME DI'd fetchers the BalancesLine uses — fail-soft, "—" on a
+  // missing read, never a fabricated price).
+  const [pickerPrices, setPickerPrices] = useState(null);
+  const [pickerBalances, setPickerBalances] = useState({});
+  // Dynamic rails (WARP_DISCOVERY): the live Warp config is read once on mount;
+  // registering it bumps railVersion so x1WarpTokens() re-derives the offer
+  // list (discovered rails + lane health). Fail-closed: a failed read registers
+  // ok:false (the known baseline stays, no discovered rails appear).
+  const [railVersion, setRailVersion] = useState(0);
+
+  // Token-picker data: live prices + per-token balances for the route tokens
+  // (the EVM side of the current leg + the X1 tokens). Fail-soft — a failed
+  // read leaves that token's amount as "—"; a missing price leaves its $ value
+  // as "—". Never blocks the form, never fabricates a number.
+  useEffect(() => {
+    let cancelled = false;
+    const deps = balancesDeps || {};
+    const priceFetcher = deps.priceFetcher || getPricesUSD;
+    const evmBalanceFetcher = deps.evmBalanceFetcher || fetchEvmTokenBalance;
+    const svmBalanceFetcher = deps.solBalanceFetcher || fetchSvmTokenBalances;
+    const resolveEvmProviderFn = deps.resolveEvmProviderFn || resolveEvmProvider;
+    (async () => {
+      let prices = null;
+      try { prices = await priceFetcher(); } catch { prices = null; }
+      if (cancelled) return;
+      setPickerPrices(prices);
+      const out = {};
+      const evmAddr = evmSession?.address;
+      const solAddr = solSession?.address;
+      const evmChain = direction === "forward" ? from : to;
+      try {
+        if (evmAddr && TOKENS[evmChain]) {
+          const provider = await resolveEvmProviderFn(evmSession);
+          for (const symbol of tokensFor(evmChain)) {
+            const tok = TOKENS[evmChain]?.[symbol];
+            if (!tok) continue;
+            out[symbol] = await evmBalanceFetcher({ provider, wallet: evmAddr, token: tok });
+          }
+        }
+      } catch { /* fail-soft: the option still shows symbol + $ value */ }
+      try {
+        if (solAddr) {
+          const res = await svmBalanceFetcher({ rpcs: X1_RPC_LADDER, wallet: solAddr, mints: X1_MINTS });
+          if (res) for (const [k, v] of Object.entries(res)) out[k] = v;
+        }
+      } catch { /* fail-soft */ }
+      if (cancelled) return;
+      setPickerBalances(out);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [direction, from, to, evmSession, solSession, balanceRefresh]);
+
+  useEffect(() => {
+    const fetcher = registryFetcher || (WARP_DISCOVERY ? () => fetchWarpRegistry(WARP_API.mainnet) : null);
+    if (!fetcher) return undefined; // discovery off (default under node --test) → baseline only
+    let cancelled = false;
+    (async () => {
+      let rails;
+      try { rails = await fetcher(); } catch (e) { rails = { ok: false, error: e?.message }; }
+      if (cancelled) return;
+      registerDiscoveredRails(rails);
+      setRailVersion((v) => v + 1);
+    })();
+    return () => { cancelled = true; };
+  }, [registryFetcher]);
+
+  // Lane health + discovered-token view, recomputed whenever the rails change.
+  // railVersion is the re-render signal (bumped when the live registry
+  // resolves) — referenced so the dependency is explicit.
+  const rails = getDiscoveredRails();
+  const discoveredCount = rails.tokens ? rails.tokens.length : 0;
+  const lanePaused = warpRailHealth().chainPaused === true;
+  void railVersion;
 
   const evmReady = Boolean(evmSession?.address);
   const solReady = Boolean(solSession?.address);
@@ -574,7 +697,13 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         token: reverseToken,       // "USDC.x" | "wSOL.X" — the burn's mint/decimals/fee account
       });
       if (!res.success) {
-        if (res.sim?.simUnavailable) {
+        if (res.stage === "destination-minimum") {
+          // F8 fail-closed: the net (burn − Warp fee) can't clear the
+          // destination minimum, so the runner REFUSED before burning —
+          // nothing was built, signed, or sent. Surface the actionable reason
+          // (never a generic "Burn sim failed: undefined").
+          setError(res.reason || "Amount is below the destination minimum after the Warp fee — nothing was sent.");
+        } else if (res.sim?.simUnavailable) {
           setError(`Burn sim couldn't run (RPC: ${res.sim?.rpcError || "unknown"}) — send blocked. Retry when the RPC is reachable.`);
         } else {
           const logs = res.sim?.logs || [];
@@ -637,7 +766,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         // attempt, never a loop (the step2Busy guard serializes re-entry).
         await executeReverseStage2();
       } else if (res?.terminal) {
-        setError("The Warp release failed terminally — your USDC.x is safe on X1. Contact support.");
+        // The Warp side reported a PERMANENT failure (e.g. the release
+        // reverted BelowMinimum). Distinguish it from "still pending" (the
+        // timedOut branch below): the burn is on X1, the release can never
+        // land, so go straight to an honest handoff — never leave the user
+        // waiting on a release that will not come. The reason from the status
+        // payload rides along when present.
+        setError(
+          "The Warp release failed permanently — your " + (reverseToken === "wSOL.X" ? "WSOL.X" : "USDC.x") +
+          " is safe on X1. Contact support." + (res.reason ? ` (${res.reason})` : ""),
+        );
         setHandoffReason("terminal");
         setPhase("handoff");
       } else {
@@ -723,11 +861,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         </span>
         <span style={S.rowCol}>
           <span style={S.label}>Receive</span>
-          <select data-testid="x1-token" value={destToken} onChange={(e) => changeDestToken(e.target.value)} style={S.select} aria-label="Token on X1">
-            {tokensFor("x1").map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
-          </select>
+          <TokenSelect
+            testid="x1-token"
+            value={destToken}
+            onChange={(e) => changeDestToken(e.target.value)}
+            symbols={x1WarpTokens()}
+            prices={pickerPrices}
+            balances={pickerBalances}
+            style={S.select}
+            ariaLabel="Token on X1"
+          />
         </span>
       </div>
 
@@ -736,11 +879,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       <div style={S.row}>
         <span style={S.rowCol}>
           <span style={S.label}>Token</span>
-          <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} style={S.select} aria-label="Token">
-            {tokensFor(from).map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
-          </select>
+          <TokenSelect
+            testid="token"
+            value={token}
+            onChange={(e) => changeToken(e.target.value)}
+            symbols={tokensFor(from)}
+            prices={pickerPrices}
+            balances={pickerBalances}
+            style={S.select}
+            ariaLabel="Token"
+          />
         </span>
         <span style={{ ...S.rowCol, flex: 1 }}>
           <span style={S.label}>Amount</span>
@@ -771,6 +919,18 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         {...balancesDeps}
       />
       <div style={S.hint}>No minimum to bridge into X1 — any amount works (Teleporter fee 0.5%, max $250; land as USDC.x — flat $1 Warp fee — or wSOL.X — 0.25% Warp fee). Warp's own ~$10 bridge floor still applies on-chain.</div>
+      {/* Dynamic rails: honest lane-health + discovery surface (fail-closed —
+          a paused lane shows no route, never a silent dead-end). */}
+      {lanePaused && (
+        <div data-testid="lane-paused" style={S.hint}>
+          ⛔ The Warp lane is currently paused — routes are unavailable until the bridge reopens.
+        </div>
+      )}
+      {discoveredCount > 0 && (
+        <div data-testid="discovered-rails" style={S.hint}>
+          + {discoveredCount} newly-discovered Warp rail{discoveredCount === 1 ? "" : "s"} available from the live registry.
+        </div>
+      )}
 
       {/* wallet guidance — honest, never a silent dead-end; actionable
           (opens the connect modal) when the tab wires onConnectWallet */}
@@ -896,11 +1056,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         </span>
         <span style={S.rowCol}>
           <span style={S.label}>Burn</span>
-          <select data-testid="x1-token" value={reverseToken} onChange={(e) => changeReverseToken(e.target.value)} style={S.select} aria-label="Token burned on X1">
-            {tokensFor("x1").map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
-          </select>
+          <TokenSelect
+            testid="x1-token"
+            value={reverseToken}
+            onChange={(e) => changeReverseToken(e.target.value)}
+            symbols={x1WarpTokens()}
+            prices={pickerPrices}
+            balances={pickerBalances}
+            style={S.select}
+            ariaLabel="Token burned on X1"
+          />
         </span>
         <span style={S.rowCol}>
           <span style={S.label}>To</span>
@@ -913,11 +1078,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
           </select>
           {/* destination token — the user chooses WHICH stable they receive on
               the destination EVM chain (USDC / USDT / DAI as TOKENS[to] defines) */}
-          <select data-testid="to-token" value={token} onChange={(e) => changeToken(e.target.value)} style={S.select} aria-label="Receive token">
-            {tokensFor(to).map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
-          </select>
+          <TokenSelect
+            testid="to-token"
+            value={token}
+            onChange={(e) => changeToken(e.target.value)}
+            symbols={tokensFor(to)}
+            prices={pickerPrices}
+            balances={pickerBalances}
+            style={S.select}
+            ariaLabel="Receive token"
+          />
         </span>
       </div>
 
@@ -925,11 +1095,16 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       <div style={S.row}>
         <span style={S.rowCol}>
           <span style={S.label}>Token</span>
-          <select data-testid="token" value={reverseToken} onChange={(e) => changeReverseToken(e.target.value)} style={S.select} aria-label="Token to burn on X1">
-            {tokensFor("x1").map((t) => (
-              <option key={t} value={t} style={{ background: "#0a1019" }}>{t}</option>
-            ))}
-          </select>
+          <TokenSelect
+            testid="token"
+            value={reverseToken}
+            onChange={(e) => changeReverseToken(e.target.value)}
+            symbols={x1WarpTokens()}
+            prices={pickerPrices}
+            balances={pickerBalances}
+            style={S.select}
+            ariaLabel="Token to burn on X1"
+          />
         </span>
         <span style={{ ...S.rowCol, flex: 1 }}>
           <span style={S.label}>Amount</span>

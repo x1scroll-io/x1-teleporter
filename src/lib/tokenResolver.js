@@ -65,6 +65,8 @@ export const CHAIN_META = Object.freeze({
   sonic: Object.freeze({ id: "sonic", name: "Sonic",        chainId: 146,    family: "evm" }),
   rbn:   Object.freeze({ id: "rbn",   name: "Robinhood Chain", chainId: 4663, family: "evm" }), // Robinhood Chain — landed as a UI EVM source (PR #57): the canonical stable is Paxos USDG (TOKEN_TABLE USDG row below); the USDC entry in the USDC row stays intentionally unverified (no Circle USDC on-chain → resolve("USDC","rbn") stays null).
   tron:  Object.freeze({ id: "tron",  name: "Tron",         chainId: "TRON", family: "evm" }), // TVM — v1-gated lane (ENABLE_TRON=false in v2); entries kept for identity only
+  sui:   Object.freeze({ id: "sui",   name: "Sui",           chainId: null,   family: "move" }), // Move — native gas SUI; Circle native USDC is the deep stable (docs/CHAIN-STABLES.md)
+  hype:  Object.freeze({ id: "hype",  name: "Hyperliquid",   chainId: null,   family: "evm" }), // HL L1 — custom EVM; native gas HYPE; bridged USDC is the deep stable (docs/CHAIN-STABLES.md; NOT USDH — DefiLlama $6.95B vs $8M)
   btc:   Object.freeze({ id: "btc",   name: "Bitcoin",      chainId: null,   family: "utxo" }),
   doge:  Object.freeze({ id: "doge",  name: "Dogecoin",     chainId: null,   family: "utxo" }),
   ltc:   Object.freeze({ id: "ltc",   name: "Litecoin",     chainId: null,   family: "utxo" }),
@@ -128,6 +130,15 @@ export const TOKEN_TABLE = Object.freeze({
       // THIS entry; if it is a different deployment it becomes its own row.
       // Until confirmed, address stays null → resolve("USDC","rbn") is null.
       rbn:   Object.freeze({ chain: "rbn",   address: null, decimals: null, program: "erc20", rails: Object.freeze(["lifi"]), listed: false, status: "unverified", note: "TODO(robinhood-task): confirm Robinhood Chain USDC deployment (canonical Circle contract vs other) before filling address/decimals" }),
+      // RECONCILED 2026-09-22: the old null/unverified stub had drifted from
+      // the value the CCTP rail actually signs. The address is now the same
+      // verified Circle coin type sdkCctpSui.js uses (source of truth: Circle
+      // CCTP-Sui docs, fetched 2026-09-18 — see that module's header), which
+      // is newer ground truth than the 2026-09-08 "RPC unreachable" note. Still
+      // NOT v2-picker-listed (Sui is a CCTP/Rango SOURCE, not a picker chain);
+      // the popup's Sui branch reads the same constant, so picker == resolver.
+      sui:   Object.freeze({ chain: "sui",   address: "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC", decimals: 6,  program: "move", rails: Object.freeze(["lifi"]), listed: false, note: "Sui native Circle USDC (deep stable, docs/CHAIN-STABLES.md). Address reconciled 2026-09-22 against the verified Circle CCTP-Sui coin type in src/teleporter/lib/sdk/sdkCctpSui.js (Circle docs 2026-09-18) — no longer an unresolved stub. Not v2-picker-listed (Sui is a CCTP/Rango source)." }),
+      hype:  Object.freeze({ chain: "hype",  address: "0x6b9e773128f453f5c2c60935ee2de2cbc5390a24", decimals: 6,  program: "erc20", rails: Object.freeze(["lifi"]), listed: false, status: "unverified", note: "HL bridged USDC (spotMeta evmContract 2026-09-08). Deep stable on HL ($6.95B). NOT USDH. rails unconfirmed — LiFi HL support needs checking" }),
     }),
   }),
 
@@ -274,6 +285,26 @@ export const TOKEN_TABLE = Object.freeze({
     }),
   }),
 
+  // ── SUI (Sui native gas) ────────────────────────────────────────────────
+  SUI: Object.freeze({
+    symbol: "SUI",
+    name: "Sui",
+    kind: "native",
+    entries: Object.freeze({
+      sui: Object.freeze({ chain: "sui", address: null, decimals: 9, program: "native", rails: Object.freeze(["native"]), listed: false, note: "Sui chain gas — no single-address mint (Move coin 0x2::sui::SUI). docs/CHAIN-STABLES.md" }),
+    }),
+  }),
+
+  // ── HYPE (Hyperliquid native gas) ────────────────────────────────────────
+  HYPE: Object.freeze({
+    symbol: "HYPE",
+    name: "Hyperliquid",
+    kind: "native",
+    entries: Object.freeze({
+      hype: Object.freeze({ chain: "hype", address: null, decimals: 8, program: "native", rails: Object.freeze(["native"]), listed: false, note: "HL L1 gas — no evm contract per spotMeta (native L1 token). docs/CHAIN-STABLES.md" }),
+    }),
+  }),
+
   // ── THORChain lane natives (source-side assets of the THORChain hop) ─────
   BTC: Object.freeze({
     symbol: "BTC",
@@ -345,6 +376,187 @@ export const TOKEN_TABLE = Object.freeze({
       // the USDC row above keeps its rbn entry unverified so
       // resolve("USDC","rbn") stays null (the honesty invariant).
       rbn:   Object.freeze({ chain: "rbn",   address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", decimals: 6, program: "erc20", rails: Object.freeze(["lifi"]), listed: true, note: "Robinhood Chain canonical stable — Paxos USDG (verified 2026-09-05); LiFi key 'out', chainId 4663" }),
+    }),
+  }),
+
+  // ── xStock rails — the 9 Warp-bridged equity tokens (Solana native → X1
+  //    wrapped twin). Ground truth: the live Warp config
+  //    https://api.bridge.mainnet.x1.xyz/config (captured 2026-09-20 →
+  //    docs/bridge-token-floor-config.json). BOTH sides are Token-2022 mints,
+  //    8 decimals, 25 bps pct Warp fee (flat $1 is USDC.x-ONLY). The X1 twin
+  //    symbol follows the Warp/engine convention (`<SYM>x`, e.g. SPCXx — the
+  //    exact keys warpBridge.js X1_FORWARD_TOKENS/X1_REVERSE_TOKENS already
+  //    use), NOT the dotted `.x`/`.X` form of the stable/ETH/cbBTC wraps.
+  //    No coingeckoId: these are Warp-wrapped equities with no canonical
+  //    Coingecko simple-price id (the LiFi quote price is the primary source).
+  SPCX: Object.freeze({
+    symbol: "SPCX",
+    name: "SpaceX xStock",
+    kind: "token",
+    warpTwin: "SPCXx",
+    entries: Object.freeze({
+      sol: Object.freeze({ chain: "sol", address: "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "SpaceX xStock (Backed) on Solana — Token-2022, 8 dec; Warp source of X1 SPCXx (live config 2026-09-20)" }),
+    }),
+  }),
+  SPCXx: Object.freeze({
+    symbol: "SPCXx",
+    name: "SPCXx (X1 Warp-wrapped SpaceX xStock)",
+    kind: "token",
+    warpTwin: "SPCX",
+    entries: Object.freeze({
+      x1: Object.freeze({ chain: "x1", address: "CCqoyVud4QNCccV9EJtWEFPaC6jBaGJsaFTnyD8Ss47m", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Guardian-minted Token-2022 wrap of SPCX (8 dec, 25 bps Warp fee) — live Warp config 2026-09-20" }),
+    }),
+  }),
+
+  META: Object.freeze({
+    symbol: "META",
+    name: "Meta xStock",
+    kind: "token",
+    warpTwin: "METAx",
+    entries: Object.freeze({
+      sol: Object.freeze({ chain: "sol", address: "Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Meta xStock (Backed) on Solana — Token-2022, 8 dec; Warp source of X1 METAx (live config 2026-09-20)" }),
+    }),
+  }),
+  METAx: Object.freeze({
+    symbol: "METAx",
+    name: "METAx (X1 Warp-wrapped Meta xStock)",
+    kind: "token",
+    warpTwin: "META",
+    entries: Object.freeze({
+      x1: Object.freeze({ chain: "x1", address: "36fxZScbKNXxAfJoiqk76egFGm5b7wWFutjJfXTU5nhT", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Guardian-minted Token-2022 wrap of META (8 dec, 25 bps Warp fee) — live Warp config 2026-09-20" }),
+    }),
+  }),
+
+  TSLA: Object.freeze({
+    symbol: "TSLA",
+    name: "Tesla xStock",
+    kind: "token",
+    warpTwin: "TSLAx",
+    entries: Object.freeze({
+      sol: Object.freeze({ chain: "sol", address: "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Tesla xStock (Backed) on Solana — Token-2022, 8 dec; Warp source of X1 TSLAx (live config 2026-09-20)" }),
+    }),
+  }),
+  TSLAx: Object.freeze({
+    symbol: "TSLAx",
+    name: "TSLAx (X1 Warp-wrapped Tesla xStock)",
+    kind: "token",
+    warpTwin: "TSLA",
+    entries: Object.freeze({
+      x1: Object.freeze({ chain: "x1", address: "47wNUaHJyuiknQswU5qsfYKjaZ9ijueRB63ZrsxuRb4F", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Guardian-minted Token-2022 wrap of TSLA (8 dec, 25 bps Warp fee) — live Warp config 2026-09-20" }),
+    }),
+  }),
+
+  COIN: Object.freeze({
+    symbol: "COIN",
+    name: "Coinbase xStock",
+    kind: "token",
+    warpTwin: "COINx",
+    entries: Object.freeze({
+      sol: Object.freeze({ chain: "sol", address: "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Coinbase xStock (Backed) on Solana — Token-2022, 8 dec; Warp source of X1 COINx (live config 2026-09-20)" }),
+    }),
+  }),
+  COINx: Object.freeze({
+    symbol: "COINx",
+    name: "COINx (X1 Warp-wrapped Coinbase xStock)",
+    kind: "token",
+    warpTwin: "COIN",
+    entries: Object.freeze({
+      x1: Object.freeze({ chain: "x1", address: "44QsUuVsKVGk5A1X5Vx7MnevsNe7UTVnijfkbSi3rtpY", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Guardian-minted Token-2022 wrap of COIN (8 dec, 25 bps Warp fee) — live Warp config 2026-09-20" }),
+    }),
+  }),
+
+  PLTR: Object.freeze({
+    symbol: "PLTR",
+    name: "Palantir xStock",
+    kind: "token",
+    warpTwin: "PLTRx",
+    entries: Object.freeze({
+      sol: Object.freeze({ chain: "sol", address: "XsoBhf2ufR8fTyNSjqfU71DYGaE6Z3SUGAidpzriAA4", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Palantir xStock (Backed) on Solana — Token-2022, 8 dec; Warp source of X1 PLTRx (live config 2026-09-20)" }),
+    }),
+  }),
+  PLTRx: Object.freeze({
+    symbol: "PLTRx",
+    name: "PLTRx (X1 Warp-wrapped Palantir xStock)",
+    kind: "token",
+    warpTwin: "PLTR",
+    entries: Object.freeze({
+      x1: Object.freeze({ chain: "x1", address: "2EPkJGy9C4CwdXFc7zpa4VxeansMRcRVdPnR52nBVZbW", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Guardian-minted Token-2022 wrap of PLTR (8 dec, 25 bps Warp fee) — live Warp config 2026-09-20" }),
+    }),
+  }),
+
+  NVDA: Object.freeze({
+    symbol: "NVDA",
+    name: "NVIDIA xStock",
+    kind: "token",
+    warpTwin: "NVDAx",
+    entries: Object.freeze({
+      sol: Object.freeze({ chain: "sol", address: "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "NVIDIA xStock (Backed) on Solana — Token-2022, 8 dec; Warp source of X1 NVDAx (live config 2026-09-20)" }),
+    }),
+  }),
+  NVDAx: Object.freeze({
+    symbol: "NVDAx",
+    name: "NVDAx (X1 Warp-wrapped NVIDIA xStock)",
+    kind: "token",
+    warpTwin: "NVDA",
+    entries: Object.freeze({
+      x1: Object.freeze({ chain: "x1", address: "4JfDXUw8N7b1VJ1og1K3Nc4Z6nwtWxWJUSQKYBcdsiJz", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Guardian-minted Token-2022 wrap of NVDA (8 dec, 25 bps Warp fee) — live Warp config 2026-09-20" }),
+    }),
+  }),
+
+  AMD: Object.freeze({
+    symbol: "AMD",
+    name: "AMD xStock",
+    kind: "token",
+    warpTwin: "AMDx",
+    entries: Object.freeze({
+      sol: Object.freeze({ chain: "sol", address: "XsXcJ6GZ9kVnjqGsjBnktRcuwMBmvKWh8S93RefZ1rF", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "AMD xStock (Backed) on Solana — Token-2022, 8 dec; Warp source of X1 AMDx (live config 2026-09-20)" }),
+    }),
+  }),
+  AMDx: Object.freeze({
+    symbol: "AMDx",
+    name: "AMDx (X1 Warp-wrapped AMD xStock)",
+    kind: "token",
+    warpTwin: "AMD",
+    entries: Object.freeze({
+      x1: Object.freeze({ chain: "x1", address: "7Y5bai9oWEjZMYMkHxVBUzpUXJqAcwaHi8MptdcDhKk2", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Guardian-minted Token-2022 wrap of AMD (8 dec, 25 bps Warp fee) — live Warp config 2026-09-20" }),
+    }),
+  }),
+
+  SPY: Object.freeze({
+    symbol: "SPY",
+    name: "SP500 xStock",
+    kind: "token",
+    warpTwin: "SPYx",
+    entries: Object.freeze({
+      sol: Object.freeze({ chain: "sol", address: "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "SP500 xStock (Backed) on Solana — Token-2022, 8 dec; Warp source of X1 SPYx (live config 2026-09-20)" }),
+    }),
+  }),
+  SPYx: Object.freeze({
+    symbol: "SPYx",
+    name: "SPYx (X1 Warp-wrapped SP500 xStock)",
+    kind: "token",
+    warpTwin: "SPY",
+    entries: Object.freeze({
+      x1: Object.freeze({ chain: "x1", address: "5Z7K1BaM36ubfNHkXbiDm5GW3KGzVSt3DFxD2b7p4VtJ", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Guardian-minted Token-2022 wrap of SPY (8 dec, 25 bps Warp fee) — live Warp config 2026-09-20" }),
+    }),
+  }),
+
+  GOOGL: Object.freeze({
+    symbol: "GOOGL",
+    name: "Alphabet xStock",
+    kind: "token",
+    warpTwin: "GOOGLx",
+    entries: Object.freeze({
+      sol: Object.freeze({ chain: "sol", address: "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Alphabet xStock (Backed) on Solana — Token-2022, 8 dec; Warp source of X1 GOOGLx (live config 2026-09-20)" }),
+    }),
+  }),
+  GOOGLx: Object.freeze({
+    symbol: "GOOGLx",
+    name: "GOOGLx (X1 Warp-wrapped Alphabet xStock)",
+    kind: "token",
+    warpTwin: "GOOGL",
+    entries: Object.freeze({
+      x1: Object.freeze({ chain: "x1", address: "E3v5m81RLR3ZAjNuCeMjbniCmwBUd1j2iWsvtpXiBVe5", decimals: 8, program: "token-2022", rails: Object.freeze(["warp"]), listed: true, note: "Guardian-minted Token-2022 wrap of GOOGL (8 dec, 25 bps Warp fee) — live Warp config 2026-09-20" }),
     }),
   }),
 });
@@ -448,6 +660,9 @@ export function resolveByAddress(address, chain) {
  *   resolveTwin("WSOL")   → "wSOL.X"      resolveTwin("wSOL.X") → "WSOL"
  *   resolveTwin("ETH")    → "ETH.X"       resolveTwin("ETH.X")  → "ETH"
  *   resolveTwin("cbBTC")  → "cbBTC.X"     resolveTwin("cbBTC.X") → "cbBTC"
+ *   resolveTwin("SPCX")   → "SPCXx"      resolveTwin("SPCXx")  → "SPCX"
+ *     (the 9 xStock rails use the engine's `<SYM>x` X1-twin key — SPCX/META/
+ *      TSLA/COIN/PLTR/NVDA/AMD/SPY/GOOGL — matching warpBridge.js's maps)
  * When a chain is supplied the twin relation is only answered on the SVM
  * sides (sol/x1) — an EVM USDC has no Warp twin:
  *   resolveTwin("USDC", "eth") → null;  resolveTwin("USDC", "sol") → "USDC.x"
@@ -487,4 +702,63 @@ export function canonicalSymbols() {
 /** Is `chain` one of the resolver's known chain ids? */
 export function isKnownChain(chain) {
   return Object.prototype.hasOwnProperty.call(CHAIN_META, chain);
+}
+
+/**
+ * listedEvmTokens(chainId) → the canonical LISTED erc20 entries for one EVM
+ * chain id, in TOKEN_TABLE row order. This is the ONE source the swap picker
+ * reads, so its dropdown can never drift from the registry again.
+ *   listedEvmTokens(137) → [{ symbol: "USDC", address: "0x2791Bca1…", decimals: 6 }, …]
+ * Only entries with `listed: true` and a real (non-null) address on an EVM
+ * chain are returned. Never throws; an unknown/non-EVM chain id → [].
+ */
+export function listedEvmTokens(chainId) {
+  const wanted = Number(chainId);
+  if (!Number.isFinite(wanted)) return [];
+  const out = [];
+  for (const row of Object.values(TOKEN_TABLE)) {
+    for (const entry of Object.values(row.entries)) {
+      if (!entry.listed) continue;
+      if (!entry.address) continue;
+      const meta = CHAIN_META[entry.chain];
+      if (!meta || meta.family !== "evm" || meta.chainId !== wanted) continue;
+      out.push({
+        symbol: row.symbol,
+        address: entry.address,
+        decimals: entry.decimals,
+        coingeckoId: row.coingeckoId ?? null,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * evmPickerTokens(chainId, curated) → the swap picker's EVM token list for a
+ * chain id: the canonical `listed` entries FIRST, then any curated
+ * registry-only entries the canonical table does not cover (chains/addresses
+ * outside the identity registry — e.g. the expansion chains). De-dupe is by
+ * SYMBOL (case-insensitive) then address, so the CANONICAL identity always
+ * wins: e.g. Polygon's canonical USDC.e beats a stale registry USDC contract,
+ * and the dropdown can never show one address while the engine quotes another.
+ * Each item: { symbol, address, decimals }. Never throws.
+ */
+export function evmPickerTokens(chainId, curated = []) {
+  const out = listedEvmTokens(chainId).map((t) => ({
+    symbol: t.symbol,
+    address: t.address,
+    decimals: t.decimals,
+  }));
+  const symSeen = new Set(out.map((o) => String(o.symbol).toUpperCase()));
+  const addrSeen = new Set(out.map((o) => String(o.address ?? "").toLowerCase()));
+  for (const t of curated || []) {
+    if (!t || !t.symbol || !t.address) continue;
+    const sym = String(t.symbol).toUpperCase();
+    const addr = String(t.address).toLowerCase();
+    if (symSeen.has(sym) || addrSeen.has(addr)) continue;
+    out.push({ symbol: t.symbol, address: t.address, decimals: t.decimals });
+    symSeen.add(sym);
+    addrSeen.add(addr);
+  }
+  return out;
 }

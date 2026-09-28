@@ -36,6 +36,12 @@ import {
 } from "@solana/spl-token";
 import { simulateSolanaTx, guardedSendSolanaTx } from "./lib/simulateTx.js";
 import { FEE_RATES } from "./lib/fees.ts";
+// Signer resolution — the Warp leg signs through the wallet the user ACTUALLY
+// connected via discovery, resolved from the WalletContext session layer (the
+// same resolvers the React path uses). This replaces the old hardcoded
+// injected-global fallback with the React-free connectedSessions seam.
+import { resolveSolanaAdapter } from "./lib/wallet/sessionProviders.js";
+import { getConnectedSession } from "./lib/wallet/connectedSessions.js";
 // TOKEN IDENTITY (mints, decimals) reads from the canonical registry — see
 // docs/TOKEN-RESOLVER.md. requireToken throws at import time if a pinned
 // entry ever goes missing (loud config failure, never a silent null mint).
@@ -182,6 +188,17 @@ export function toBaseUnits(humanUsdc, decimals = USDC_DECIMALS) {
 }
 export function fromBaseUnits(base, decimals = USDC_DECIMALS) {
   return Number(base) / 10 ** decimals;
+}
+
+/** Human-readable SOURCE symbol for a forward X1 destination token: the
+ *  dotted wraps lose their suffix (USDC.x → USDC, wSOL.X → wSOL), the stock
+ *  twins the Warp/engine `x` convention (SPCXx → SPCX). Used by the
+ *  buildStage2 minimum message so it names the token the user actually sends. */
+function forwardSourceSymbol(destToken) {
+  const t = String(destToken);
+  if (/\.x$/i.test(t)) return t.replace(/\.x$/i, "");
+  if (/x$/.test(t)) return t.slice(0, -1);
+  return t;
 }
 
 function encodeBridgeOutData(seq, amountGross) {
@@ -409,6 +426,27 @@ export async function ensureX1RecipientAta({ connection, userPubkey, payer = nul
   return { needsCreation: true, transaction: tx, ata };
 }
 
+/**
+ * Resolve the Solana/X1 signer for the Warp legs.
+ *
+ * The engine passes the sign-capable adapter it already resolved from the
+ * connected WalletContext session (SignerResolver → sessionProviders.js). When
+ * no explicit provider is given (legacy/direct callers), fall back to the
+ * CURRENTLY CONNECTED Solana session — resolved through the SAME session layer
+ * (resolveSolanaAdapter over the connectedSessions registry the WalletContext
+ * publishes into). NEVER a hardcoded injected global: the bridge signs through
+ * whatever wallet the user actually connected via discovery.
+ *
+ * @param {object} [provider] the explicit provider from the caller (preferred)
+ * @returns {Promise<object|null>} a sign-capable adapter
+ *   (`publicKey` + signTransaction/signAndSendTransaction), or null when no
+ *   connected wallet can sign (the caller surfaces the connect-a-wallet error).
+ */
+async function resolveWarpSolanaSigner(provider) {
+  if (provider) return provider;
+  return resolveSolanaAdapter(getConnectedSession("solana"));
+}
+
 // Guarded broadcast of the X1 ATA-creation tx: simulate on the X1 RPC first
 // (fail-closed — a rejection or an unreachable RPC blocks the send), then let
 // the connected wallet sign + broadcast on the X1 network.
@@ -420,8 +458,7 @@ export async function ensureX1RecipientAta({ connection, userPubkey, payer = nul
 // the X1 accounts don't exist and the RPC rejects it. A fresh blockhash is
 // applied at the last moment to avoid RPC-sync "Blockhash not found" errors.
 export async function sendX1AtaCreation(connection, transaction, provider) {
-  const p = provider ||
-    (typeof window !== "undefined" ? window.solana || window.phantom?.solana : null);
+  const p = await resolveWarpSolanaSigner(provider);
   if (!p) throw new Error("No Solana/X1 wallet found to sign the X1 account-creation tx");
 
   // Fresh blockhash applied BEFORE the guarded send, so the simulation gates
@@ -468,7 +505,7 @@ export async function buildStage2({
   if (!(userPubkey instanceof PublicKey)) userPubkey = new PublicKey(userPubkey);
   if (!(feeWalletSvm instanceof PublicKey)) feeWalletSvm = new PublicKey(feeWalletSvm);
 
-  const fwd = X1_FORWARD_TOKENS[destToken] || X1_FORWARD_TOKENS["USDC.x"];
+  const fwd = resolveForwardToken(destToken);
   const { sourceMint, decimals, feeAccount, minBase } = fwd;
 
   const grossAll = toBaseUnits(amountHuman, decimals);
@@ -476,8 +513,10 @@ export async function buildStage2({
   const bridgeBase = grossAll - skimBase;
 
   if (bridgeBase < minBase) {
+    // Token-aware symbol for the message (USDC.x → USDC, wSOL.X → wSOL, stock
+    // twin SPCXx → SPCX) — the forward map's destToken is the X1 token.
     throw new Error(
-      `After the 0.5% Teleporter skim, ${fromBaseUnits(bridgeBase, decimals)} ${destToken === "wSOL.X" ? "WSOL" : "USDC"} is below the Warp minimum.`
+      `After the 0.5% Teleporter skim, ${fromBaseUnits(bridgeBase, decimals)} ${forwardSourceSymbol(destToken)} is below the Warp minimum.`
     );
   }
 
@@ -582,10 +621,10 @@ export async function simulateStage2(connection, transaction) {
 }
 
 export async function sendStage2ViaPhantom(connection, transaction, provider) {
-  // Use the provider the user actually connected (Backpack/Phantom/X1), not a
-  // hardcoded window.solana.
-  const p = provider ||
-    (typeof window !== "undefined" ? window.solana || window.phantom?.solana : null);
+  // Use the wallet the user actually connected via discovery — the explicit
+  // provider from the engine, or the CURRENTLY CONNECTED Solana session
+  // resolved through the session layer. Never an injected global.
+  const p = await resolveWarpSolanaSigner(provider);
   if (!p) throw new Error("No Solana wallet found to sign the Warp tx");
 
   // PREFER signTransaction + OUR broadcast through the SAME connection the tx
@@ -655,7 +694,7 @@ export async function runStage2({
   //    the Solana leg locks funds. allowLive:false still SIMULATES the ATA tx
   //    (fail-closed) but broadcasts nothing — same no-touch promise as the
   //    Solana leg.
-  const fwd = X1_FORWARD_TOKENS[destToken] || X1_FORWARD_TOKENS["USDC.x"];
+  const fwd = resolveForwardToken(destToken);
   let prep = null;
   if (x1Connection && createX1Ata) {
     prep = await ensureX1RecipientAta({
@@ -740,6 +779,55 @@ export const SOL_ETH_FEE_ACCOUNT = new PublicKey("FHZFWBfhdCj7yZr75j8kTbCqWHCKvx
 export const X1_CBBTCX_FEE_ACCOUNT = new PublicKey("7JsdSDzJskwoMFnmhbHzVrue8vwHBRNmH5LVbZBwfmDc"); // X1 cbBTC.X fee collector ATA (live config)
 export const SOL_CBBTC_FEE_ACCOUNT = new PublicKey("6WFfCbyw2TRfJuGSNZp2VCtcFXqA8UngVQHs8bNaQsPD"); // Solana cbBTC fee collector ATA (live config)
 
+// ── STOCK RAILS — SPCX / META / TSLA / COIN / PLTR / NVDA / AMD / SPY / GOOGL ──
+// Ground truth: the SAME live Warp config (https://api.bridge.mainnet.x1.xyz/config,
+// captured 2026-09-20 → docs/bridge-token-floor-config.json). Each Solana source
+// mint (sourceMint / locked by bridge_out) has an X1 wrapped twin (destMint /
+// minted by the guardians); BOTH sides are 8 decimals and charge the 25 bps pct
+// Warp fee (no flat — the flat $1 is USDC.x-ONLY). The per-token fee-collector
+// ATAs below come from the same config. The mints are literal here (these rails
+// are pinned in tokenResolver.js; kept literal for byte-parity with the wallet
+// port they were lifted from).
+const STOCK_DECIMALS = 8;
+export const SOL_SPCX_MINT = new PublicKey("Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8");
+export const SOL_META_MINT = new PublicKey("Xsa62P5mvPszXL1krVUnU5ar38bBSVcWAB6fmPCo5Zu");
+export const SOL_TSLA_MINT = new PublicKey("XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB");
+export const SOL_COIN_MINT = new PublicKey("Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu");
+export const SOL_PLTR_MINT = new PublicKey("XsoBhf2ufR8fTyNSjqfU71DYGaE6Z3SUGAidpzriAA4");
+export const SOL_NVDA_MINT = new PublicKey("Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh");
+export const SOL_AMD_MINT = new PublicKey("XsXcJ6GZ9kVnjqGsjBnktRcuwMBmvKWh8S93RefZ1rF");
+export const SOL_SPY_MINT = new PublicKey("XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W");
+export const SOL_GOOGL_MINT = new PublicKey("XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN");
+export const X1_SPCXX_MINT = new PublicKey("CCqoyVud4QNCccV9EJtWEFPaC6jBaGJsaFTnyD8Ss47m");
+export const X1_METAX_MINT = new PublicKey("36fxZScbKNXxAfJoiqk76egFGm5b7wWFutjJfXTU5nhT");
+export const X1_TSLAX_MINT = new PublicKey("47wNUaHJyuiknQswU5qsfYKjaZ9ijueRB63ZrsxuRb4F");
+export const X1_COINX_MINT = new PublicKey("44QsUuVsKVGk5A1X5Vx7MnevsNe7UTVnijfkbSi3rtpY");
+export const X1_PLTRX_MINT = new PublicKey("2EPkJGy9C4CwdXFc7zpa4VxeansMRcRVdPnR52nBVZbW");
+export const X1_NVDAX_MINT = new PublicKey("4JfDXUw8N7b1VJ1og1K3Nc4Z6nwtWxWJUSQKYBcdsiJz");
+export const X1_AMDX_MINT = new PublicKey("7Y5bai9oWEjZMYMkHxVBUzpUXJqAcwaHi8MptdcDhKk2");
+export const X1_SPYX_MINT = new PublicKey("5Z7K1BaM36ubfNHkXbiDm5GW3KGzVSt3DFxD2b7p4VtJ");
+export const X1_GOOGLX_MINT = new PublicKey("E3v5m81RLR3ZAjNuCeMjbniCmwBUd1j2iWsvtpXiBVe5");
+// Warp fee-collector token accounts (per-token, live config): Solana-side (lock)
+export const SOL_SPCX_FEE_ACCOUNT = new PublicKey("RcyUsKGJVVUqhTCkE2qQNH39JccZGn8tjxQqeLv76XK");
+export const SOL_META_FEE_ACCOUNT = new PublicKey("rxf9HBuo58vRQ5HPK6ZGmev9spRPECPhV2VZ4n6TzEk");
+export const SOL_TSLA_FEE_ACCOUNT = new PublicKey("94aMjiPSitiEFU8XGRgeSZcXeRqEGFLRG2JCcdMLyLz7");
+export const SOL_COIN_FEE_ACCOUNT = new PublicKey("9sXq7eNDgr5ourJupW9ok8V75qJrb77yJ2Ddfd2wpb3F");
+export const SOL_PLTR_FEE_ACCOUNT = new PublicKey("HQbVeT39zncthmbNEWBkVbGjYdaEXmjR3PW2nrHLt5K1");
+export const SOL_NVDA_FEE_ACCOUNT = new PublicKey("H5krn3SzGtq414Fde7KnV7EUneBpYLDQC8pU2kHBpiFT");
+export const SOL_AMD_FEE_ACCOUNT = new PublicKey("HKUdcZLRKyGALchhiqKN3rzrfMUakgpnoHHrf7trWG2W");
+export const SOL_SPY_FEE_ACCOUNT = new PublicKey("GpdnZWDTvCgnLdB2cH4WXFWbiScAfzRnEiUNqa2Hq27D");
+export const SOL_GOOGL_FEE_ACCOUNT = new PublicKey("3cwHKotdejo4Wnc688zeu1QAMiMD8wbhRBa2coo1gBB8");
+// X1-side (burn) fee-collector token accounts (per-token, live config):
+export const X1_SPCXX_FEE_ACCOUNT = new PublicKey("2bwDWHU5bhm6gtmXpenHg7yGWcHELUZmVSRSHRjx285J");
+export const X1_METAX_FEE_ACCOUNT = new PublicKey("Gfj5mZSSBMjYGzLte2oWrpHtpk4S7TRkeeudNL1kU6TY");
+export const X1_TSLAX_FEE_ACCOUNT = new PublicKey("GC1vAXQWbokNsoSdKAaZBaPbu2nNs55ePRcedd2sGo63");
+export const X1_COINX_FEE_ACCOUNT = new PublicKey("B1T1iz61rFooy9ZqDsd828VptPRuc7ykZBbeXJaf5K4e");
+export const X1_PLTRX_FEE_ACCOUNT = new PublicKey("PcqXLTXLDWQ2j9Kfs4jbRDAhaYr1Yc6huFVqyA3dCFe");
+export const X1_NVDAX_FEE_ACCOUNT = new PublicKey("CFPTPYANWnhBLVnb45zTRGMUKUN3naiqrMcYB5cwbki1");
+export const X1_AMDX_FEE_ACCOUNT = new PublicKey("3wZ1vEP7mwU7dnQUuiWgxK2kYDCjWope9nUT2mkQivSW");
+export const X1_SPYX_FEE_ACCOUNT = new PublicKey("6YgSpSMuuv6aXmXsEbjNpySTkpZv1qJ26mzhEQzY8qtB");
+export const X1_GOOGLX_FEE_ACCOUNT = new PublicKey("GpbrnKinhzEh8sWfuv1MCL7vJ3qLQZHHKu8HWwbm5pd");
+
 /** Warp's per-token fee on the X1 side (bridge_out burn) — from the LIVE
  *  Warp config token registry. FLAT $1 applies ONLY to USDC.x (1_000_000
  *  base, 6 dec — VERIFIED on-chain 2026-09-02). EVERY other token charges a
@@ -755,6 +843,16 @@ export const X1_WARP_FEES = {
   "wSOL.X": { kind: "pct", bps: 25, decimals: requireToken("wSOL.X", "x1").decimals },
   "ETH.X": { kind: "pct", bps: 25, decimals: requireToken("ETH.X", "x1").decimals },
   "cbBTC.X": { kind: "pct", bps: 25, decimals: requireToken("cbBTC.X", "x1").decimals },
+  // Stock rails — 25 bps pct, 8 dec (live Warp config; flat $1 is USDC.x-ONLY).
+  "SPCXx": { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  "METAx": { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  "TSLAx": { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  "COINx": { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  "PLTRx": { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  "NVDAx": { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  "AMDx": { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  "SPYx": { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  "GOOGLx": { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
 };
 
 /** The DEFAULT Warp fee shape for an UNKNOWN X1 token: 25 bps pct — flat $1
@@ -776,6 +874,16 @@ export const SOL_WARP_FEES = {
   WSOL: { kind: "pct", bps: 25, decimals: requireToken("WSOL", "sol").decimals },
   ETH: { kind: "pct", bps: 25, decimals: requireToken("ETH", "sol").decimals },
   cbBTC: { kind: "pct", bps: 25, decimals: requireToken("cbBTC", "sol").decimals },
+  // Stock rails — 25 bps pct, 8 dec (live Warp config; flat $1 is USDC-ONLY).
+  SPCX: { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  META: { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  TSLA: { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  COIN: { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  PLTR: { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  NVDA: { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  AMD: { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  SPY: { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
+  GOOGL: { kind: "pct", bps: 25, decimals: STOCK_DECIMALS },
 };
 
 /** The DEFAULT Warp fee shape for an UNKNOWN Solana-side token: 25 bps pct. */
@@ -805,6 +913,17 @@ export const X1_REVERSE_TOKENS = {
   "wSOL.X": { mint: X1_WSOLX_MINT, decimals: requireToken("wSOL.X", "x1").decimals, feeAccount: X1_WSOLX_FEE_ACCOUNT },
   "ETH.X": { mint: X1_ETHX_MINT, decimals: requireToken("ETH.X", "x1").decimals, feeAccount: X1_ETHX_FEE_ACCOUNT }, // live config — 25bps pct fee (no live burn yet: synthetic-labeled fixture)
   "cbBTC.X": { mint: X1_CBBTCX_MINT, decimals: requireToken("cbBTC.X", "x1").decimals, feeAccount: X1_CBBTCX_FEE_ACCOUNT }, // live config — 25bps pct fee
+  // Stock rails — X1 wrapped Token-2022 mints (8 dec) + per-token fee ATAs
+  // from the live config (docs/bridge-token-floor-config.json, 2026-09-20).
+  "SPCXx": { mint: X1_SPCXX_MINT, decimals: STOCK_DECIMALS, feeAccount: X1_SPCXX_FEE_ACCOUNT },
+  "METAx": { mint: X1_METAX_MINT, decimals: STOCK_DECIMALS, feeAccount: X1_METAX_FEE_ACCOUNT },
+  "TSLAx": { mint: X1_TSLAX_MINT, decimals: STOCK_DECIMALS, feeAccount: X1_TSLAX_FEE_ACCOUNT },
+  "COINx": { mint: X1_COINX_MINT, decimals: STOCK_DECIMALS, feeAccount: X1_COINX_FEE_ACCOUNT },
+  "PLTRx": { mint: X1_PLTRX_MINT, decimals: STOCK_DECIMALS, feeAccount: X1_PLTRX_FEE_ACCOUNT },
+  "NVDAx": { mint: X1_NVDAX_MINT, decimals: STOCK_DECIMALS, feeAccount: X1_NVDAX_FEE_ACCOUNT },
+  "AMDx": { mint: X1_AMDX_MINT, decimals: STOCK_DECIMALS, feeAccount: X1_AMDX_FEE_ACCOUNT },
+  "SPYx": { mint: X1_SPYX_MINT, decimals: STOCK_DECIMALS, feeAccount: X1_SPYX_FEE_ACCOUNT },
+  "GOOGLx": { mint: X1_GOOGLX_MINT, decimals: STOCK_DECIMALS, feeAccount: X1_GOOGLX_FEE_ACCOUNT },
 };
 
 /** The forward (Sol→X1) token map — the Solana-side SOURCE token (locked by
@@ -826,6 +945,17 @@ export const X1_FORWARD_TOKENS = {
     feeAccount: SOL_WSOL_FEE_ACCOUNT, // GxfLqezi… (live config)
     minBase: 100_000_000n, // config minAmount for wSOL (0.1 WSOL)
   },
+  // Stock rails — Solana source mint (locked) → X1 wrapped twin (minted); both
+  // 8-dec. minBase = the token's Warp minimum (docs/bridge-token-floor-config.json).
+  "SPCXx": { sourceMint: SOL_SPCX_MINT, destMint: X1_SPCXX_MINT, decimals: STOCK_DECIMALS, feeAccount: SOL_SPCX_FEE_ACCOUNT, minBase: 10_050_000n },
+  "METAx": { sourceMint: SOL_META_MINT, destMint: X1_METAX_MINT, decimals: STOCK_DECIMALS, feeAccount: SOL_META_FEE_ACCOUNT, minBase: 2_250_000n },
+  "TSLAx": { sourceMint: SOL_TSLA_MINT, destMint: X1_TSLAX_MINT, decimals: STOCK_DECIMALS, feeAccount: SOL_TSLA_FEE_ACCOUNT, minBase: 3_750_000n },
+  "COINx": { sourceMint: SOL_COIN_MINT, destMint: X1_COINX_MINT, decimals: STOCK_DECIMALS, feeAccount: SOL_COIN_FEE_ACCOUNT, minBase: 8_100_000n },
+  "PLTRx": { sourceMint: SOL_PLTR_MINT, destMint: X1_PLTRX_MINT, decimals: STOCK_DECIMALS, feeAccount: SOL_PLTR_FEE_ACCOUNT, minBase: 8_700_000n },
+  "NVDAx": { sourceMint: SOL_NVDA_MINT, destMint: X1_NVDAX_MINT, decimals: STOCK_DECIMALS, feeAccount: SOL_NVDA_FEE_ACCOUNT, minBase: 7_500_000n },
+  "AMDx": { sourceMint: SOL_AMD_MINT, destMint: X1_AMDX_MINT, decimals: STOCK_DECIMALS, feeAccount: SOL_AMD_FEE_ACCOUNT, minBase: 3_000_000n },
+  "SPYx": { sourceMint: SOL_SPY_MINT, destMint: X1_SPYX_MINT, decimals: STOCK_DECIMALS, feeAccount: SOL_SPY_FEE_ACCOUNT, minBase: 1_950_000n },
+  "GOOGLx": { sourceMint: SOL_GOOGL_MINT, destMint: X1_GOOGLX_MINT, decimals: STOCK_DECIMALS, feeAccount: SOL_GOOGL_FEE_ACCOUNT, minBase: 4_350_000n },
 };
 
 /** Derive the per-mint vault PDA + vault token account for a NATIVE source
@@ -839,6 +969,402 @@ export function deriveVaultAccounts(sourceMint, tokenProgramId) {
   const vaultTokenAccount = getAssociatedTokenAddressSync(
     new PublicKey(sourceMint), vault, true, tokenProgramId);
   return { vault, vaultTokenAccount };
+}
+
+// ── Warp fee accounting (F3) ────────────────────────────────
+// Warp carves its fee OUT of the bridge gross: USDC.x/USDC a FLAT $1 (1_000_000
+// at 6 dp) and every other token 25 bps (live config, verified on-chain). The
+// NET amount the guardians mint (forward) / release (reverse) is what the
+// following hop must be asked for — returning the GROSS over-asks the next leg.
+// The xStocks (SPCXx…GOOGLx) are 25 bps pct × 8 dp, exactly like the wallet's
+// rails (the flat $1 is USDC.x-ONLY).
+export function warpFeeCut(base, token) {
+  const b = BigInt(base ?? 0);
+  const fee = x1WarpFeeResolved(token);
+  return fee.kind === "flat" ? fee.amountBase : (b * BigInt(fee.bps)) / 10_000n;
+}
+
+/** NET amount minted on X1 after Warp's fee, for a forward bridge gross. */
+export function warpForwardNetBase(bridgeBase, destToken = "USDC.x") {
+  return BigInt(bridgeBase ?? 0) - warpFeeCut(bridgeBase, destToken);
+}
+
+/** NET amount released on Solana after Warp's fee, for a reverse burn gross. */
+export function warpReverseNetBase(burnBase, token = "USDC.x") {
+  return BigInt(burnBase ?? 0) - warpFeeCut(burnBase, token);
+}
+
+// ── REVERSE DESTINATION MINIMUM (F8) ────────────────────────────────────────
+// The reverse off-ramp BURNS on X1 and the guardians RELEASE the NET on the
+// DESTINATION chain. The destination's token registry enforces a MINIMUM on
+// that release: a net below it reverts BridgeInV2 `BelowMinimum(6000)` —
+// forever. The live dust re-check burned gross 10.058455 → $1 Warp fee → net
+// 9.058455 on X1 and the Solana USDC release could NEVER land (~$9.06
+// stranded). So the reverse must check the DESTINATION floor against the NET
+// (burn − Warp fee) BEFORE it burns — see planReverseRelease / runReverse.
+// Values are in the SOURCE token's decimals (USDC.x 6≈USDC 6, wSOL.X 9≈WSOL 9;
+// the xStocks 8≈8). Each value is the 1.5× UX floor (floorBase in
+// docs/bridge-token-floor-config.json = 1.5 × the destination's Warp minAmount),
+// NOT Warp's raw min — so a reverse whose NET lands just under the raw min is
+// refused with headroom instead of reverting FOREVER. USDC.x: 1.5 × $10 = $15;
+// wSOL.X: 1.5 × 0.1 = 0.15.
+export const X1_REVERSE_DEST_MIN = {
+  // Solana token-registry minAmount = $10 → 1.5× UX floor $15.
+  "USDC.x": 15n * ONE_USDC,
+  // Solana WSOL config minAmount = 0.1 → 1.5× UX floor 0.15 WSOL.
+  "wSOL.X": 150_000_000n,
+  // ETH.X / cbBTC.X: 1.5× the live config min (8 dec).
+  "ETH.X": 600_000n,
+  "cbBTC.X": 18_750n,
+  // Stock rails: 1.5× the live config min (8 dec).
+  "SPCXx": 10_050_000n,
+  "METAx": 2_250_000n,
+  "TSLAx": 3_750_000n,
+  "COINx": 8_100_000n,
+  "PLTRx": 8_700_000n,
+  "NVDAx": 7_500_000n,
+  "AMDx": 3_000_000n,
+  "SPYx": 1_950_000n,
+  "GOOGLx": 4_350_000n,
+};
+
+/**
+ * planReverseRelease — PURE. Given the reverse BURN (the Warp bridge gross the
+ * program debits on X1), compute the NET the guardians will RELEASE on the
+ * destination chain and check it clears the DESTINATION-side minimum.
+ *
+ * Accepts the burn directly (`burnBase` / `burnHuman`) OR the user's off-ramp
+ * amount (`grossHuman`, which the wallet first skims SKIM_BPS off) — the SAME
+ * math runReverse/reverseX1Stage use, so the check cannot drift from the burn.
+ *
+ * Returns `ok:false` (with a clear, user-facing `reason`) when the net cannot
+ * be released — so the caller REFUSES BEFORE burning and never strands funds
+ * (F8). `ok:true` when the net clears the floor.
+ *
+ * @returns {{ok:boolean, token:string, decimals:number, burnBase:bigint,
+ *   feeBase:bigint, netBase:bigint, destMinBase:bigint,
+ *   requiredBurnBase:bigint, reason:string|null}}
+ */
+export function planReverseRelease({ burnBase, burnHuman, grossHuman, token = "USDC.x", destMinBase } = {}) {
+  const tok = resolveReverseToken(token);
+  const decimals = tok.decimals;
+  let burn;
+  if (burnBase != null) burn = BigInt(burnBase);
+  else if (burnHuman != null) burn = toBaseUnits(burnHuman, decimals);
+  else if (grossHuman != null) {
+    const skim = (Number(grossHuman) * Number(SKIM_BPS)) / 10_000;
+    burn = toBaseUnits(Number(grossHuman) - skim, decimals);
+  } else burn = 0n;
+
+  const fee = warpFeeCut(burn, token);
+  const net = burn - fee;
+  const min = resolveReverseDestMin(token, destMinBase);
+  const ok = net >= min;
+  const requiredBurn = min + fee;
+  const sym = String(token).replace(/\.x$/i, "");
+  const reason = ok
+    ? null
+    : `amount below destination minimum after fee — need ≥ ${fromBaseUnits(requiredBurn, decimals)} ${sym} ` +
+      `(net ${fromBaseUnits(net, decimals)} < destination min ${fromBaseUnits(min, decimals)}); ` +
+      `nothing was burned`;
+  return {
+    ok, token, decimals,
+    burnBase: burn, feeBase: fee, netBase: net,
+    destMinBase: min, requiredBurnBase: requiredBurn, reason,
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DYNAMIC TOKEN DISCOVERY + LANE HEALTH (live Warp config)
+//
+//  The hardcoded maps above are the KNOWN BASELINE (verified on-chain). The
+//  Warp operator (Jack/XDEX) adds tokens to the bridge over time — the LIVE
+//  config (api.bridge.mainnet.x1.xyz/config) is the source of NEW rails. We
+//  merge discovered tokens into the offerable set (NEVER replacing a known
+//  entry) and gate EVERYTHING on lane health (chain-level + per-token pause).
+//
+//  FAIL-CLOSED CONTRACT (absolute):
+//    * A discovered token is offered ONLY when the live registry yields a
+//      COMPLETE rail — both mints, matching decimals, BOTH fee-collector ATAs,
+//      a positive minAmount, and a readable fee shape. Anything missing or
+//      ambiguous is SKIPPED (with a recorded reason), never guessed.
+//    * A token/lane the config reports `paused` is DROPPED from the offer.
+//    * If the config is unreachable the KNOWN baseline stays (we never invent
+//      data and never fall back to a wrong token); discovered rails simply do
+//      not appear until the registry can attest them.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Owner-excluded base symbols (docs/bridge-token-floor-config.json) — never
+ *  offered even if the live registry carries them. */
+export const WARP_LANE_EXCLUDE = Object.freeze(["xencat", "dgn", "xnt", "wxnt"]);
+/** Our UX floor = 1.5× the Warp per-token minAmount (docs/bridge-token-floor-config.json). */
+export const WARP_FLOOR_MULTIPLIER = 1.5;
+
+/** The base symbol behind a rail key (USDC.x → USDC, wSOL.X → wSOL, SPCXx →
+ *  SPCX, AAPLx → AAPL) — the key the live config indexes tokens by. */
+export function railBaseSymbol(key) {
+  return String(key).replace(/\.x$/i, "").replace(/x$/, "");
+}
+
+/** WarpTokenError — thrown by the resolvers when a symbol is absent from BOTH
+ *  the known baseline and the discovered overlay. A LOUD, fail-closed error —
+ *  NEVER a silent USDC.x fallback (which would burn the wrong token). */
+export class WarpTokenError extends Error {
+  constructor(message, { symbol = null } = {}) {
+    super(message);
+    this.name = "WarpTokenError";
+    this.symbol = symbol;
+  }
+}
+
+// The runtime overlay of LIVE-discovered rails (empty until registerDiscoveredRails).
+// Kept module-level so the executor's resolution + the form's offer list read
+// the SAME source. Never mutates the frozen-by-convention known maps above.
+let WARP_DISCOVERED = {
+  ok: false, fetchedAt: null, error: null,
+  forward: {}, reverse: {}, destMin: {}, x1Fees: {}, solFees: {},
+  tokens: [], skipped: [], pausedSymbols: new Set(),
+  chainPaused: false, lanes: { solana: null, x1: null },
+};
+
+/** Per-asset X1 Warp fee: discovered rails first, then the known baseline,
+ *  then the pct default. NEVER the flat $1 for an unknown asset. */
+export function x1WarpFeeResolved(token) {
+  return WARP_DISCOVERED.x1Fees[token] || X1_WARP_FEES[token] || X1_WARP_FEE_PCT_DEFAULT;
+}
+
+/** Per-asset Solana-side Warp fee (same precedence as above). */
+export function solWarpFeeResolved(token) {
+  return WARP_DISCOVERED.solFees[token] || SOL_WARP_FEES[token] || SOL_WARP_FEE_PCT_DEFAULT;
+}
+
+const _mintAddr = (t) => (typeof t?.mint === "string" && t.mint.length >= 32 ? t.mint : null);
+const _ata = (t) => (typeof t?.feeCollectorAta === "string" && t.feeCollectorAta.length >= 32 ? t.feeCollectorAta : null);
+const _big = (v) => { try { if (v == null || v === "") return null; return BigInt(v); } catch { return null; } };
+
+/** Read a token's Warp fee shape from its config row. Fail-closed: a row with
+ *  neither a positive flat nor a numeric bps returns null (→ the pair is
+ *  skipped rather than charged a guessed fee). */
+function _feeShapeFromToken(t) {
+  const flat = _big(t?.flatFeeAmount);
+  if (flat != null && flat > 0n) return { kind: "flat", amountBase: flat };
+  const bps = Number(t?.percentageFeeBps);
+  if (Number.isFinite(bps) && bps >= 0) return { kind: "pct", bps };
+  return null;
+}
+
+/** Validate + normalize the live Warp /config into per-side objects. Pure.
+ *  Never throws; ok:false when the shape is unusable. */
+export function parseWarpConfig(config) {
+  const sides = {};
+  for (const side of ["solana", "x1"]) {
+    const s = config?.[side];
+    if (!s || !Array.isArray(s.tokens)) return { ok: false, error: `config.${side}.tokens[] missing` };
+    sides[side] = {
+      paused: s.config?.paused === true,
+      pauseReason: s.config?.pauseReason ?? null,
+      tokens: s.tokens,
+    };
+  }
+  return { ok: true, solana: sides.solana, x1: sides.x1 };
+}
+
+/**
+ * deriveDiscoveredRails — PURE. Given a parsed config, compute the rails that
+ * are NEW (absent from the known baseline) and COMPLETE. Pairs the Solana and
+ * X1 token lists by base symbol; emits a rail only when BOTH sides carry a
+ * valid mint, equal decimals, a fee-collector ATA and a positive minAmount,
+ * the pair is not owner-excluded, and neither the lane nor the token is paused.
+ * Already-known rails (matched by source/X1 mint) are left to the baseline.
+ *
+ * @returns {{ok:boolean, forward:Object, reverse:Object, destMin:Object,
+ *   x1Fees:Object, solFees:Object, tokens:string[], skipped:Array<{symbol,reason}>,
+ *   pausedSymbols:Set<string>, chainPaused:boolean, lanes:Object, error?:string}}
+ */
+export function deriveDiscoveredRails(parsed, {
+  exclude = WARP_LANE_EXCLUDE,
+  floorMultiplier = WARP_FLOOR_MULTIPLIER,
+  knownForward = X1_FORWARD_TOKENS,
+  knownReverse = X1_REVERSE_TOKENS,
+} = {}) {
+  const empty = {
+    ok: false, forward: {}, reverse: {}, destMin: {}, x1Fees: {}, solFees: {},
+    tokens: [], skipped: [], pausedSymbols: new Set(), chainPaused: false,
+    lanes: { solana: null, x1: null },
+  };
+  if (!parsed?.ok) return { ...empty, error: parsed?.error || "no config" };
+
+  const lanes = {
+    solana: { paused: parsed.solana.paused === true, reason: parsed.solana.pauseReason ?? null },
+    x1: { paused: parsed.x1.paused === true, reason: parsed.x1.pauseReason ?? null },
+  };
+  const chainPaused = lanes.solana.paused || lanes.x1.paused;
+  const excl = new Set(exclude.map((s) => String(s).toLowerCase()));
+  const knownSrc = new Set(Object.values(knownForward).map((f) => f.sourceMint.toBase58()));
+  const knownMint = new Set(Object.values(knownReverse).map((r) => r.mint.toBase58()));
+
+  const bySym = (list) => {
+    const m = new Map();
+    for (const t of list) if (t && typeof t.symbol === "string") m.set(String(t.symbol).toLowerCase(), t);
+    return m;
+  };
+  const solBy = bySym(parsed.solana.tokens);
+  const x1By = bySym(parsed.x1.tokens);
+
+  const pausedSymbols = new Set();
+  for (const [sym, st] of solBy) if (st.paused === true) pausedSymbols.add(sym);
+  for (const [sym, xt] of x1By) if (xt.paused === true) pausedSymbols.add(sym);
+
+  const forward = {}, reverse = {}, destMin = {}, x1Fees = {}, solFees = {}, tokens = [], skipped = [];
+  const mult = BigInt(Math.round(floorMultiplier * 1000)); // 1.5 → 1500 → ×min/1000
+
+  for (const [sym, st] of solBy) {
+    const xt = x1By.get(sym);
+    if (!xt) { skipped.push({ symbol: st?.symbol || sym, reason: "no matching X1 twin in config" }); continue; }
+    if (excl.has(sym)) { skipped.push({ symbol: st.symbol, reason: "owner-excluded" }); continue; }
+    const solMint = _mintAddr(st), x1Mint = _mintAddr(xt);
+    if (!solMint || !x1Mint) { skipped.push({ symbol: st.symbol, reason: "missing mint" }); continue; }
+    if (knownSrc.has(solMint) || knownMint.has(x1Mint)) continue; // baseline wins — not "new"
+    if (chainPaused) { skipped.push({ symbol: st.symbol, reason: "warp lane paused" }); continue; }
+    if (st.paused === true || xt.paused === true) { skipped.push({ symbol: st.symbol, reason: "token paused on the lane" }); continue; }
+    const solDec = Number(st.decimals), x1Dec = Number(xt.decimals);
+    if (!Number.isInteger(solDec) || solDec < 0 || !Number.isInteger(x1Dec) || x1Dec < 0) { skipped.push({ symbol: st.symbol, reason: "invalid decimals" }); continue; }
+    if (solDec !== x1Dec) { skipped.push({ symbol: st.symbol, reason: `decimals mismatch (${solDec} vs ${x1Dec})` }); continue; }
+    const solFeeAta = _ata(st), x1FeeAta = _ata(xt);
+    if (!solFeeAta || !x1FeeAta) { skipped.push({ symbol: st.symbol, reason: "missing fee-collector ATA" }); continue; }
+    const min = _big(st.minAmount);
+    if (min == null || min <= 0n) { skipped.push({ symbol: st.symbol, reason: "missing/zero minAmount" }); continue; }
+    const solFee = _feeShapeFromToken(st), x1Fee = _feeShapeFromToken(xt);
+    if (!solFee || !x1Fee) { skipped.push({ symbol: st.symbol, reason: "unreadable fee shape" }); continue; }
+    const floorBase = (min * mult) / 1000n;
+    const key = (typeof st.displaySymbol === "string" && st.displaySymbol) ? st.displaySymbol : st.symbol;
+    forward[key] = { sourceMint: new PublicKey(solMint), destMint: new PublicKey(x1Mint), decimals: solDec, feeAccount: new PublicKey(solFeeAta), minBase: floorBase };
+    reverse[key] = { mint: new PublicKey(x1Mint), decimals: solDec, feeAccount: new PublicKey(x1FeeAta) };
+    destMin[key] = floorBase;
+    x1Fees[key] = x1Fee;
+    solFees[key] = solFee;
+    // Also index by base symbol so warpFeeCut(base) resolves for either form.
+    x1Fees[railBaseSymbol(key)] = x1Fee;
+    solFees[railBaseSymbol(key)] = solFee;
+    tokens.push(key);
+  }
+  tokens.sort();
+  return { ok: true, forward, reverse, destMin, x1Fees, solFees, tokens, skipped, pausedSymbols, chainPaused, lanes };
+}
+
+/**
+ * fetchWarpRegistry — read + parse + derive the live Warp registry. NEVER
+ * throws (returns ok:false on any failure) so callers stay fail-closed.
+ * The fetch is injectable for tests.
+ */
+export async function fetchWarpRegistry(api = WARP_API.mainnet, { fetchImpl } = {}) {
+  const f = fetchImpl || (typeof fetch !== "undefined" ? fetch : null);
+  if (!f) return { ok: false, error: "no fetch implementation available" };
+  try {
+    const resp = await f(`${api}/config`);
+    if (!resp || !resp.ok) return { ok: false, error: `HTTP ${resp?.status ?? "?"}` };
+    const config = await resp.json();
+    const parsed = parseWarpConfig(config);
+    if (!parsed.ok) return { ok: false, error: `config shape: ${parsed.error}`, raw: config };
+    const rails = deriveDiscoveredRails(parsed);
+    return { ...rails, raw: config };
+  } catch (e) {
+    return { ok: false, error: e?.message || "registry fetch failed" };
+  }
+}
+
+/** Install (or clear) the discovered-rails overlay. A failed/unavailable
+ *  registry CLEARS any previously-discovered rails (fail-closed: stale rails
+ *  are never offered) while leaving the known baseline untouched. */
+export function registerDiscoveredRails(rails, { fetchedAt = Date.now() } = {}) {
+  if (!rails || rails.ok !== true) {
+    WARP_DISCOVERED = {
+      ok: false, fetchedAt, error: rails?.error || "registry unavailable",
+      forward: {}, reverse: {}, destMin: {}, x1Fees: {}, solFees: {},
+      tokens: [], skipped: rails?.skipped || [], pausedSymbols: new Set(),
+      chainPaused: false, lanes: rails?.lanes || { solana: null, x1: null },
+    };
+    return WARP_DISCOVERED;
+  }
+  WARP_DISCOVERED = {
+    ok: true, fetchedAt, error: null,
+    forward: rails.forward || {}, reverse: rails.reverse || {}, destMin: rails.destMin || {},
+    x1Fees: rails.x1Fees || {}, solFees: rails.solFees || {},
+    tokens: Array.isArray(rails.tokens) ? rails.tokens : [], skipped: rails.skipped || [],
+    pausedSymbols: rails.pausedSymbols instanceof Set ? rails.pausedSymbols : new Set(),
+    chainPaused: rails.chainPaused === true, lanes: rails.lanes || { solana: null, x1: null },
+  };
+  return WARP_DISCOVERED;
+}
+
+/** Reset the overlay (baseline-only). Exported for tests + session teardown. */
+export function clearDiscoveredRails() {
+  WARP_DISCOVERED = {
+    ok: false, fetchedAt: null, error: null,
+    forward: {}, reverse: {}, destMin: {}, x1Fees: {}, solFees: {},
+    tokens: [], skipped: [], pausedSymbols: new Set(),
+    chainPaused: false, lanes: { solana: null, x1: null },
+  };
+  return WARP_DISCOVERED;
+}
+
+/** The current overlay (read-only view). */
+export function getDiscoveredRails() { return WARP_DISCOVERED; }
+
+/** Lane-health snapshot for the UI: whether the chain lane is paused, which
+ *  base symbols are paused, and whether the registry answered at all. */
+export function warpRailHealth() {
+  return {
+    ok: WARP_DISCOVERED.ok === true,
+    chainPaused: WARP_DISCOVERED.chainPaused === true,
+    pausedSymbols: WARP_DISCOVERED.pausedSymbols instanceof Set ? WARP_DISCOVERED.pausedSymbols : new Set(),
+    lanes: WARP_DISCOVERED.lanes,
+    error: WARP_DISCOVERED.error || null,
+  };
+}
+
+/**
+ * offerableWarpTokenKeys — the FINAL offer list: the registry-backed baseline
+ * keys the caller passes (already intersected with the executor rails) UNION
+ * the discovered rails, MINUS anything paused, and EMPTY when the whole lane is
+ * paused (fail-closed: a closed lane surfaces no route).
+ */
+export function offerableWarpTokenKeys(knownKeys = []) {
+  const h = warpRailHealth();
+  if (h.chainPaused) return [];
+  const isOpen = (k) => !h.pausedSymbols.has(railBaseSymbol(k).toLowerCase());
+  const known = knownKeys.filter(isOpen);
+  const extra = WARP_DISCOVERED.tokens.filter((k) => isOpen(k) && !known.includes(k));
+  return [...known, ...extra];
+}
+
+/** resolveForwardToken — the executor's forward rail lookup: known baseline
+ *  first, then the discovered overlay. THROWS WarpTokenError when unknown
+ *  (fail-closed — never a silent wrong-token fallback). */
+export function resolveForwardToken(symbol) {
+  const known = X1_FORWARD_TOKENS[symbol];
+  if (known) return known;
+  const disc = WARP_DISCOVERED.forward[symbol];
+  if (disc) return disc;
+  throw new WarpTokenError(`unknown forward token "${symbol}" — not in the baseline rails or the live Warp registry`, { symbol });
+}
+
+/** resolveReverseToken — the executor's reverse rail lookup (known ∪ discovered).
+ *  THROWS WarpTokenError when unknown (fail-closed). */
+export function resolveReverseToken(symbol) {
+  const known = X1_REVERSE_TOKENS[symbol];
+  if (known) return known;
+  const disc = WARP_DISCOVERED.reverse[symbol];
+  if (disc) return disc;
+  throw new WarpTokenError(`unknown reverse token "${symbol}" — not in the baseline rails or the live Warp registry`, { symbol });
+}
+
+/** resolveReverseDestMin — the reverse destination floor (known ∪ discovered),
+ *  with an explicit override winning. Returns 0n when neither source has one
+ *  (the gate is then a no-op — same fail-open shape as the baseline default). */
+export function resolveReverseDestMin(symbol, override) {
+  if (override != null) return BigInt(override);
+  return WARP_DISCOVERED.destMin[symbol] ?? X1_REVERSE_DEST_MIN[symbol] ?? 0n;
 }
 
 // Minimum lamports an X1 fee payer needs before the reverse burn will even
@@ -1107,7 +1633,7 @@ export function encodeReverseSeq(slot, ixIndex = 0) {
 export async function buildReverseBurnWithSkim({ connection, userPubkey, amountHuman, feeAmount = 0, feeWallet = null, token = "USDC.x", seq }) {
   // The bridged X1 token drives the mint, decimals and Warp fee account:
   // USDC.x (6 dec, flat $1) or wSOL.X (9 dec, 25 bps — live Warp config).
-  const tok = X1_REVERSE_TOKENS[token] || X1_REVERSE_TOKENS["USDC.x"];
+  const tok = resolveReverseToken(token);
   const { mint, decimals, feeAccount } = tok;
 
   // 1) X1 fee-wallet ATA prep: our 0.5% skim is a Token-2022 transfer to
@@ -1222,9 +1748,20 @@ export async function buildReverseBurn({ connection, userPubkey, amountHuman, se
 
 export async function runReverse({ connection, userPubkey, amountHuman, feeAmount = 0, feeWallet = null, allowLive = false, provider = null, onBuilt = () => {}, token = "USDC.x" }) {
   const sym = token;
-  const { mint, decimals } = X1_REVERSE_TOKENS[token] || X1_REVERSE_TOKENS["USDC.x"];
+  const { mint, decimals } = resolveReverseToken(token);
 
-  // 0) X1 fee-payer preflight: the bare `AccountNotFound` on the X1 RPC was
+  // 0) DESTINATION-MINIMUM PREFLIGHT (F8) — MUST run before anything is built
+  //    or burned. `amountHuman` is the Warp BURN (gross); the guardians RELEASE
+  //    `net = burn − Warp fee` on the destination chain, which enforces a
+  //    minimum. A net below it reverts BridgeInV2 BelowMinimum(6000) FOREVER,
+  //    so refuse CLEANLY here: nothing is signed, nothing is burned, no funds
+  //    are stranded. (The live dust pass burned ~$10.06 and stranded ~$9.06.)
+  const plan = planReverseRelease({ burnHuman: amountHuman, token });
+  if (!plan.ok) {
+    return { stage: "destination-minimum", success: false, reason: plan.reason, plan, built: null, prep: null };
+  }
+
+  // 0a) X1 fee-payer preflight: the bare `AccountNotFound` on the X1 RPC was
   //    the fee payer missing on X1 (same failure class as the forward hop on
   //    Solana). Surface it as an actionable error BEFORE anything is built.
   await assertX1FeePayer(connection, userPubkey);
@@ -1252,10 +1789,12 @@ export async function runReverse({ connection, userPubkey, amountHuman, feeAmoun
 
   onBuilt();
   const sim = await simulateStage2(connection, built.transaction);
-  if (!sim.ok) return { stage: "simulation", success: false, sim, built, prep };
-  if (!allowLive) return { stage: "simulated_ok", success: true, sim, built, sent: null, prep };
+  if (!sim.ok) return { stage: "simulation", success: false, sim, built, prep, plan, destMinBase: plan.destMinBase };
+  // F3: the NET released amount = burn gross − Warp's fee (flat $1 USDC.x / 25 bps).
+  const netBase = warpReverseNetBase(built.amount, token);
+  if (!allowLive) return { stage: "simulated_ok", success: true, sim, built, sent: null, prep, netBase, grossBase: built.amount, destMinBase: plan.destMinBase };
   const sig = await sendStage2ViaPhantom(connection, built.transaction, provider);
-  return { stage: "sent", success: true, sim, built, signature: sig, prep };
+  return { stage: "sent", success: true, sim, built, signature: sig, prep, netBase, grossBase: built.amount, destMinBase: plan.destMinBase };
 }
 
 // ── Warp API status polling ──
@@ -1303,7 +1842,10 @@ export async function fetchWarpLimits(api = WARP_API.mainnet) {
 // `api` is the ORIGIN-RELATIVE base ("" = same origin); kept as a param so
 // tests can inject a base or a fake fetch. The completion-detection logic
 // below (nested `transaction` shape, destTxSig, executed/complete/success,
-// fail/terminal) is unchanged from fix/warp-poll-desttxsig (#34).
+// fail/terminal) is unchanged from fix/warp-poll-desttxsig (#34), EXTENDED to
+// distinguish a PERMANENT failure (a terminal status, or an explicit error in
+// the payload — e.g. the release's `BelowMinimum(6000)` revert) from a release
+// that is merely still PENDING (the timedOut return, funds safe).
 export async function pollWarpStatus(sourceSig, { api = "", from = "sol", onUpdate = () => {}, maxMs = 180000, intervalMs = 4000 } = {}) {
   const start = Date.now();
   let sawSigs = false;
@@ -1335,13 +1877,28 @@ export async function pollWarpStatus(sourceSig, { api = "", from = "sol", onUpda
         const t = tj.transaction && typeof tj.transaction === "object" ? tj.transaction : tj;
         const dest = t.destinationTxSignature || t.destination_tx || t.destTxSig || t.destTx;
         const final = (t.status || t.executionStatus || "").toString().toLowerCase();
+        // Permanent-failure detection (runs BEFORE the completion check so a
+        // failed release that still carries a stale status can never be read
+        // as complete). The release reverts BridgeInV2 `BelowMinimum(6000)`
+        // when the net (burn − Warp fee) lands under the destination token
+        // minimum — a FOREVER failure the reverse must never wait on. Read
+        // the explicit error fields on both the nested and top-level shapes.
+        const errText = [t.error, t.errorCode, t.err, t.reason, tj.error, tj.errorCode, tj.reason, tj.message]
+          .filter((v) => v !== undefined && v !== null && String(v) !== "" && String(v).toLowerCase() !== "null")
+          .join(" ")
+          .toLowerCase();
+        const belowMinimum = /belowminimum|below[_ -]?minimum/.test(errText) || /(^|\D)6000(\D|$)/.test(errText);
+        const failedFinal = final.includes("fail") || final.includes("terminal") || final.includes("reject");
+        if (belowMinimum || failedFinal || /belowminimum|below[_ -]?minimum/.test(final)) {
+          const reason = belowMinimum
+            ? "the release reverted BelowMinimum (net below the destination minimum)"
+            : (errText || final || "the Warp bridge reported a terminal failure");
+          onUpdate("failed", { raw: tj, reason, permanent: true });
+          return { ok: false, terminal: true, permanent: true, reason, raw: tj };
+        }
         if (dest || final.includes("complete") || final.includes("executed") || final.includes("success")) {
           onUpdate("complete", { destinationTx: dest, raw: tj });
           return { ok: true, destinationTx: dest, raw: tj };
-        }
-        if (final.includes("fail") || final.includes("terminal") || final.includes("reject")) {
-          onUpdate("failed", { raw: tj });
-          return { ok: false, terminal: true, raw: tj };
         }
       } else if (tresp.status === 404) {
         // Before the relay detects the burn the status endpoint 404s — same

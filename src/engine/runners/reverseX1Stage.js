@@ -31,7 +31,8 @@ import { legById } from "../routePlanner.js";
 import {
   assertX1FeePayer,
   assertX1TokenBalance,
-  X1_REVERSE_TOKENS,
+  planReverseRelease,
+  resolveReverseToken,
   SKIM_BPS,
 } from "../../warpBridge.js";
 import { PublicKey } from "@solana/web3.js";
@@ -69,12 +70,23 @@ export async function runReverseX1Stage({
   const userPubkey = toPubkey(solAdapter.publicKey);
   const provider = solAdapter;
 
-  // 0 — preflights (the reference order inside runReverse). Token-aware:
+  // 0 — DESTINATION-MINIMUM PREFLIGHT (F8), FIRST — before any build/burn.
+  //    The guardians RELEASE `net = burn − Warp fee` on the destination chain,
+  //    which enforces a minimum; a net below it reverts BridgeInV2
+  //    BelowMinimum(6000) FOREVER. Refuse CLEANLY here: nothing built, nothing
+  //    signed, nothing burned — fail-closed (mirror of runReverse's step 0).
+  //    Token-aware: wSOL.X is 9-dec, the xStocks 8-dec.
+  const tok = resolveReverseToken(token);
+  const skim = (amountHuman * Number(SKIM_BPS)) / 10_000; // the 0.5% of the gross
+  const burnAmount = amountHuman - skim; // bridge_out burns the net (the burn gross)
+  const plan = planReverseRelease({ burnHuman: burnAmount, token });
+  if (!plan.ok) {
+    return { stage: "destination-minimum", success: false, reason: plan.reason, plan, built: null, prep: null };
+  }
+
+  // 0a — preflights (the reference order inside runReverse). Token-aware:
   //    wSOL.X is 9-dec (amounts + skim in wSOL.X units).
   await assertX1FeePayer(connection, userPubkey);
-  const tok = X1_REVERSE_TOKENS[token] || X1_REVERSE_TOKENS["USDC.x"];
-  const skim = (amountHuman * Number(SKIM_BPS)) / 10_000; // 1% of the gross
-  const burnAmount = amountHuman - skim; // bridge_out burns the net
   if (skim > 0 && feeWallet) {
     await assertX1TokenBalance(connection, userPubkey, {
       mint: tok.mint,

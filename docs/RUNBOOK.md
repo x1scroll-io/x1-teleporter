@@ -59,6 +59,14 @@ Read docs/BRIEF.md Workstream 0 item 1. Find every place we request an ERC-20 ap
 **Done when:** PR merged into `v2`, tests green, and you've read the diff yourself.
 
 ### Step 1.2 — Self-relay path 🔴
+> **STATUS (updated):** the self-relay was **removed** (as recommended) and the
+> X1→EVM off-ramp has since been **completed and un-gated** via the routing
+> engine (Phase 2): `x1-reverse-burn → warp-release-wait → lifi-solana-out`,
+> with a pre-burn destination-minimum refusal (F8) and a release-wait that
+> distinguishes a permanent failure (BelowMinimum) from pending. See
+> `src/lib/routes.ts`, `src/lib/flags.ts` (`REVERSE_ENABLED`, now default-ON
+> as a kill switch), `test/reverseRoute.test.js` and `test/engine.test.js`.
+> This section is kept for history.
 ```
 Read docs/BRIEF.md Workstream 0 item 2. The X1 to Solana self-relay path has four known bugs and does not work. Investigate it, list the four bugs you find with file and line, and tell me whether you recommend fixing or removing the path for now. Do not change code yet. Stop and wait for my decision.
 ```

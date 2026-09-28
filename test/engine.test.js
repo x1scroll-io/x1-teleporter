@@ -972,6 +972,33 @@ test("engine reverse: the release-wait leg + runner build the poll artifact and 
   }
 });
 
+test("engine reverseX1Stage: refuses BELOW the destination minimum BEFORE any build/burn — { stage: destination-minimum }, nothing built/signed/sent", async () => {
+  const route = planReverse();
+  // 10 USDC.x gross → 0.05 skim → 9.95 burn → −1 Warp flat = 8.95 net < the
+  // 15 USDC.x destination floor (F8). The runner must REFUSE cleanly: no
+  // connection is even touched (the plan check runs first), nothing is built.
+  let builtCalled = false;
+  const connection = mockReverseX1Connection();
+  const origBuild = connection.getAccountInfo;
+  connection.getAccountInfo = async (...a) => { builtCalled = true; return origBuild ? origBuild(...a) : null; };
+  const res = await runReverseX1Stage({
+    route,
+    solAdapter: makeSolAdapter(),
+    amountHuman: 10,
+    allowLive: true, // even armed, the minimum gate refuses before signing
+    token: "USDC.x",
+    feeWallet: FEE_WALLET,
+    connection,
+  });
+  assert.equal(res.stage, "destination-minimum");
+  assert.equal(res.success, false);
+  assert.equal(res.built, null, "nothing was built");
+  assert.equal(res.prep, null);
+  assert.equal(res.signature, undefined, "nothing was signed/sent");
+  assert.match(res.reason, /below destination minimum after fee/);
+  assert.equal(builtCalled, false, "the on-chain preflight never ran — refusal is instant");
+});
+
 test("engine reverseX1Stage (sim mode): returns the runReverse shape { simulated_ok } and the built burn tx is BYTE-IDENTICAL to golden step1", async () => {
   const route = planReverse();
   const connection = mockReverseX1Connection();

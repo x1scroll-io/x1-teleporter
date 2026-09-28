@@ -185,11 +185,15 @@ function makeSolAdapter() {
  *  (base units of the LiFi destination token — 6 decimals in these tests).
  *  No approvalAddress → the approval leg is skipped, keeping tests focused
  *  on the quote/fee/gate behavior. Records every requested URL. */
-function mockQuoteFetch({ toAmount = "100000000", error = null } = {}) {
+function mockQuoteFetch({ toAmount = "100000000", error = null, gasCosts = null } = {}) {
   const calls = [];
   const lifiQuote = {
     id: "0xmock-quote",
-    estimate: { toAmount, fromAmount: "100000000" },
+    estimate: {
+      toAmount,
+      fromAmount: "100000000",
+      ...(gasCosts ? { gasCosts } : {}),
+    },
     transactionRequest: { chainId: 1, to: "0x1234", data: "0xabcdef", value: "0x0", gasLimit: "0x5208" },
     action: {
       fromToken: { address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", chainId: 1 },
@@ -336,6 +340,107 @@ test("unified source union: a native source (Bitcoin) locks the deposit-address 
   }
 });
 
+test("unified source union: the long-tail coins (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH) are listed and lock the ChangeNOW deposit route; DOT is absent", () => {
+  const { container, unmount } = renderConsole({});
+  try {
+    const fromOptions = [...container.querySelector('[data-testid="from-chain"]').options].map((o) => o.value);
+    for (const c of ["xmr", "ada", "atom", "near", "zec", "dash", "bch", "algo", "xtz", "fil", "hbar", "vet", "theta", "osmo"]) {
+      assert.ok(fromOptions.includes(c), `source picker lists long-tail ${c}`);
+    }
+    assert.ok(!fromOptions.includes("polkadot"), "DOT is NOT offered (ChangeNOW does not support it)");
+    // Select Monero: single asset locked, destination X1, no land-as picker.
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "xmr");
+    assert.equal(container.querySelector('[data-testid="from-chain"]').value, "xmr");
+    assert.ok(container.querySelector('[data-testid="from-slot"]').textContent.includes("Monero"), "long-tail chain label");
+    const token = container.querySelector('[data-testid="token"]');
+    assert.equal(token.value, "XMR", "long-tail chain carries its one asset");
+    assert.equal(token.disabled, true, "the single long-tail asset is not a picker");
+    assert.equal(container.querySelector('[data-testid="to-chain"]').value, "x1");
+    assert.equal(container.querySelector('[data-testid="x1-token"]'), null, "no land-as picker on the long-tail rail");
+    assert.ok(container.querySelector('[data-testid="to-slot"]').textContent.includes("arrives as USDC.x on X1"), "fixed land-as readout");
+    const body = container.querySelector('[data-testid="teleport-console"]');
+    assert.ok(body.textContent.includes("Monero → X1"), "route readout names the real chains");
+    assert.ok(!body.textContent.includes("ChangeNOW"), "the rail is never named");
+    // Amount set → the deposit route is announced (the step reveals the
+    // payin address on TELEPORT; never a false "not ready").
+    setInput(container.querySelector('[data-testid="amount"]'), "0.5");
+    const strip = container.querySelector('[data-testid="quote-strip"]');
+    assert.ok(strip.textContent.includes("DEPOSIT ROUTE READY"), "the long-tail deposit route is announced");
+    // Second-wave long-tail coins lock the SAME deposit route (single asset,
+    // dest X1, no land-as picker, rail never named).
+    for (const [chain, asset] of [["algo", "ALGO"], ["xtz", "XTZ"], ["fil", "FIL"], ["hbar", "HBAR"], ["vet", "VET"], ["theta", "THETA"], ["osmo", "OSMO"]]) {
+      setSelect(container.querySelector('[data-testid="from-chain"]'), chain);
+      assert.equal(container.querySelector('[data-testid="from-chain"]').value, chain);
+      const twToken = container.querySelector('[data-testid="token"]');
+      assert.equal(twToken.value, asset, `${chain} carries its one asset`);
+      assert.equal(twToken.disabled, true, `${chain}: single asset is not a picker`);
+      assert.equal(container.querySelector('[data-testid="to-chain"]').value, "x1", `${chain}: dest locks to X1`);
+      assert.equal(container.querySelector('[data-testid="x1-token"]'), null, `${chain}: no land-as picker`);
+      assert.ok(container.querySelector('[data-testid="to-slot"]').textContent.includes("arrives as USDC.x on X1"), `${chain}: fixed land-as readout`);
+    }
+    // And back: EVM source restores the LiFi/Warp surface.
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "eth");
+    assert.equal(container.querySelector('[data-testid="token"]').value, "USDC");
+    assert.ok(container.querySelector('[data-testid="x1-token"]'), "land-as picker back on the EVM rail");
+  } finally {
+    unmount();
+  }
+});
+
+test("unified flow: a long-tail source routes into the deposit step on TELEPORT — create → payin address + memo → status poll (rail never named)", async () => {
+  const createCalls = [];
+  const fakeCreate = async (opts) => {
+    createCalls.push(opts);
+    return {
+      ok: true,
+      deposit: { id: "ex1", payinAddress: "4MoneroDepositAddr", payinExtraId: "PID-123", payoutAddress: SOL_ADDR, amountFrom: 0.5, amountTo: 60 },
+      request: opts,
+    };
+  };
+  let pollDeps = null;
+  const fakePoller = (deps) => {
+    pollDeps = deps;
+    return { start() { deps.onUpdate?.({ status: "waiting", terminal: false }); }, stop() {} };
+  };
+  const { container, unmount } = renderConsole({
+    consoleProps: { changeNowDeps: { createExchange: fakeCreate, createPoller: fakePoller } },
+  });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "xmr");
+    setInput(container.querySelector('[data-testid="amount"]'), "0.5");
+    click(container.querySelector('[data-testid="teleport-now"]'));
+    const step = container.querySelector('[data-testid="cn-deposit-step"]');
+    assert.ok(step, "the long-tail deposit step renders");
+    assert.ok(step.textContent.includes("Sending XMR from Monero → X1"), "step context names the real chains, not a rail");
+    await flush();
+    // The create fired with the pinned source identity + the session payout
+    // address (never a typed one).
+    assert.equal(createCalls.length, 1, "one exchange created");
+    assert.equal(createCalls[0].fromChain, "xmr");
+    assert.equal(createCalls[0].address, SOL_ADDR, "payout = the connected Solana/X1 session");
+    // The payin address + the REQUIRED payment id render.
+    assert.ok(container.querySelector('[data-testid="cn-payin-address"]').textContent.includes("4MoneroDepositAddr"));
+    assert.ok(container.querySelector('[data-testid="cn-extra-id"]').textContent.includes("PID-123"), "the required memo is rendered");
+    assert.ok(container.querySelector('[data-testid="cn-amount-to-send"]').textContent.includes("0.5"), "the exact amount to send");
+    // The rail is invisible and the old fail-closed copy is gone.
+    const body = container.querySelector('[data-testid="teleport-console"]').textContent;
+    assert.ok(!body.includes("ChangeNOW"), "the rail is never named");
+    assert.ok(!body.includes("SOURCE SUPPORTED"), "the old fail-closed copy is gone");
+    // The status readout reflects the step + the poller's first report.
+    assert.ok(container.querySelector('[data-testid="console-status"]').textContent.includes("DEPOSIT"), "status: DEPOSIT");
+    assert.ok(container.querySelector('[data-testid="cn-status-label"]').textContent.includes("Waiting"));
+    // A terminal (finished) status flips the panel to the done banner.
+    act(() => pollDeps.onUpdate?.({ status: "finished", terminal: true }));
+    assert.ok(container.querySelector('[data-testid="cn-done"]'), "finished → the done banner");
+    // Back to the route keeps the pick.
+    click(container.querySelector('[data-testid="back-to-route"]'));
+    assert.ok(container.querySelector('[data-testid="console-coords"]'), "back on the route coordinates");
+    assert.equal(container.querySelector('[data-testid="from-chain"]').value, "xmr", "route kept");
+  } finally {
+    unmount();
+  }
+});
+
 // ── THE REAL QUOTE PATH ─────────────────────────────────────────────────────
 
 test("forward quote: pinned query (no fee param) → fee lines 0.5% + $1 flat, honest net, To-address on X1", async () => {
@@ -432,6 +537,137 @@ test("reverse quote per-asset: burning wSOL.X shows the 0.25% Warp line", async 
     const pct = container.querySelector('[data-testid="fee-line-warp-pct"]');
     assert.ok(pct && pct.textContent.includes("Warp bridge fee (0.25%)"), `pct line, got: ${pct?.textContent}`);
     assert.equal(container.querySelector('[data-testid="fee-line-warp-flat"]'), null, "no flat line for wSOL.X");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+// ── FIX 1: REVERSE MINIMUM — inline warning + DISARMED TELEPORT ─────────────
+// ported from the wallet's F8 pre-flight (planReverseRelease). A tiny X1→EVM
+// burn whose net (after the Warp fee) can't clear the destination floor must
+// warn the user UP-FRONT and disable TELEPORT — not show a normal quote that
+// only fails at burn time ("Burn sim failed: undefined").
+
+test("reverse MINIMUM: a tiny X1→Ethereum amount warns inline + DISARMS TELEPORT (planReverseRelease pre-flight)", async () => {
+  const qf = mockQuoteFetch({ toAmount: "98500000" });
+  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "x1");
+    // 10 USDC.x → burn 9.95 → net 8.95 < $15 destination floor → blocked.
+    await quoteAmount(container, "10");
+    const warn = container.querySelector('[data-testid="reverse-min-warning"]');
+    assert.ok(warn, "inline reverse-minimum warning rendered");
+    assert.ok(/below destination minimum after fee/.test(warn.textContent), `honest reason, got: ${warn?.textContent}`);
+    assert.ok(warn.textContent.includes("nothing was burned"), "the reason states nothing was burned");
+    const fire = container.querySelector('[data-testid="teleport-now"]');
+    assert.equal(fire.disabled, true, "TELEPORT is DISABLED while the net is below the destination minimum");
+    assert.ok(!fire.className.includes("tc-fire-armed"), "the armed glow is suppressed while blocked");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("reverse MINIMUM: raising the amount above the floor clears the warning + REARMS TELEPORT", async () => {
+  const qf = mockQuoteFetch({ toAmount: "98500000" });
+  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "x1");
+    await quoteAmount(container, "10");
+    assert.ok(container.querySelector('[data-testid="reverse-min-warning"]'), "blocked at 10");
+    // 100 USDC.x → burn 99.5 → net 98.5 ≥ $15 → clears.
+    await quoteAmount(container, "100");
+    assert.equal(container.querySelector('[data-testid="reverse-min-warning"]'), null, "warning cleared above the floor");
+    assert.equal(container.querySelector('[data-testid="teleport-now"]').disabled, false, "TELEPORT re-armed");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("reverse destination-minimum SURFACE: the click-time runner reason lands honestly (never \"Burn sim failed: undefined\")", async () => {
+  const qf = mockQuoteFetch({ toAmount: "98500000" });
+  const reason = "amount below destination minimum after fee — need ≥ 16.080402 USDC (net 8.95 < destination min 15); nothing was burned";
+  const { container, unmount } = renderConsole({
+    evmProvider: makeEvmProvider(),
+    solProvider: makeSolAdapter(),
+    // The large amount passes the pre-flight; the runner is the fail-closed
+    // backstop and returns the destination-minimum stage (simulating the
+    // click-time guard). Its reason must surface verbatim.
+    formProps: { reverseStage1Runner: async () => ({ stage: "destination-minimum", success: false, reason }) },
+  });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "x1");
+    await quoteAmount(container, "100");
+    click(container.querySelector('[data-testid="teleport-now"]'));
+    await flush();
+    const err = container.querySelector('[data-testid="form-error"]');
+    assert.ok(err && err.textContent.includes("below destination minimum"), `reason surfaced, got: ${err?.textContent}`);
+    assert.ok(!/Burn sim failed: undefined/.test(err.textContent), "never the generic Burn-sim string");
+    assert.ok(container.querySelector('[data-testid="teleport-now"]'), "stays on the quoted panel (nothing was burned, TELEPORT still present)");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+// ── FIX 2: FEE BREAKDOWN — network gas line + total line ────────────────────
+// The console now shows a Network-gas row (from LiFi's estimate.gasCosts, an
+// honest "—" when unknown) AND a Total-cost row. The total is a real USD
+// number only when every figure is known; otherwise it's the itemized
+// expression (never a guessed number). Existing fee numbers are untouched.
+
+test("fee breakdown: network gas line + a REAL USD total when LiFi reports gasCosts", async () => {
+  const qf = mockQuoteFetch({ toAmount: "100000000", gasCosts: [{ type: "SEND", amountUSD: "2.50" }] });
+  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+  try {
+    await quoteAmount(container, "100");
+    const gas = container.querySelector('[data-testid="fee-line-network-gas"]');
+    assert.ok(gas && gas.textContent.includes("Network gas") && gas.textContent.includes("$2.50"), `gas row, got: ${gas?.textContent}`);
+    const total = container.querySelector('[data-testid="fee-line-total"]');
+    assert.ok(total && total.textContent.includes("Total cost"), `total row, got: ${total?.textContent}`);
+    // 0.5% of the $100 delivered = $0.50 + $1.00 Warp + $2.50 gas = $4.00
+    assert.ok(total.textContent.includes("$4.00"), `real USD total (all figures known), got: ${total?.textContent}`);
+    // The existing fee lines are untouched.
+    assert.ok(container.querySelector('[data-testid="fee-line-warp-skim"]').textContent.includes("$0.50"));
+    assert.ok(container.querySelector('[data-testid="fee-line-warp-flat"]').textContent.includes("$1.00"));
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("fee breakdown: gas UNKNOWN → network gas shows \"—\" and the total is the honest itemized expression", async () => {
+  const qf = mockQuoteFetch({ toAmount: "100000000" }); // no gasCosts → gas unknown
+  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+  try {
+    await quoteAmount(container, "100");
+    const gas = container.querySelector('[data-testid="fee-line-network-gas"]');
+    assert.ok(gas && gas.textContent.includes("—"), `gas unknown → "—", got: ${gas?.textContent}`);
+    const total = container.querySelector('[data-testid="fee-line-total"]');
+    assert.ok(total && total.textContent.includes("network gas"), `itemized total, got: ${total?.textContent}`);
+    assert.ok(/\$0\.50 \+ \$1\.00 \+ network gas/.test(total.textContent), `$0.50 + $1.00 + network gas, got: ${total?.textContent}`);
+    assert.ok(!/\$\d+\.\d\d$/.test(total.textContent.replace("network gas", "")), "no guessed USD total when gas is unknown");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+// ── FIX 2 (reverse): the reverse quote also carries the gas + total rows ────
+
+test("fee breakdown (reverse): X1→Ethereum shows network gas + total alongside Teleporter/Warp lines", async () => {
+  const qf = mockQuoteFetch({ toAmount: "98500000", gasCosts: [{ type: "SEND", amountUSD: "0.12" }] });
+  const { container, unmount } = renderConsole({ evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() });
+  try {
+    setSelect(container.querySelector('[data-testid="from-chain"]'), "x1");
+    await quoteAmount(container, "100");
+    const gas = container.querySelector('[data-testid="fee-line-network-gas"]');
+    assert.ok(gas && gas.textContent.includes("$0.12"), `reverse gas row, got: ${gas?.textContent}`);
+    const total = container.querySelector('[data-testid="fee-line-total"]');
+    // $0.50 skim + $1.00 flat + $0.12 gas = $1.62
+    assert.ok(total && total.textContent.includes("$1.62"), `reverse total, got: ${total?.textContent}`);
   } finally {
     qf.restore();
     unmount();
@@ -686,6 +922,79 @@ test("MAX + balance: the source balance shows under Amount; MAX fills the amount
       `balance readout, got: ${bal?.textContent}`);
     click(container.querySelector('[data-testid="max-button"]'));
     assert.equal(container.querySelector('[data-testid="amount"]').value, "25.5", "MAX fills the amount");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+// ── TOKEN PICKERS: icon + symbol + $ value + amount per option ──────────────
+
+test("token dropdowns populate icon + symbol + $ value + token amount for every option", async () => {
+  const qf = mockQuoteFetch();
+  const { container, unmount } = renderConsole({
+    evmProvider: makeEvmProvider(),
+    solProvider: makeSolAdapter(),
+    formProps: {
+      balancesDeps: {
+        ...NOOP_BALANCES,
+        evmBalanceFetcher: async () => 25.5,
+        solBalanceFetcher: async () => ({ "USDC.x": 10, "wSOL.X": 0.3 }),
+        priceFetcher: async () => ({ USDC: 1, USDT: 1, DAI: 1, "USDC.x": 1, "wSOL.X": 150 }),
+      },
+    },
+  });
+  try {
+    await flush();
+    // The FROM-token dropdown: icon + symbol + $ value + amount per option.
+    const tokenSel = container.querySelector('[data-testid="token"]');
+    const tokenIconEl = container.querySelector('[data-testid="token-icon"]');
+    assert.ok(tokenIconEl && tokenIconEl.getAttribute("src").startsWith("data:image/svg+xml"),
+      "the selected token renders an icon");
+    const usdc = [...tokenSel.options].find((o) => o.value === "USDC");
+    assert.equal(usdc.textContent, "USDC · $25.50 · 25.5", "option caption = symbol + $ value + amount");
+    assert.equal(usdc.getAttribute("data-usd"), "$25.50");
+    assert.equal(usdc.getAttribute("data-amount"), "25.5");
+
+    // The TO-token (land-as / X1) dropdown: X1 balances + live USD.
+    const x1Sel = container.querySelector('[data-testid="x1-token"]');
+    assert.ok(container.querySelector('[data-testid="x1-token-icon"]'), "the land-as picker renders an icon");
+    const usdcx = [...x1Sel.options].find((o) => o.value === "USDC.x");
+    assert.ok(usdcx.textContent.includes("USDC.x") && usdcx.textContent.includes("$10.00") && usdcx.textContent.includes("10"),
+      `land-as caption, got: ${usdcx?.textContent}`);
+    const wsolx = [...x1Sel.options].find((o) => o.value === "wSOL.X");
+    assert.ok(wsolx.textContent.includes("$45.00") && wsolx.textContent.includes("0.3"),
+      `wSOL.X caption (0.3 × $150), got: ${wsolx?.textContent}`);
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("token dropdowns: a token with no balance shows '—' (never blank) and a missing price never fabricates one", async () => {
+  const qf = mockQuoteFetch();
+  const { container, unmount } = renderConsole({
+    evmProvider: makeEvmProvider(),
+    solProvider: makeSolAdapter(),
+    formProps: {
+      balancesDeps: {
+        ...NOOP_BALANCES,
+        // Only USDC resolves a balance; USDT/DAI are null → "—". And only
+        // USDC has a price; the rest must show "—" (never a fabricated value).
+        evmBalanceFetcher: async ({ token }) =>
+          (token?.address ?? "").toLowerCase() === "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" ? 12.5 : null,
+        solBalanceFetcher: async () => ({}),
+        priceFetcher: async () => ({ USDC: 1 }),
+      },
+    },
+  });
+  try {
+    await flush();
+    const tokenSel = container.querySelector('[data-testid="token"]');
+    const usdc = [...tokenSel.options].find((o) => o.value === "USDC");
+    assert.equal(usdc.textContent, "USDC · $12.50 · 12.5");
+    const usdt = [...tokenSel.options].find((o) => o.value === "USDT");
+    assert.equal(usdt.textContent, "USDT · — · —", "no balance + no price → dashes, never blank, never fabricated");
   } finally {
     qf.restore();
     unmount();

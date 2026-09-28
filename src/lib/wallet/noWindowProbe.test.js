@@ -16,7 +16,11 @@
  *   - src/Teleporter.jsx — the pre-v2 bridge UI reads the injected EVM and
  *     Solana globals. It is slated for removal in the Phase 3 UI swap and is
  *     explicitly OUT of scope for Step 2.2 (no Teleporter.jsx refactor).
- *   - src/warpBridge.js — legacy warp helpers, same removal path.
+ *
+ * (src/warpBridge.js was previously allowlisted as a legacy warp helper. It no
+ *  longer reads any injected global: the Warp leg now resolves its Solana signer
+ *  from the connected WalletContext session via connectedSessions.js +
+ *  sessionProviders.js — so the file is back under the rule.)
  *
  * Sanctioned allowlists (documented, do NOT extend):
  *   - BITCOIN_UNISAT_ALLOWLIST (Step 2.3): the impersonation-aware Bitcoin
@@ -63,7 +67,7 @@ export const TRONWEB_PATTERN = new RegExp(`window\\${"."}tronWeb`);
  * Phase 3 refactor removes them. Do NOT add entries here — the whole point
  * of the rule is that new code never touches these globals.
  */
-export const LEGACY_ALLOWLIST = new Set(["Teleporter.jsx", "warpBridge.js"]);
+export const LEGACY_ALLOWLIST = new Set(["Teleporter.jsx"]);
 
 /**
  * The SOLE sanctioned bare injected `unisat` global access: the

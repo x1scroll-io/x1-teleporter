@@ -206,6 +206,217 @@ test("(e) hook level: a connect error in one family leaves the others untouched"
   }
 });
 
+test("Starport pinned EVM row resolves the REAL EIP-6963 provider via the rdns alias (never the dev mock)", async () => {
+  // The registry row id is "starport"; discovery keys on the announced rdns
+  // "com.starportllc.starport". The alias sweep must bridge the two so the
+  // pinned EVM row signs with the connected wallet, not a mock address.
+  const realProvider = {
+    id: "eip6963:com.starportllc.starport",
+    isReal: true,
+    async connect() { return { family: "evm", address: "0xSTARPORTreal", provider: this }; },
+  };
+  const discovery = {
+    start() {}, stop() {}, subscribe() { return () => {}; },
+    getDiscovered() { return { evm: [], solana: [], bitcoin: [], litecoin: [], dogecoin: [], xrp: [], tron: [] }; },
+    getProvider(family, walletId) {
+      return family === "evm" && walletId === "com.starportllc.starport" ? realProvider : null;
+    },
+  };
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const latest = {};
+  function Probe2() {
+    latest.evm = useWallet("evm");
+    return null;
+  }
+  act(() => {
+    root.render(
+      React.createElement(
+        WalletProvider,
+        { discovery },
+        React.createElement(Probe2),
+      ),
+    );
+  });
+  try {
+    await act(async () => {
+      await latest.evm.connect("starport");
+    });
+    assert.equal(latest.evm.status, "connected");
+    assert.equal(latest.evm.address, "0xSTARPORTreal", "the REAL Starport provider connected — not the mock");
+    assert.equal(latest.evm.provider.id, "eip6963:com.starportllc.starport");
+  } finally {
+    act(() => root.unmount());
+    container.remove();
+  }
+});
+
+/** Minimal discovery fake — getDiscovered returns the given snapshot,
+ *  getProvider delegates to `resolve` (default: nothing resolves). */
+function makeDiscovery({ discovered, resolve = () => null } = {}) {
+  return {
+    start() {},
+    stop() {},
+    subscribe() { return () => {}; },
+    getDiscovered() {
+      return (
+        discovered ?? { evm: [], solana: [], bitcoin: [], litecoin: [], dogecoin: [], xrp: [], tron: [] }
+      );
+    },
+    getProvider(family, walletId) {
+      return resolve(family, walletId);
+    },
+  };
+}
+
+/** Render <WalletProvider discovery allowMockFallback><Probe/></WalletProvider>. */
+function renderWithDiscovery(discovery, allowMockFallback = false) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const latest = {};
+  function Probe3() {
+    latest.evm = useWallet("evm");
+    latest.solana = useWallet("solana");
+    return null;
+  }
+  act(() => {
+    root.render(
+      React.createElement(
+        WalletProvider,
+        { discovery, allowMockFallback },
+        React.createElement(Probe3),
+      ),
+    );
+  });
+  return {
+    root,
+    latest,
+    container,
+    unmount() {
+      act(() => root.unmount());
+      container.remove();
+    },
+  };
+}
+
+/* ————————————— MOCK GATING (a real user is NEVER handed the mock) ————————————— */
+
+test("MOCK GATED OFF (default): an unresolved connect never yields a mock address — honest error instead", async () => {
+  // A REAL wallet (MetaMask) is discovered for evm, but the user hit the
+  // pinned Starport row (id "starport" — no real adapter). Pre-fix this fell
+  // through defaultResolveProvider to createMockProvider: a "connected"
+  // mock:evm:0x1234… address NO wallet approved. Default (mock off) must
+  // instead surface an honest error and leave the session disconnected-looking.
+  const discovery = makeDiscovery({
+    discovered: { evm: [{ rdns: "io.metamask" }], solana: [], bitcoin: [], litecoin: [], dogecoin: [], xrp: [], tron: [] },
+    resolve: () => null,
+  });
+  const { latest, unmount } = renderWithDiscovery(discovery /* allowMockFallback defaults false */);
+  try {
+    await act(async () => {
+      await latest.evm.connect("starport");
+    });
+    assert.equal(latest.evm.status, "error");
+    assert.equal(latest.evm.address, undefined, "NO mock address is ever surfaced");
+    assert.notEqual(latest.evm.address, MOCK_ADDRESSES.evm);
+    assert.match(latest.evm.error, /No EVM wallet detected/);
+  } finally {
+    unmount();
+  }
+});
+
+test("MOCK GATED OFF (default): empty discovery + mock off → honest error, never a mock connect", async () => {
+  const discovery = makeDiscovery(); // nothing discovered at all
+  const { latest, unmount } = renderWithDiscovery(discovery);
+  try {
+    await act(async () => {
+      await latest.solana.connect();
+    });
+    assert.equal(latest.solana.status, "error");
+    assert.equal(latest.solana.address, undefined);
+    assert.match(latest.solana.error, /No Solana wallet detected/);
+  } finally {
+    unmount();
+  }
+});
+
+test("MOCK SEAM: armed AND the family is genuinely empty → the mock fires (the ONLY allowed case)", async () => {
+  const discovery = makeDiscovery(); // no wallet installed
+  const { latest, unmount } = renderWithDiscovery(discovery, true);
+  try {
+    await act(async () => {
+      await latest.evm.connect();
+    });
+    assert.equal(latest.evm.status, "connected");
+    assert.equal(latest.evm.address, MOCK_ADDRESSES.evm, "dev/test mock used when nothing is discovered");
+  } finally {
+    unmount();
+  }
+});
+
+test("MOCK SEAM: armed but a REAL wallet IS discovered → still NO mock (no masquerade)", async () => {
+  // Even with the seam armed, a family that HAS a discovered wallet never
+  // gets the mock: the user must connect their real wallet.
+  const discovery = makeDiscovery({
+    discovered: { evm: [{ rdns: "io.metamask" }], solana: [], bitcoin: [], litecoin: [], dogecoin: [], xrp: [], tron: [] },
+    resolve: () => null,
+  });
+  const { latest, unmount } = renderWithDiscovery(discovery, true);
+  try {
+    await act(async () => {
+      await latest.evm.connect("starport");
+    });
+    assert.equal(latest.evm.status, "error");
+    assert.equal(latest.evm.address, undefined);
+    assert.notEqual(latest.evm.address, MOCK_ADDRESSES.evm);
+  } finally {
+    unmount();
+  }
+});
+
+/* Non-Starport user: discovered MetaMask (EIP-6963) + Phantom (Wallet Standard)
+ * connect through their OWN providers with no Starport anywhere in the path. */
+test("NON-STARPORT user: MetaMask (EIP-6963) + Phantom (Wallet Standard) connect via discovery — no Starport", async () => {
+  const metamask = {
+    id: "eip6963:io.metamask", isReal: true,
+    async connect() { return { family: "evm", address: "0xMETAMASKreal", provider: this }; },
+  };
+  const phantom = {
+    id: "wallet-standard:Phantom", isReal: true,
+    async connect() { return { family: "solana", address: "PhantomRealAddr111111111111111111111111111111", provider: this }; },
+  };
+  const discovery = makeDiscovery({
+    discovered: {
+      evm: [{ rdns: "io.metamask", name: "MetaMask" }],
+      solana: [{ name: "Phantom" }],
+      bitcoin: [], litecoin: [], dogecoin: [], xrp: [], tron: [],
+    },
+    resolve: (family, walletId) =>
+      family === "evm" && walletId === "io.metamask"
+        ? metamask
+        : family === "solana" && walletId === "Phantom"
+          ? phantom
+          : null,
+  });
+  const { latest, unmount } = renderWithDiscovery(discovery);
+  try {
+    await act(async () => {
+      await latest.evm.connect("io.metamask");
+      await latest.solana.connect("Phantom");
+    });
+    assert.equal(latest.evm.status, "connected");
+    assert.equal(latest.evm.address, "0xMETAMASKreal");
+    assert.equal(latest.evm.provider.id, "eip6963:io.metamask");
+    assert.equal(latest.solana.status, "connected");
+    assert.equal(latest.solana.address, "PhantomRealAddr111111111111111111111111111111");
+    assert.equal(latest.solana.provider.id, "wallet-standard:Phantom");
+  } finally {
+    unmount();
+  }
+});
+
 test("useWallet throws outside a provider", () => {
   // Outside a provider the hook must throw a clear error, not silently return.
   let hookError;

@@ -136,7 +136,7 @@ function fakeDiscovery() {
   };
 }
 
-function renderCard(discovery) {
+function renderCard(discovery, { allowMockFallback = false } = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -144,7 +144,9 @@ function renderCard(discovery) {
     root.render(
       React.createElement(
         WalletProvider,
-        { discovery },
+        // Mirrors production by default (mock OFF). Tests that deliberately
+        // exercise the dev/test mock seam pass { allowMockFallback: true }.
+        { discovery, allowMockFallback },
         // No-op balancesDeps keeps these render tests hermetic (the balance
         // line is DI-tested in BalancesLine.test.jsx — no RPC here).
         React.createElement(BridgeCard, {
@@ -204,7 +206,7 @@ test("one-card shell: Teleport tab hosts the modal; THORChain and Buy are placeh
   }
 });
 
-test("family list renders all 7 families in fixed order", () => {
+test("family list renders all 8 families in fixed order", () => {
   const { container, unmount } = renderCard(fakeDiscovery());
   try {
     const familyButtons = [...container.querySelectorAll(".family-row")];
@@ -274,7 +276,7 @@ test("late-discovered wallet flips to installed without a reload (subscribe path
 });
 
 test("connect flow: Starport falls back to the mock provider (dev/test seam)", async () => {
-  const { container, unmount } = renderCard(fakeDiscovery());
+  const { container, unmount } = renderCard(fakeDiscovery(), { allowMockFallback: true });
   try {
     click(container.querySelector('[data-family="evm"]'));
     const starport = rows(container).find((r) => r.id === "starport");
@@ -351,7 +353,7 @@ test("connect flow: a rejected wallet surfaces as an error state (retryable)", a
 // closes → the connected body renders (wallet-agnostic).
 
 test("TRANSITION: connecting a wallet closes the picker and renders the connected body", async () => {
-  const { container, unmount } = renderCard(fakeDiscovery());
+  const { container, unmount } = renderCard(fakeDiscovery(), { allowMockFallback: true });
   try {
     assert.ok(container.querySelector('[data-testid="connect-modal"]'), "picker renders before connect");
 
@@ -376,11 +378,15 @@ test("TRANSITION: connecting a wallet closes the picker and renders the connecte
 });
 
 test("TRANSITION is wallet-agnostic: fires for a mock wallet AND a discovered EVM wallet", async () => {
+  // The mock seam is exercised LEGITIMATELY: at the first connect evm has NO
+  // discovered wallet, so the armed mock applies. Once MetaMask announces
+  // (live), the family is non-empty and the mock no longer applies — the real
+  // provider is used. This also proves the gate: a mocked "empty" family vs a
+  // discovered one.
   const discovery = fakeDiscovery();
-  discovery._announceEvm(makeEvmEntry({ rdns: "io.metamask", name: "MetaMask" }));
-  const { container, unmount } = renderCard(discovery);
+  const { container, unmount } = renderCard(discovery, { allowMockFallback: true });
   try {
-    // Wallet 1: Starport → mock provider fallback.
+    // Wallet 1: Starport → mock provider fallback (evm genuinely empty).
     click(container.querySelector('[data-family="evm"]'));
     const starport = rows(container).find((r) => r.id === "starport");
     await act(async () => {
@@ -394,6 +400,11 @@ test("TRANSITION is wallet-agnostic: fires for a mock wallet AND a discovered EV
     act(() => container.querySelector(".disconnect-btn").click());
     assert.ok(container.querySelector('[data-testid="connect-modal"]'), "picker returns after disconnect");
     assert.equal(container.querySelector('[data-testid="teleport-connected"]'), null);
+
+    // MetaMask announces live (the family is no longer empty → mock arm moot).
+    act(() => {
+      discovery._announceEvm(makeEvmEntry({ rdns: "io.metamask", name: "MetaMask" }));
+    });
 
     // Wallet 2: MetaMask → real discovered wagmi connector.
     click(container.querySelector('[data-family="evm"]'));
@@ -416,7 +427,7 @@ test("TRANSITION is wallet-agnostic: fires for a mock wallet AND a discovered EV
 });
 
 test("connected body renders the Solana session; Disconnect returns to the picker", async () => {
-  const { container, unmount } = renderCard(fakeDiscovery());
+  const { container, unmount } = renderCard(fakeDiscovery(), { allowMockFallback: true });
   try {
     click(container.querySelector('[data-family="solana"]'));
     const starport = rows(container).find((r) => r.id === "starport");

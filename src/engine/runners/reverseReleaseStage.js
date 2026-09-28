@@ -14,9 +14,12 @@
  *      detection, 404-is-normal semantics — unchanged).
  *
  * RESULT SHAPE — the releasePoller contract the form reads:
- *   { ok: true, destinationTx, raw }        — release confirmed
- *   { ok: false, terminal: true, raw }      — the bridge reported failure
- *   { ok: false, timedOut: true, sawSigs }  — still awaiting (funds safe)
+ *   { ok: true, destinationTx, raw }              — release confirmed
+ *   { ok: false, terminal: true, permanent: true,
+ *     reason, raw }                               — PERMANENT failure (a
+ *     terminal status, or an explicit error such as the release's
+ *     BelowMinimum revert) — never wait on it
+ *   { ok: false, timedOut: true, sawSigs }        — still awaiting (funds safe)
  *
  * ctx: { route, sig, onUpdate?, maxMs?, api? }
  */

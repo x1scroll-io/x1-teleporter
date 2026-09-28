@@ -47,6 +47,8 @@
 
 import { CHAINS, TOKENS, X1_REVERSE_MIN } from "./teleportConstants.js";
 import { quoteFees, FEE_RATES, LIFI_INTEGRATOR_ACCOUNT } from "./fees.ts";
+// The LiFi network-gas reader (shared with the forward leg) — display-only.
+import { deriveGasUsd } from "./teleportQuote.js";
 // Token identity (decimals) + the Warp-twin relation read from the canonical
 // registry — see docs/TOKEN-RESOLVER.md.
 import { requireToken, resolveTwin } from "./tokenResolver.js";
@@ -65,6 +67,16 @@ const X1_WARP_FEES = {
   "wSOL.X": { kind: "pct", bps: 25, decimals: requireToken("wSOL.X", "x1").decimals },
   "ETH.X": { kind: "pct", bps: 25, decimals: requireToken("ETH.X", "x1").decimals },
   "cbBTC.X": { kind: "pct", bps: 25, decimals: requireToken("cbBTC.X", "x1").decimals },
+  // Stock rails — 25 bps pct, 8 dec (live Warp config; flat $1 is USDC.x-ONLY).
+  "SPCXx": { kind: "pct", bps: 25, decimals: 8 },
+  "METAx": { kind: "pct", bps: 25, decimals: 8 },
+  "TSLAx": { kind: "pct", bps: 25, decimals: 8 },
+  "COINx": { kind: "pct", bps: 25, decimals: 8 },
+  "PLTRx": { kind: "pct", bps: 25, decimals: 8 },
+  "NVDAx": { kind: "pct", bps: 25, decimals: 8 },
+  "AMDx": { kind: "pct", bps: 25, decimals: 8 },
+  "SPYx": { kind: "pct", bps: 25, decimals: 8 },
+  "GOOGLx": { kind: "pct", bps: 25, decimals: 8 },
 };
 
 /** The DEFAULT Warp fee shape for an UNKNOWN X1 token: 25 bps pct — flat $1
@@ -328,6 +340,9 @@ export function deriveReverseQuote({ data, to, amount, token = "USDC.x", toToken
     feeLines: legs.feeQuote.feeLines,
     teleporterFeeUsd: legs.feeQuote.teleporterFeeUsd,
     thirdPartyFeeUsd: legs.feeQuote.thirdPartyFeeUsd,
+    // Network gas (the Solana → EVM leg's source tx cost), display-only; null
+    // when LiFi reports no usable gasCosts (console renders "—" + itemized total).
+    gasUsd: deriveGasUsd(data),
     net: out,
     recvToken: lifiQuoted ? toToken : solanaSymbol, // the SELECTED destination stable when quoted; the Solana landing token in the handoff
     recvChain: lifiQuoted ? destName : "Solana",

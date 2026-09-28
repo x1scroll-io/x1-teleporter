@@ -8,7 +8,7 @@ import { WalletProvider } from "./lib/wallet/WalletContext.jsx";
 import { createWalletDiscovery } from "./lib/wallet/walletDiscovery.js";
 import { createLaserEyesHandle } from "./lib/wallet/laserEyesHandle.js";
 import { createBtcBalanceFetcher } from "./lib/wallet/bitcoinBalance.js";
-import { LEGACY_UI, THORCHAIN, WARP_LIVE_SEND, resolveConsoleUi, selectRootCard } from "./lib/flags.ts";
+import { LEGACY_UI, THORCHAIN, WARP_LIVE_SEND, MOCK_WALLETS, resolveConsoleUi, selectRootCard } from "./lib/flags.ts";
 import { resolveUiVariant } from "./lib/uiVariant.js";
 import { buildBanner } from "./lib/buildBanner.js";
 
@@ -68,7 +68,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     {bridgeVariant === "legacy" ? (
       <Teleporter />
     ) : (
-      <WalletProvider discovery={discovery}>
+      <WalletProvider discovery={discovery} allowMockFallback={MOCK_WALLETS}>
         <BridgeCard variant={bridgeVariant} flags={{ THORCHAIN }} />
       </WalletProvider>
     )}

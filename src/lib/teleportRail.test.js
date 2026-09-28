@@ -17,10 +17,13 @@ import {
   NATIVE_CHAINS,
   NATIVE_CHAIN_IDS,
   RANGO_CHAIN_IDS,
+  LONGTAIL_CHAINS,
+  LONGTAIL_CHAIN_IDS,
   COVERAGE_MATRIX,
   SOURCE_CHAINS,
   isNativeChain,
   isRangoChain,
+  isLongtailChain,
   chainName,
   chainGlyph,
   tokensOn,
@@ -177,20 +180,121 @@ test("rail layer: the Wanchain rail is registered but serves NO current source (
       `${c}: [rango] per the verified matrix`
     );
   }
-  // ADA + POLKADOT have NO serving rail (Rango meta has neither chain;
-  // THORChain can't serve them; the Wanchain-family API refuses them) —
-  // the console must not list them as sources, and if asked, the honest
-  // answer is the dead-end ({ rail: null }), never a lying rail.
-  assert.deepEqual(COVERAGE_MATRIX.ada, [], "ada: no rail in the coverage matrix");
+  // ADA now HAS a serving rail: ChangeNOW (the long-tail group). POLKADOT
+  // stays a NO-RAIL honest dead-end (ChangeNOW does not list DOT; Rango meta
+  // has neither chain; the Wanchain-family API refuses them).
+  assert.deepEqual(railCandidates({ fromChain: "ada" }).map((x) => x.rail), [RAIL.INSTANTSWAP], "ada: ChangeNOW serves it");
   assert.deepEqual(COVERAGE_MATRIX.polkadot, [], "polkadot: no rail in the coverage matrix");
-  assert.deepEqual(railCandidates({ fromChain: "ada" }), [], "ada: no candidates");
   assert.deepEqual(railCandidates({ fromChain: "polkadot" }), [], "polkadot: no candidates");
-  assert.equal(pickRail({ fromChain: "ada" }).rail, null, "ada: honest dead-end");
+  assert.equal(pickRail({ fromChain: "ada" }).rail, RAIL.INSTANTSWAP, "ada: served by ChangeNOW");
   assert.equal(pickRail({ fromChain: "polkadot" }).rail, null, "polkadot: honest dead-end");
   // EVM/X1 sources stay on the LiFi/Warp rail (Wanchain EVM routes land
   // EVM/Wanchain-L1 — never Solana/X1 — so there is no overlap to add).
   assert.equal(pickRail({ fromChain: "eth" }).rail, RAIL.LIFI_WARP);
   assert.equal(pickRail({ fromChain: "x1" }).rail, RAIL.LIFI_WARP);
+});
+
+test("rail layer: the LONG-TAIL source group routes to ChangeNOW (INSTANTSWAP, deposit-address) — and DOT is NOT offered (2026-09-26)", () => {
+  // The DEX rails can't carry these (privacy coins can't go through a DEX;
+  // ADA/ATOM/NEAR/BCH have no native rail wired), so ChangeNOW is their
+  // SERVING rail. Verified live via ChangeNOW's /v1/currencies +
+  // /v2/exchange/estimated-amount (2026-09-26).
+  assert.deepEqual(
+    [...LONGTAIL_CHAIN_IDS],
+    ["xmr", "ada", "atom", "near", "zec", "dash", "bch", "algo", "xtz", "fil", "hbar", "vet", "theta", "osmo"],
+    "the verified long-tail set (ChangeNOW-listed), in display order",
+  );
+  for (const c of LONGTAIL_CHAIN_IDS) {
+    assert.equal(isLongtailChain(c), true, `${c} is a long-tail chain`);
+    assert.equal(isNativeChain(c), false, `${c} is not a THORChain native`);
+    assert.equal(isRangoChain(c), false, `${c} is not a Rango-native chain`);
+    assert.ok(SOURCE_CHAINS.includes(c), `${c} is offered in the source picker`);
+    assert.deepEqual(COVERAGE_MATRIX[c], [RAIL.INSTANTSWAP], `${c} → ChangeNOW only`);
+    assert.deepEqual(
+      railCandidates({ fromChain: c }).map((x) => x.rail),
+      [RAIL.INSTANTSWAP],
+      `${c} → the ChangeNOW rail`,
+    );
+    const r = pickRail({ fromChain: c });
+    assert.equal(r.rail, RAIL.INSTANTSWAP, `${c} → instantswap rail`);
+    assert.equal(r.execution, EXECUTION.DEPOSIT_ADDRESS, `${c} → deposit-address execution`);
+    assert.equal(executionFor(r.rail), EXECUTION.DEPOSIT_ADDRESS);
+    // Single-asset source: exactly its one asset; a display name + glyph.
+    assert.deepEqual(tokensOn(c), [LONGTAIL_CHAINS[c].asset], `${c} carries one asset`);
+    assert.ok(chainName(c).length > 0 && chainGlyph(c).length > 0, `${c} has name + glyph`);
+    // The ChangeNOW identity: a pinned ticker + network (network never omitted).
+    assert.equal(LONGTAIL_CHAINS[c].ticker, LONGTAIL_CHAINS[c].id, `${c}: ticker is the canonical code`);
+    assert.ok(LONGTAIL_CHAINS[c].network, `${c}: fromNetwork is pinned`);
+    // Single serving rail → unavailable → honest dead-end (never fabricated).
+    assert.equal(
+      pickRail({ fromChain: c, unavailableRails: new Set([RAIL.INSTANTSWAP]) }).rail,
+      null,
+      `${c}: no rail when ChangeNOW is unavailable`,
+    );
+    // Unavailability of an unrelated rail never disturbs it.
+    assert.equal(
+      pickRail({ fromChain: c, unavailableRails: new Set([RAIL.THORCHAIN, RAIL.LIFI_WARP]) }).rail,
+      RAIL.INSTANTSWAP,
+      `${c} unaffected by other rails`,
+    );
+  }
+  // POLKADOT (DOT) is NOT supported by ChangeNOW → NOT offered, honest dead-end.
+  assert.equal(isLongtailChain("polkadot"), false, "polkadot is not a ChangeNOW long-tail source");
+  assert.ok(!LONGTAIL_CHAIN_IDS.includes("polkadot"), "DOT absent from the long-tail set");
+  assert.ok(!SOURCE_CHAINS.includes("polkadot"), "DOT is not offered in the source picker");
+  assert.deepEqual(railCandidates({ fromChain: "polkadot" }), [], "polkadot: no candidates");
+  assert.equal(pickRail({ fromChain: "polkadot" }).rail, null, "polkadot: honest dead-end (never fabricated)");
+});
+
+test("rail layer: the SECOND-WAVE long-tail group (ALGO/XTZ/FIL/HBAR/VET/THETA/OSMO) routes to ChangeNOW — and DOT stays absent (2026-09-27)", () => {
+  // Verified live against ChangeNOW's /v1/currencies + /v2/exchange/currencies
+  // (flow=standard): all seven are listed; their NATIVE network string equals
+  // the ticker (e.g. fromNetwork="algo" for Algorand — NOT "algorand").
+  // XTZ/FIL/VET also carry a bsc WRAPPED variant, which is exactly why the
+  // rail PINNS the network. Polkadot (DOT) has NO native row (only bsc /
+  // assethub WRAPPED) → it stays unofferable.
+  const secondWave = {
+    algo:  { ticker: "algo",  network: "algo",  asset: "ALGO",  decimals: 6 },
+    xtz:   { ticker: "xtz",   network: "xtz",   asset: "XTZ",   decimals: 6 },
+    fil:   { ticker: "fil",   network: "fil",   asset: "FIL",   decimals: 18 },
+    hbar:  { ticker: "hbar",  network: "hbar",  asset: "HBAR",  decimals: 8 },
+    vet:   { ticker: "vet",   network: "vet",   asset: "VET",   decimals: 18 },
+    theta: { ticker: "theta", network: "theta", asset: "THETA", decimals: 18 },
+    osmo:  { ticker: "osmo",  network: "osmo",  asset: "OSMO",  decimals: 6 },
+  };
+  for (const [chain, want] of Object.entries(secondWave)) {
+    assert.equal(isLongtailChain(chain), true, `${chain} is a long-tail chain`);
+    assert.ok(SOURCE_CHAINS.includes(chain), `${chain} is offered in the source picker`);
+    assert.deepEqual(COVERAGE_MATRIX[chain], [RAIL.INSTANTSWAP], `${chain} → ChangeNOW only`);
+    assert.deepEqual(
+      railCandidates({ fromChain: chain }).map((x) => x.rail),
+      [RAIL.INSTANTSWAP],
+      `${chain} → the ChangeNOW rail`,
+    );
+    const r = pickRail({ fromChain: chain });
+    assert.equal(r.rail, RAIL.INSTANTSWAP, `${chain} → instantswap rail`);
+    assert.equal(r.execution, EXECUTION.DEPOSIT_ADDRESS, `${chain} → deposit-address execution`);
+    assert.deepEqual(tokensOn(chain), [want.asset], `${chain} carries one asset`);
+    assert.ok(chainName(chain).length > 0 && chainGlyph(chain).length > 0, `${chain} has name + glyph`);
+    // The ChangeNOW identity: pinned ticker + network (native network === ticker).
+    assert.equal(LONGTAIL_CHAINS[chain].ticker, want.ticker, `${chain}: canonical ticker`);
+    assert.equal(LONGTAIL_CHAINS[chain].network, want.network, `${chain}: native network pinned`);
+    assert.equal(LONGTAIL_CHAINS[chain].network, LONGTAIL_CHAINS[chain].ticker, `${chain}: native network == ticker`);
+    assert.equal(LONGTAIL_CHAINS[chain].asset, want.asset, `${chain}: asset`);
+    assert.equal(LONGTAIL_CHAINS[chain].decimals, want.decimals, `${chain}: decimals`);
+    // Single serving rail → unavailable → honest dead-end (never fabricated).
+    assert.equal(
+      pickRail({ fromChain: chain, unavailableRails: new Set([RAIL.INSTANTSWAP]) }).rail,
+      null,
+      `${chain}: no rail when ChangeNOW is unavailable`,
+    );
+  }
+  // DOT: still NOT offered (no native ChangeNOW row; no DEX rail).
+  assert.equal(isLongtailChain("polkadot"), false, "polkadot is not a ChangeNOW long-tail source");
+  assert.ok(!LONGTAIL_CHAIN_IDS.includes("polkadot"), "DOT absent from the long-tail set");
+  assert.ok(!SOURCE_CHAINS.includes("polkadot"), "DOT is not offered in the source picker");
+  assert.deepEqual(railCandidates({ fromChain: "polkadot" }), [], "polkadot: no candidates");
+  assert.equal(pickRail({ fromChain: "polkadot" }).rail, null, "polkadot: honest dead-end");
 });
 
 test("rail layer: internal rail labels exist for diagnostics only (never rendered)", () => {

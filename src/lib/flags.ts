@@ -37,6 +37,7 @@ export function resolveFlags(env: Env): {
   WARP_LIVE_SEND: boolean;
   MEV_CAPTURE_ENABLED: boolean;
   CONSOLE_UI: boolean;
+  MOCK_WALLETS: boolean;
 } {
   const on = (names: string[]): boolean => {
     for (const name of names) {
@@ -48,15 +49,59 @@ export function resolveFlags(env: Env): {
     return false;
   };
 
+  // onByDefault — the KILL-SWITCH read for flags whose shipped default is ON.
+  // First present name wins (same precedence rule as `on`); a present value
+  // of "false"/"0" turns the flag OFF, anything else (incl. "true"/"1") turns
+  // it ON, and an UNSET env resolves to the default (true). Used by
+  // REVERSE_ENABLED: the X1 → EVM off-ramp ships enabled, but an operator can
+  // set VITE_FLAG_REVERSE_ENABLED=false to disable it without a code change.
+  const onByDefault = (names: string[]): boolean => {
+    for (const name of names) {
+      const raw = env[name];
+      if (raw !== undefined && raw !== "") {
+        return raw.toLowerCase() !== "false" && raw !== "0";
+      }
+    }
+    return true;
+  };
+
   return {
     THORCHAIN: on(["NEXT_PUBLIC_FLAG_THORCHAIN", "VITE_FLAG_THORCHAIN"]),
     ANYSWAP: on(["NEXT_PUBLIC_FLAG_ANYSWAP", "VITE_FLAG_ANYSWAP"]),
-    REVERSE_ENABLED: on(["NEXT_PUBLIC_FLAG_REVERSE_ENABLED", "VITE_FLAG_REVERSE_ENABLED"]),
+    REVERSE_ENABLED: onByDefault(["NEXT_PUBLIC_FLAG_REVERSE_ENABLED", "VITE_FLAG_REVERSE_ENABLED"]),
     WARP_LIVE_SEND: on(["NEXT_PUBLIC_FLAG_WARP_LIVE_SEND", "VITE_WARP_LIVE_SEND"]),
     MEV_CAPTURE_ENABLED: on(["NEXT_PUBLIC_FLAG_MEV_CAPTURE_ENABLED", "VITE_MEV_CAPTURE_ENABLED"]),
     LEGACY_UI: on(["NEXT_PUBLIC_FLAG_LEGACY_UI", "VITE_FLAG_LEGACY_UI"]),
     CONSOLE_UI: on(["NEXT_PUBLIC_FLAG_CONSOLE_UI", "VITE_FLAG_CONSOLE_UI"]),
+    // SAFETY DEFAULT FALSE: the dev/test mock wallet providers are NEVER armed
+    // for a real user unless an operator explicitly opts in (see
+    // resolveMockFallback).
+    MOCK_WALLETS: on(["NEXT_PUBLIC_FLAG_MOCK_WALLETS", "VITE_FLAG_MOCK_WALLETS"]),
   };
+}
+
+/**
+ * resolveMockFallback — explicit opt-in for the dev/test mock wallet providers
+ * (mockProviders.js). DEFAULT FALSE, always.
+ *
+ * The mock is a testing/development crutch, never a real user's wallet. A real
+ * user (with MetaMask/Phantom/Coinbase/Backpack/… — with or without a wallet
+ * installed) must NEVER be handed a mock "connected" session; the bridge
+ * discovers and connects their OWN wallets (EIP-6963 EVM + Wallet Standard
+ * Solana). This flag exists so a developer running the site WITHOUT any wallet
+ * extension can still exercise the connect/body UI — it is OFF in production
+ * and OFF under `node --test` (the unit suite injects providers directly).
+ *
+ * Set VITE_FLAG_MOCK_WALLETS=true (or NEXT_PUBLIC_FLAG_MOCK_WALLETS=true) to
+ * arm it. Even when armed, the mock only fires for a family with NO discovered
+ * wallet (see WalletContext.defaultResolveProvider).
+ */
+export function resolveMockFallback(env: Env): boolean {
+  for (const name of ["NEXT_PUBLIC_FLAG_MOCK_WALLETS", "VITE_FLAG_MOCK_WALLETS"]) {
+    const raw = env[name];
+    if (raw !== undefined && raw !== "") return raw.toLowerCase() === "true" || raw === "1";
+  }
+  return false;
 }
 
 /**
@@ -84,7 +129,36 @@ export function resolveConsoleUi(env: Env): boolean | undefined {
   return undefined;
 }
 
+/**
+ * resolveDiscovery — tri-state WARP_DISCOVERY read (dynamic xStock discovery +
+ * lane health from the live Warp config). Explicit env WINS when set:
+ *   VITE_FLAG_WARP_DISCOVERY / NEXT_PUBLIC_FLAG_WARP_DISCOVERY / WARP_DISCOVERY
+ *   = "true"/"1" → ON, anything else → OFF.
+ * When the env is UNSET it DEFAULTS to whether a real Vite env is present:
+ *   * a Vite build/dev (import.meta.env defined) → ON — the live bridge offers
+ *     newly-added rails automatically;
+ *   * `node --test` (no Vite transform, import.meta.env undefined) → OFF — the
+ *     UI/dropdown tests stay deterministic (no mount-time network fetch).
+ * Tests force either state via the `registryFetcher` prop.
+ */
+export function resolveDiscovery(env: Env, viteEnvPresent = false): boolean {
+  for (const name of ["NEXT_PUBLIC_FLAG_WARP_DISCOVERY", "VITE_FLAG_WARP_DISCOVERY", "WARP_DISCOVERY"]) {
+    const raw = env[name];
+    if (raw !== undefined && raw !== "") return raw.toLowerCase() === "true" || raw === "1";
+  }
+  return viteEnvPresent === true;
+}
+
 const flags = resolveFlags(readEnv());
+
+/**
+ * WARP_DISCOVERY — when ON, the form reads the live Warp config once on mount
+ * and merges discovered rails into the offerable set, gating everything on the
+ * config's paused/halted state (fail-closed: unknown rails are never guessed,
+ * paused lanes are never offered). Default: ON in a real Vite build, OFF under
+ * `node --test` — see resolveDiscovery.
+ */
+export const WARP_DISCOVERY: boolean = resolveDiscovery(readEnv(), import.meta.env != null);
 
 /**
  * Whether the Teleport Console (the v2 hardware-console front door) is
@@ -95,6 +169,14 @@ const flags = resolveFlags(readEnv());
  */
 export const CONSOLE_UI: boolean = flags.CONSOLE_UI;
 
+/**
+ * Whether the dev/test mock wallet providers (mockProviders.js) are armed as a
+ * last-resort fallback when a family has NO discovered wallet. DEFAULT FALSE —
+ * a real user is never handed a mock. main.jsx passes this to WalletProvider's
+ * `allowMockFallback`; when off, an unresolved connect fails honestly instead.
+ */
+export const MOCK_WALLETS: boolean = flags.MOCK_WALLETS;
+
 /** Whether the THORCHAIN route is enabled in the UI. Default: false. */
 export const THORCHAIN: boolean = flags.THORCHAIN;
 
@@ -102,22 +184,35 @@ export const THORCHAIN: boolean = flags.THORCHAIN;
 export const ANYSWAP: boolean = flags.ANYSWAP;
 
 /**
- * Whether the X1 → Solana reverse (off-ramp) route is enabled in the UI.
- * Default: false.
+ * Whether the X1 → EVM reverse (off-ramp) route is enabled in the UI.
  *
- * Step 1.2: the reverse self-relay was REMOVED from the user-facing path —
- * the route was dead at step one (fee ATA missing on X1) and a partial fix
- * would let burns go out with no working completion behind them. While this
- * flag is false, the route builder rejects every X1-source route, so no
- * X1 → Solana (x1_reverse) or X1 → onward (x1_onward) route can be
- * constructed by the UI. Do NOT flip this on without a verified, working
- * completion path for X1 burns.
+ * DEFAULT: TRUE (kill-switch model). The off-ramp is COMPLETE and
+ * fail-closed end to end — the X1 Warp burn (fee-wallet ATA bundled, 0.5%
+ * skim once), the submitter release-wait (permanent-fail vs pending
+ * distinguished), and the LiFi Solana→EVM onward leg that only fires after
+ * the Solana release lands. The destination-minimum preflight REFUSES before
+ * burning so a doomed reverse never strands funds.
+ *
+ * HISTORY (why this used to default false): at the Step 1.2 cutover the
+ * reverse self-relay was removed and the route was genuinely DEAD at step one
+ * (fee ATA missing on X1) — a partial fix would have let burns go out with no
+ * working completion behind them, so the route builder rejected every
+ * X1-source route. That completion path now exists (routing-engine Phase 2:
+ * x1-burn → release-wait → lifi-solana-out, proven by the golden reverse
+ * oracle), so the gate is un-gated. The flag survives as a KILL SWITCH: set
+ * NEXT_PUBLIC_FLAG_REVERSE_ENABLED=false (or VITE_FLAG_REVERSE_ENABLED=false)
+ * to disable every X1-source route without a code change.
+ *
+ * While this flag is false, `determineRoute` returns "direct" for every
+ * X1-source pair, so no x1_reverse / x1_onward route can be constructed by
+ * the UI (fail-closed).
  */
 export const REVERSE_ENABLED: boolean = flags.REVERSE_ENABLED;
 
 /**
  * WARP_LIVE_SEND — env-driven gate for REAL Warp bridge sends (forward + reverse).
- * MUST NEVER be true without a working completion path (step 1.2). Default: false.
+ * Default: false — real broadcasts stay OPERATOR-ARMED even though the reverse
+ * completion path is now complete (see REVERSE_ENABLED).
  * Set VITE_WARP_LIVE_SEND=true in Vercel Preview only when the live hop is ready.
  */
 export const WARP_LIVE_SEND: boolean = flags.WARP_LIVE_SEND;
@@ -125,8 +220,12 @@ export const WARP_LIVE_SEND: boolean = flags.WARP_LIVE_SEND;
 /**
  * MEV_CAPTURE_ENABLED — env-driven gate for the MEV/price-gap CAPTURE
  * ENGINE (the same-chain cross-DEX price-gap detector — src/lib/mev/).
- * DEFAULT: false, always, everywhere except a branch whose build pins it
- * true (vite.config.js MEV_ARMED_BRANCHES — mirrors WARP_LIVE_SEND).
+ * DEFAULT: false when the env is unset (the safety default — this is what
+ * `node --test` sees, so the unit suite stays deterministic and the
+ * sandbox/measurement fallback holds). A REAL build (vite.config.js) PINS it
+ * TRUE by default (the capture engine is the revenue path — 2026-09-27
+ * activation) with an instant env KILL SWITCH (MEV_CAPTURE_ENABLED=false /
+ * VITE_MEV_CAPTURE_ENABLED=false overrides win).
  *
  * WHAT THE GATE MEANS (read src/lib/mev/captureGate.js): while false the
  * detector RUNS (read-only quote observation + gap math) and the engine
@@ -139,6 +238,11 @@ export const WARP_LIVE_SEND: boolean = flags.WARP_LIVE_SEND;
  * broadcast exists at any flag value. The live arm is Mr. Esters' alone.
  */
 export const MEV_CAPTURE_ENABLED: boolean = flags.MEV_CAPTURE_ENABLED;
+// NOTE: the value above is resolved from the env at module load. Under the
+// test runner the env is unset → false (safety default). A real Vite build
+// pins import.meta.env.VITE_MEV_CAPTURE_ENABLED to "true" (vite.config.js)
+// unless an explicit env override disarms it — so the gate arms by default
+// in production and can be killed instantly without a code change.
 
 /**
  * Whether the app mounts the legacy v1 Teleporter card instead of the v2

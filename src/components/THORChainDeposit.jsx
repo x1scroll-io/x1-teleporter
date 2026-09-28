@@ -388,6 +388,19 @@ export default function THORChainDeposit({
   const amountNum = Number(amountSent);
   const hasValidAmount = Number.isFinite(amountNum) && amountNum > 0;
 
+  // ─── THORChain MINIMUM GATE (2026-09-14) ──────────────────────────────────
+  // Each chain's swap floor is its outbound_fee (in base units) from the live
+  // inbound snapshot. Below it THORChain treats the deposit as dust and refunds,
+  // so a sub-minimum amount must NOT be offered a THORChain route — it falls to
+  // the instant-swap lane instead. Fail closed: unknown chain -> treated as
+  // below-minimum until a fee is known.
+  const MIN_DECIMALS = { BTC: 8, LTC: 8, DOGE: 8, BCH: 8, XRP: 6, TRON: 6, SOL: 9, ETH: 18, AVAX: 18, BASE: 18, BSC: 18, GAIA: 6 };
+  const minWhole =
+    selectedEntry && typeof selectedEntry.outbound_fee === "string" && selectedEntry.outbound_fee !== ""
+      ? Number(selectedEntry.outbound_fee) / 10 ** (MIN_DECIMALS[selected] ?? 8)
+      : null;
+  const belowThorchainMin = hasValidAmount && minWhole !== null && amountNum < minWhole;
+
   const getQuote = useCallback(async () => {
     if (!solAddress || !hasValidAmount) return;
     // SIZE CAP enforced at quote time (config 0.05 BTC-equivalent): over-cap
@@ -414,7 +427,7 @@ export default function THORChainDeposit({
       toAsset: THORCHAIN_DESTINATION_ASSET,
       amount: amountNum,
       destination: solAddress,
-      ...(refund.trim() !== "" ? { refundAddress: refund.trim() } : {}),
+      ...(refundForQuote ? { refundAddress: refundForQuote } : {}),
       // PARKED ITEM: the THORName is empty until Franky registers it — the
       // quote is fetched WITHOUT affiliate params (see quote.js quoteUrl).
       ...(THORCHAIN_AFFILIATE_NAME !== "" ? { affiliate: THORCHAIN_AFFILIATE_NAME, affiliateBps: THORCHAIN_AFFILIATE_BPS } : {}),
@@ -507,14 +520,52 @@ export default function THORChainDeposit({
   }, []);
 
   const quoteOk = quoteStatus === "ok" && !!quote;
+  // ─── REFUND ADDRESS — HARD GATE (user-safety, 2026-09-14) ────────────────
+  // The deposit-address lanes refund HERE when a swap fails. With it empty
+  // THORChain still quotes and the console still renders a deposit address, so
+  // a failed swap would leave the user's funds unrecoverable. Fail closed: no
+  // valid refund address -> no quote, no deposit address. An unrecognised
+  // family returns false (a lane that cannot state its rules cannot quote).
+  const REFUND_PATTERNS = {
+    bitcoin: [/^bc1[a-z0-9]{25,62}$/i, /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/],
+    litecoin: [/^ltc1[a-z0-9]{25,62}$/i, /^[LM3][a-km-zA-HJ-NP-Z1-9]{25,34}$/],
+    dogecoin: [/^D[5-9A-HJ-NP-U][1-9A-HJ-NP-Za-km-z]{32}$/, /^A[1-9A-HJ-NP-Za-km-z]{33}$/],
+    xrp: [/^r[1-9A-HJ-NP-Za-km-z]{24,34}$/],
+  };
+  const refundOk = (() => {
+    const fam = selectedMeta?.family;
+    const v = (refund ?? "").trim();
+    if (!v || !fam) return false;
+    const pats = REFUND_PATTERNS[fam];
+    return Array.isArray(pats) ? pats.some((re) => re.test(v)) : false;
+  })();
+
+  // refundAddress is only sent to THORChain's quote API when it FITS the source
+  // chain's OP_RETURN cap. THORChain builds the memo itself (DEST/REFUND) and
+  // rejects an over-length one with "generated memo too long". Refunds default
+  // to the tx sender, so we omit it rather than fail the quote.
+  const REFUND_MEMO_CAP = { BTC: 80, LTC: 80, DOGE: 80, BCH: 80 };
+  const refundForQuote = (() => {
+    const r = (refund ?? "").trim();
+    if (!r) return undefined;
+    const cap = REFUND_MEMO_CAP[selectedMeta?.id];
+    if (!cap) return r; // XRP (Memos field) has no such cap
+    return new TextEncoder().encode(`=:SOL.SOL:${solAddress}/${r}`).length <= cap ? r : undefined;
+  })();
+
+  // The quote itself moves nothing — keep it readable. The refund gate applies
+  // where funds actually move (canSubmit) and is surfaced as a warning on the
+  // deposit card, so a user can inspect a route without ever being able to
+  // deposit with no refund address.
   const canGetQuote =
-    solConnected && !!solAddress && hasValidAmount && !selectedHalted && !destHalted;
+    solConnected && !!solAddress && hasValidAmount && !selectedHalted && !destHalted && !belowThorchainMin;
   const canSubmit =
     solConnected &&
     !!solAddress &&
     !!selectedEntry &&
     !selectedHalted &&
     !destHalted &&
+    refundOk &&          // same gate as the quote: a refund address is mandatory
     quoteOk &&
     txid.trim().length > 0;
 
@@ -655,6 +706,12 @@ export default function THORChainDeposit({
         onChange={handleAmountChange}
         inputMode="decimal"
       />
+      {belowThorchainMin && minWhole !== null && (
+        <div data-testid="tc-min-warn" style={{ fontSize: 12, color: "#e8b64c", marginTop: 6 }}>
+          ⚠️ {amountNum} {selectedMeta.id} is below THORChain's ~{minWhole.toFixed(4)} {selectedMeta.id} minimum —
+          deposits under it are refunded, not swapped. Use the instant-swap lane for smaller amounts.
+        </div>
+      )}
 
       <div style={S.quoteCard} data-testid="tc-quote-section">
         <button

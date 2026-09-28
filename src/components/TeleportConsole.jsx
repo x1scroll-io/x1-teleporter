@@ -59,16 +59,22 @@ import { CHAINS, TOKENS, WARP_BRIDGE_URL } from "../lib/teleportConstants.js";
 import {
   RAIL,
   NATIVE_CHAINS,
+  LONGTAIL_CHAINS,
   SOURCE_CHAINS,
   chainName,
   chainGlyph,
   tokensOn,
   isNativeChain,
+  isLongtailChain,
   pickRail,
 } from "../lib/teleportRail.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
-import { SignerResolver, RoutePlanner, runForwardEvmStage } from "../engine/index.js";
+// The F8 reverse pre-flight (pure): refuse a burn whose NET after the Warp fee
+// can't clear the destination minimum, so the console WARNS up-front + disables
+// TELEPORT instead of only failing at burn time. Same math the runner burns.
+import { planReverseRelease } from "../warpBridge.js";
+import { SignerResolver, RoutePlanner, runForwardEvmStage, getLiveCaptureSession } from "../engine/index.js";
 import { SimulationError } from "../lib/simulateTx.js";
 import { LiFiApprovalValidationError } from "../lib/lifiApproval.js";
 import { WARP_LIVE_SEND } from "../lib/flags.ts";
@@ -88,8 +94,13 @@ import {
 } from "../lib/balances.js";
 import { getPricesUSD, usdValue } from "../lib/prices.js";
 import ConnectModal from "./ConnectModal.jsx";
+import TokenSelect from "./TokenSelect.jsx";
 import THORChainDeposit from "./THORChainDeposit.jsx";
 import THORChainProgress from "./THORChainProgress.jsx";
+// The ChangeNOW long-tail rail's deposit-address step (create exchange → payin
+// address + memo → status poll). Rail-neutral host wiring, same shape as the
+// native deposit step above.
+import ChangeNowDeposit from "./ChangeNowDeposit.jsx";
 // The deposit-address rail's storage/balance handles arrive through the
 // lane's public doorway component — the lane internals stay contained
 // behind it (the containment gate enforces the boundary).
@@ -111,6 +122,37 @@ import {
 export const QUOTE_REFRESH_SECONDS = 30;
 /** Debounce before an auto-quote fires after route/amount edits. */
 export const AUTO_QUOTE_DEBOUNCE_MS = 600;
+
+// ── MEV CAPTURE PIPELINE (the live-flow wiring) ────────────────────────────
+// After every quote the console runs the capture pipeline (src/lib/mev/): it
+// OBSERVES the cross-venue capture gap on the quotes on hand and — when a
+// capture is detected — RECORDS the drop-as-is intent in the ledger and
+// ROUTES the pile through the batch-sweep planner.
+//
+// 🔴 READ-ONLY on the user's money path + FAIL-CLOSED: the call is
+// fire-and-forget — it never sets React state, never throws, and never
+// touches the quote/send flow. The capture is the venue SPREAD, never the
+// user's own funds. The engine is ARMED by default (MEV_CAPTURE_ENABLED —
+// vite.config.js) with an instant env kill switch; unarmed it degrades to the
+// sandbox-measurement fallback. Venue quotes arrive through the optional DI
+// provider (consoleProps.captureQuotes); the LiFi bridge hop itself holds no
+// same-chain venues today, so the pipeline honestly reports "no quotes" and
+// records nothing until a venue-quoting layer supplies them.
+const CAPTURE_SESSION = getLiveCaptureSession();
+function observeLiveCapture(venueQuotes) {
+  try {
+    const v = venueQuotes && typeof venueQuotes === "object" ? venueQuotes : {};
+    return CAPTURE_SESSION.process({
+      buyQuotes: v.buyQuotes ?? null,
+      sellQuotes: v.sellQuotes ?? null,
+      route: v.route ?? null,
+      pair: v.pair ?? null,
+      chain: v.chain ?? null,
+    });
+  } catch {
+    return null; // observation must never break the money path
+  }
+}
 
 // ── Neutral copy for the deposit-address rail (the THORChain ENGINE path
 //    rendered inside the unified flow). Mr. Esters: the user picks an asset
@@ -474,7 +516,7 @@ function statusFor(phase, armed, busy) {
   if (phase === "quoted") return armed ? "ARMED" : "READY";
   if (phase === "done") return "COMPLETE";
   if (phase === "handoff") return "HANDOFF";
-  if (phase === "deposit") return "DEPOSIT";
+  if (phase === "deposit" || phase === "cn-deposit") return "DEPOSIT";
   if (phase === "tracking" || phase === "relaying" || phase === "step2") return "IN FLIGHT";
   return "READY";
 }
@@ -532,6 +574,11 @@ export default function TeleportConsole({
   const rail = railMeta.rail;
   const nativeMeta = isNativeChain(from) ? NATIVE_CHAINS[from] : null;
   const nativeAsset = nativeMeta ? nativeMeta.asset : null;
+  // The long-tail source (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH — the ChangeNOW rail,
+  // RAIL.INSTANTSWAP): a single-asset, deposit-address source the DEX rails
+  // can't carry. It locks the source token + destination exactly like a native
+  // source; the rail is derived (pickRail) and never named.
+  const longtailMeta = isLongtailChain(from) ? LONGTAIL_CHAINS[from] : null;
 
   // ── Flow state (mirrors TeleportForm's phase machine exactly; the native
   //    deposit-address rail adds two phases — "deposit" (the vault-address +
@@ -556,6 +603,13 @@ export default function TeleportConsole({
   const [connecting, setConnecting] = useState(false);
   const [seqVisible, setSeqVisible] = useState(false);
   const [sourceBalance, setSourceBalance] = useState(null); // { balance, symbol, usd } | null
+  // Live USD prices + per-token balances for the ROUTE pickers (the From-token
+  // and To-token dropdowns show icon + symbol + $ value + amount per option).
+  // sourceTokenBalances = the FROM-chain tokens the user can send; destTokenBalances
+  // = the destination-chain tokens (land-as on X1 forward / receive on EVM reverse).
+  const [priceMap, setPriceMap] = useState(null);
+  const [sourceTokenBalances, setSourceTokenBalances] = useState({});
+  const [destTokenBalances, setDestTokenBalances] = useState({});
   // True when the LATEST balance read failed (transport/HTTP) — the readout
   // shows "BAL —" plus a cheap ↻ retry instead of a silent dead read. Cleared
   // at the start of every read and on reset.
@@ -569,6 +623,11 @@ export default function TeleportConsole({
   const quoteSeq = useRef(0);
   const canStage2 = solanaSessionCanSign(solSession);
   const debounceMs = consoleProps.autoQuoteDebounceMs ?? AUTO_QUOTE_DEBOUNCE_MS;
+  // DI seam: an optional venue-quote provider for the capture pipeline
+  // (consoleProps.captureQuotes) — kept in a ref so it never churns the
+  // quote callback's dependency list.
+  const captureQuotesRef = useRef(consoleProps.captureQuotes);
+  captureQuotesRef.current = consoleProps.captureQuotes;
 
   const stage2Runner = formProps.stage2Runner || defaultStage2Runner;
   const reverseStage1Runner = formProps.reverseStage1Runner || defaultReverseStage1Runner;
@@ -598,6 +657,13 @@ export default function TeleportConsole({
       // The rail lands USDC.x on X1 (the auto-advance's Warp leg) — the
       // land-as choice is fixed for this rail (no token picker ambiguity).
       setToken(NATIVE_CHAINS[c].asset);
+      setTo("x1");
+      setToToken((prev) => (tokensOn("eth").includes(prev) ? prev : "USDC"));
+    } else if (isLongtailChain(c)) {
+      // Long-tail source (XMR/ADA/ATOM/NEAR/ZEC/DASH/BCH) → the ChangeNOW
+      // deposit-address rail, dest X1. Same shape as a native source: the
+      // single asset is fixed and the destination locks to X1.
+      setToken(LONGTAIL_CHAINS[c].asset);
       setTo("x1");
       setToToken((prev) => (tokensOn("eth").includes(prev) ? prev : "USDC"));
     } else {
@@ -663,6 +729,9 @@ export default function TeleportConsole({
     const load = async () => {
       setSourceBalance(null);
       setBalanceFailed(false);
+      setPriceMap(null);
+      setSourceTokenBalances({});
+      setDestTokenBalances({});
       // Which source does the readout read? Forward: the EVM source wallet
       // (LiFi/Warp rail) OR the connected NATIVE source-family session
       // (BTC/DOGE/LTC/XRP — the deposit-address rail; the send itself is
@@ -674,8 +743,30 @@ export default function TeleportConsole({
       const evmAddr = evmSession?.address;
       const solAddr = solSession?.address;
       if (!evmAddr && !solAddr && !nativeAddr) return;
-      let priceMap = null;
-      try { priceMap = await priceFetcher(); } catch { priceMap = null; }
+      let prices = null;
+      try { prices = await priceFetcher(); } catch { prices = null; }
+      if (cancelled) return;
+      setPriceMap(prices);
+      // Per-token EVM balances for a chain's picker tokens (fail-soft: a token
+      // whose read fails maps to null → its option shows "—", never a fake 0).
+      const readEvmTokens = async (chain) => {
+        const out = {};
+        const provider = await resolveEvmProviderFn(evmSession);
+        for (const symbol of tokensOn(chain)) {
+          const tok = TOKENS[chain]?.[symbol];
+          if (!tok) continue;
+          out[symbol] = await evmBalanceFetcher({ provider, wallet: evmAddr, token: tok });
+        }
+        return out;
+      };
+      const readX1Tokens = async () => {
+        const res = await svmBalanceFetcher({ rpcs: X1_RPC_LADDER, wallet: solAddr, mints: X1_MINTS });
+        return res ?? {};
+      };
+      const balState = (bal, symbol) => {
+        const price = prices?.[symbol];
+        return bal == null ? null : { balance: bal, symbol, usd: price != null ? bal * price : null };
+      };
       try {
         if (nativeFamily && nativeAddr) {
           // Native source: the wallet layer's public-chain fetcher for the
@@ -687,22 +778,41 @@ export default function TeleportConsole({
           const baseUnits = await fetcher(nativeAddr);
           if (cancelled) return;
           const human = baseUnits / 10 ** nativeMeta.decimals;
-          const price = priceMap?.[nativeMeta.asset];
-          setSourceBalance(Number.isFinite(human) && human >= 0
-            ? { balance: human, symbol: nativeMeta.asset, usd: price != null ? human * price : null }
+          const ok = Number.isFinite(human) && human >= 0;
+          setSourceBalance(ok
+            ? { balance: human, symbol: nativeMeta.asset, usd: prices?.[nativeMeta.asset] != null ? human * prices[nativeMeta.asset] : null }
             : null);
-        } else if (direction === "forward" && evmAddr && TOKENS[from]?.[token]) {
-          const provider = await resolveEvmProviderFn(evmSession);
-          const bal = await evmBalanceFetcher({ provider, wallet: evmAddr, token: TOKENS[from][token] });
-          if (cancelled) return;
-          const price = priceMap?.[token];
-          setSourceBalance(bal == null ? null : { balance: bal, symbol: token, usd: price != null ? bal * price : null });
-        } else if (direction === "reverse" && solAddr) {
-          const res = await svmBalanceFetcher({ rpcs: X1_RPC_LADDER, wallet: solAddr, mints: X1_MINTS });
-          if (cancelled) return;
-          const bal = res?.[token];
-          const price = priceMap?.[token];
-          setSourceBalance(bal == null ? null : { balance: bal, symbol: token, usd: price != null ? bal * price : null });
+          setSourceTokenBalances(ok ? { [nativeMeta.asset]: human } : {});
+          return;
+        }
+        if (direction === "forward") {
+          // Source = the EVM source chain's tokens; destination = the X1 tokens
+          // (the land-as picker > USDC.x / wSOL.X).
+          if (evmAddr && TOKENS[from]) {
+            const src = await readEvmTokens(from);
+            if (cancelled) return;
+            setSourceTokenBalances(src);
+            setSourceBalance(balState(src[token], token));
+          }
+          if (solAddr) {
+            const x1 = await readX1Tokens();
+            if (cancelled) return;
+            setDestTokenBalances(x1);
+          }
+        } else {
+          // Reverse: source (burn) = the X1 tokens; destination = the EVM
+          // destination chain's tokens (the receive picker).
+          if (solAddr) {
+            const x1 = await readX1Tokens();
+            if (cancelled) return;
+            setSourceTokenBalances(x1);
+            setSourceBalance(balState(x1[token], token));
+          }
+          if (evmAddr && TOKENS[to]) {
+            const dst = await readEvmTokens(to);
+            if (cancelled) return;
+            setDestTokenBalances(dst);
+          }
         }
       } catch {
         if (!cancelled) { setSourceBalance(null); setBalanceFailed(true); } // fail-soft: "BAL —" + ↻ retry
@@ -710,7 +820,7 @@ export default function TeleportConsole({
     };
     load();
     return () => { cancelled = true; };
-  }, [direction, from, token, evmSession, solSession, sessions, nativeMeta, balanceRefresh, evmBalanceFetcher, svmBalanceFetcher, priceFetcher, resolveEvmProviderFn]);
+  }, [direction, from, to, token, evmSession, solSession, sessions, nativeMeta, balanceRefresh, evmBalanceFetcher, svmBalanceFetcher, priceFetcher, resolveEvmProviderFn]);
 
   const maxFromBalance = () => {
     if (!sourceBalance || !(sourceBalance.balance > 0)) return;
@@ -724,10 +834,11 @@ export default function TeleportConsole({
   // ── THE REAL QUOTE PATH (forward + reverse — same builders the classic
   //    form uses; no fakes) ─────────────────────────────────────────────────
   const runQuote = useCallback(async () => {
-    // The native deposit-address rail never quotes over LiFi — its quote gate
-    // lives in the deposit step (THORChainDeposit). TELEPORT on that rail
-    // routes straight to the deposit-address step instead of runQuote.
-    if (rail === RAIL.THORCHAIN) return;
+    // The deposit-address rails (native THORChain sources AND the long-tail
+    // ChangeNOW sources) never quote over LiFi — their quote gate lives in the
+    // deposit step. TELEPORT on those rails routes straight to the
+    // deposit-address step instead of runQuote.
+    if (rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) return;
     const amt = parseFloat(amount);
     if (!amount || !(amt > 0)) { setError("Enter an amount"); setPhase("idle"); return; }
     if (direction === "forward") {
@@ -751,6 +862,14 @@ export default function TeleportConsole({
         setQuote({ amount: amt, ...derived, lifiData: d });
         setRefreshLeft(QUOTE_REFRESH_SECONDS);
         setPhase("quoted");
+        // LIVE-FLOW CAPTURE WIRING — observe the cross-venue gap on this
+        // quote (fire-and-forget, read-only, fail-closed). Never affects the
+        // user's route/quote/send.
+        observeLiveCapture({
+          ...((captureQuotesRef.current && captureQuotesRef.current({ direction: "forward", from, to, token, x1Token, toToken, amount: amt, liFiData: d })) || {}),
+          pair: { from: token, to: x1Token },
+          chain: from,
+        });
       } catch (e) {
         console.error("[Teleport Console] quote failed:", e);
         if (seq !== quoteSeq.current) return;
@@ -760,6 +879,14 @@ export default function TeleportConsole({
       if (!solReady) { setError("Connect your Solana/X1 wallet to get a quote"); setPhase("idle"); return; }
       if (!evmReady) { setError("Connect your EVM wallet to get a quote"); setPhase("idle"); return; }
       const legs = computeReverseLegs({ amount: amt, token });
+      // F8 PRE-FLIGHT (pure, fail-closed): the guardians RELEASE
+      // `net = burn − Warp fee` on the destination chain, which enforces a
+      // minimum — a net below it can't be released. Run the SAME check the
+      // runner runs (burnHuman = the post-skim bridge gross), so a tiny
+      // X1→EVM amount gets an inline ⚠️ warning + a DISABLED TELEPORT button
+      // instead of a normal quote that only blows up at burn time.
+      const minPlan = planReverseRelease({ burnHuman: legs.burnAmount, token });
+      const reverseMinReason = minPlan.ok ? null : minPlan.reason;
       const built = buildReverseLifiQuoteParams({
         to,
         toTokenSymbol: toToken,
@@ -779,9 +906,17 @@ export default function TeleportConsole({
           if (!(d?.error || d?.message) && d?.estimate?.toAmount) lifiData = d;
         }
         const derived = deriveReverseQuote({ data: lifiData, to, amount: amt, token, toToken });
-        setQuote({ amount: amt, to, toToken, ...derived, lifiData });
+        setQuote({ amount: amt, to, toToken, ...derived, lifiData, reverseMinReason });
         setRefreshLeft(QUOTE_REFRESH_SECONDS);
         setPhase("quoted");
+        // LIVE-FLOW CAPTURE WIRING — observe the cross-venue gap on this
+        // quote (fire-and-forget, read-only, fail-closed). Never affects the
+        // user's route/quote/send.
+        observeLiveCapture({
+          ...((captureQuotesRef.current && captureQuotesRef.current({ direction: "reverse", from, to, token, x1Token, toToken, amount: amt, liFiData })) || {}),
+          pair: { from: token, to: toToken },
+          chain: to,
+        });
       } catch (e) {
         console.error("[Teleport Console] reverse quote failed:", e);
         if (seq !== quoteSeq.current) return;
@@ -795,7 +930,7 @@ export default function TeleportConsole({
   // is the deposit step's own) — never auto-fire it.
   useEffect(() => {
     if (phase !== "idle") return;
-    if (rail === RAIL.THORCHAIN) return;
+    if (rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) return;
     const amt = parseFloat(amount);
     if (!amount || !(amt > 0)) return;
     const t = setTimeout(() => { runQuote(); }, debounceMs);
@@ -922,7 +1057,12 @@ export default function TeleportConsole({
         token,
       });
       if (!res.success) {
-        if (res.sim?.simUnavailable) {
+        if (res.stage === "destination-minimum") {
+          // F8: the burn would release a net below the destination minimum —
+          // nothing was built or burned. Surface the runner's honest reason
+          // (never the generic "Burn sim failed: undefined").
+          setError(res.reason || "amount below destination minimum after fee — increase the amount to proceed.");
+        } else if (res.sim?.simUnavailable) {
           setError(`Burn sim couldn't run (RPC: ${res.sim?.rpcError || "unknown"}) — send blocked. Retry when the RPC is reachable.`);
         } else {
           const logs = res.sim?.logs || [];
@@ -1041,6 +1181,15 @@ export default function TeleportConsole({
       setPhase("deposit");
       return;
     }
+    if (rail === RAIL.INSTANTSWAP) {
+      // The ChangeNOW long-tail rail's DEPOSIT-ADDRESS step: create the
+      // exchange, reveal the payin address (+ memo for the assets that need
+      // one), then poll the exchange status. The send is out-of-band from the
+      // user's own external wallet — the console never signs. Never misroute a
+      // long-tail source into the LiFi/Warp path.
+      setPhase("cn-deposit");
+      return;
+    }
     if (phase !== "quoted") { runQuote(); return; }
     if (direction === "forward") executeStage1();
     else executeReverseStage1();
@@ -1068,6 +1217,9 @@ export default function TeleportConsole({
   const depositStoreRef = useRef(null);
   if (!depositStoreRef.current) depositStoreRef.current = createThorchainStorage();
   const depositDeps = consoleProps.depositDeps || {};
+  // DI seams for the ChangeNOW long-tail deposit step (injected in tests; the
+  // real network path is the api/changenow/* proxies).
+  const changeNowDeps = consoleProps.changeNowDeps || {};
   // Source-family sessions prefill the deposit step's refund address (the
   // wallet layer's deposit rows for BTC/DOGE/LTC/XRP — same read as the
   // classic THORChain tab).
@@ -1112,20 +1264,40 @@ export default function TeleportConsole({
 
   const busy = phase === "bridging" || phase === "quoting" || step2Busy;
   const armed = phase === "quoted" && Boolean(quote);
+  // F8: the reverse pre-flight's honest reason (null when the net clears the
+  // destination minimum). When set, the console warns inline AND disarms
+  // TELEPORT — the fail-closed click-time check stays as the backstop.
+  const reverseMinReason = direction === "reverse" ? (quote?.reverseMinReason || null) : null;
+  const reverseMinBlocked = Boolean(reverseMinReason);
+  // Fee breakdown — network gas + total. DISPLAY-ONLY: the fee numbers above
+  // are untouched. Gas is a real USD figure only when LiFi reported it; else
+  // an honest "—" with an itemized total instead of a guessed number (the
+  // wallet's renderFeeBreakdown pattern).
+  const gasKnown = typeof quote?.gasUsd === "number" && Number.isFinite(quote.gasUsd);
+  const gasDisplay = gasKnown ? `$${quote.gasUsd.toFixed(2)}` : "—";
+  const totalDisplay = (() => {
+    if (!quote) return gasDisplay;
+    const parts = [quote.teleporterFeeUsd, quote.thirdPartyFeeUsd, gasKnown ? quote.gasUsd : null];
+    if (parts.every((v) => typeof v === "number" && Number.isFinite(v))) {
+      return `$${parts.reduce((a, b) => a + b, 0).toFixed(2)}`;
+    }
+    const comps = (quote.feeLines || []).map((l) => `$${Number(l.amountUsd).toFixed(2)}`);
+    comps.push(gasKnown ? gasDisplay : "network gas");
+    return comps.join(" + ");
+  })();
   const tickerDisplay = useTicker(quote?.net ?? 0, { active: phase === "quoted" });
   const routeReadout = direction === "reverse" ? `X1 → ${chainName(to)}` : `${chainName(from)} → X1`;
   // The destination token the DONE readout names — the native rail always
   // lands USDC.x on X1 (its Warp leg is USDC.x-fixed); LiFi/Warp rails land
   // the chosen land-as/receive token.
-  const doneTokenLabel = rail === RAIL.THORCHAIN ? "USDC.x" : (quote?.recvToken || x1Token);
+  const doneTokenLabel = (rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) ? "USDC.x" : (quote?.recvToken || x1Token);
 
   // Wallet guidance (which wallet the CURRENT route needs next).
   const missingWallets = [];
-  if (rail === RAIL.THORCHAIN) {
-    // The deposit-address rail needs ONLY the Solana/X1 wallet — the deposit
+  if (rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) {
+    // The deposit-address rails need ONLY the Solana/X1 wallet — the deposit
     // destination (funds land there before the X1 hop). The source send is
-    // out-of-band from the user's own BTC/DOGE/LTC/XRP wallet — never asked
-    // for in-app.
+    // out-of-band from the user's own external wallet — never asked for in-app.
     if (!solReady) missingWallets.push("Solana/X1 (Phantom / Backpack) — where your deposit lands before X1");
   } else if (direction === "forward") {
     if (!evmReady) missingWallets.push("EVM (Rabby / MetaMask) — the source wallet");
@@ -1243,7 +1415,7 @@ export default function TeleportConsole({
     <div className="quote-box" data-testid="quote-box">
       <div className="tc-quote-row">
         <span className="tc-quote-key">You send</span>
-        <span className="tc-quote-val">{quote.amount} {token} on {direction === "forward" ? CHAINS[from].name : "X1"}</span>
+        <span className="tc-quote-val">{quote.amount} {token} on {direction === "forward" ? chainName(from) : "X1"}</span>
       </div>
       {(quote.feeLines || []).map((l) => (
         <div key={l.id} data-testid={`fee-line-${l.id}`} className="tc-quote-row">
@@ -1251,6 +1423,14 @@ export default function TeleportConsole({
           <span className="tc-quote-val">${l.amountUsd.toFixed(2)}</span>
         </div>
       ))}
+      <div data-testid="fee-line-network-gas" className="tc-quote-row">
+        <span className="tc-quote-key">Network gas</span>
+        <span className="tc-quote-val">{gasDisplay}</span>
+      </div>
+      <div data-testid="fee-line-total" className="tc-quote-row tc-quote-total">
+        <span className="tc-quote-key">Total cost</span>
+        <span className="tc-quote-val">{totalDisplay}</span>
+      </div>
       <div className="tc-quote-row">
         <span className="tc-quote-key">Est. received</span>
         <span data-testid="you-receive" className="tc-quote-hi">≈ {tickerDisplay} {quote.recvToken} on {quote.recvChain}</span>
@@ -1265,6 +1445,11 @@ export default function TeleportConsole({
         <div className="tc-quote-row" data-testid="dest-address">
           <span className="tc-quote-key">To</span>
           <span className="tc-quote-val" title={evmSession.address}>{truncateAddress(evmSession.address)} ({CHAINS[quote?.to || to]?.name})</span>
+        </div>
+      )}
+      {reverseMinReason && (
+        <div className="tc-note tc-warn" data-testid="reverse-min-warning" style={{ color: "#f0b429" }}>
+          ⚠️ {reverseMinReason} — increase the amount to proceed.
         </div>
       )}
       {direction === "reverse" && !quote.lifiQuoted && (
@@ -1323,6 +1508,18 @@ export default function TeleportConsole({
         <div className="tc-strip-hint">
           <b>DEPOSIT ROUTE READY</b> — press TELEPORT to reveal your deposit
           address + memo; the network fees are shown before you send.
+        </div>
+      );
+    }
+    if (rail === RAIL.INSTANTSWAP && amount && parseFloat(amount) > 0) {
+      // The long-tail (ChangeNOW) source: TELEPORT reveals the deposit-address
+      // step (payin address + memo + status poll); the user sends from their
+      // own external wallet. Rail-neutral copy — the rail is never named.
+      return (
+        <div className="tc-strip-hint">
+          <b>DEPOSIT ROUTE READY</b> — press TELEPORT to reveal your deposit
+          address{isLongtailChain(from) && LONGTAIL_CHAINS[from] ? ` (${LONGTAIL_CHAINS[from].asset})` : ""} and status; you send
+          from your own wallet and it hops to X1.
         </div>
       );
     }
@@ -1407,6 +1604,37 @@ export default function TeleportConsole({
                         copy={DEPOSIT_NEUTRAL_COPY}
                       />
                     </div>
+                  ) : phase === "cn-deposit" ? (
+                    /* ── CHANGE NOW LONG-TAIL DEPOSIT STEP (the rail decision
+                       landed here invisibly): the exchange is created, its
+                       payin address (+ memo) is revealed, and the exchange
+                       status is polled to completion. Neutral copy — the rail
+                       is never named. The user sends from their own wallet;
+                       the console never signs. ── */
+                    <div className="tc-tab-body" data-testid="cn-deposit-step" role="tabpanel" aria-label="Deposit step">
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 6 }}>
+                        <span className="tc-sub" style={{ marginTop: 0 }} data-testid="cn-deposit-step-context">
+                          {longtailMeta ? `Sending ${longtailMeta.asset} from ${longtailMeta.name} → X1` : "Deposit route"}
+                        </span>
+                        <button type="button" data-testid="back-to-route" className="tc-ghost" style={{ width: "auto", padding: "4px 12px", marginTop: 0 }} onClick={() => setPhase("idle")}>
+                          ← Adjust route
+                        </button>
+                      </div>
+                      <ChangeNowDeposit
+                        source={longtailMeta}
+                        amount={amount}
+                        destination={solSession?.address ?? null}
+                        destinationConnected={solReady}
+                        refundAddress={null}
+                        createExchange={changeNowDeps.createExchange}
+                        createPoller={changeNowDeps.createPoller}
+                        fetchImpl={changeNowDeps.fetchImpl}
+                        statusBaseUrl={changeNowDeps.statusBaseUrl}
+                        pollIntervalMs={changeNowDeps.pollIntervalMs}
+                        initialDeposit={changeNowDeps.initialDeposit}
+                        copy={changeNowDeps.copy}
+                      />
+                    </div>
                   ) : phase === "tracking" ? (
                     /* ── HOP TRACKING (the deposit was sent out-of-band; the
                        tracker polls the network, watches the landing, and
@@ -1466,12 +1694,12 @@ export default function TeleportConsole({
                           <select data-testid="to-chain" value="x1" onChange={() => {}} className="tc-select" aria-label="Destination chain (fixed: X1)" disabled style={{ opacity: 0.9 }}>
                             <option value="x1">X1 {chainGlyph("x1")}</option>
                           </select>
-                          <span className="tc-sub">{rail === RAIL.THORCHAIN ? "destination · arrives as USDC.x on X1" : `destination · land as ${x1Token}`}</span>
+                          <span className="tc-sub">{(rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) ? "destination · arrives as USDC.x on X1" : `destination · land as ${x1Token}`}</span>
                         </>
                       ) : (
                         <>
                           <select data-testid="to-chain" value={to} onChange={(e) => changeTo(e.target.value)} className="tc-select" aria-label="To chain">
-                            {SOURCE_CHAINS.filter((c) => !isNativeChain(c) && c !== "x1").map((c) => (
+                            {SOURCE_CHAINS.filter((c) => !isNativeChain(c) && !isLongtailChain(c) && c !== "x1").map((c) => (
                               <option key={c} value={c}>{chainGlyph(c)} {chainName(c)}</option>
                             ))}
                           </select>
@@ -1486,29 +1714,58 @@ export default function TeleportConsole({
                     <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 150 }} data-testid="token-slot">
                       <span className="tc-label">{direction === "forward" ? "Token" : "Burn token"}</span>
                       {direction === "forward" ? (
-                        <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} className="tc-select" aria-label="Token" disabled={Boolean(nativeMeta)}>
-                          {tokensOn(from).map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <TokenSelect
+                          testid="token"
+                          value={token}
+                          onChange={(e) => changeToken(e.target.value)}
+                          symbols={tokensOn(from)}
+                          prices={priceMap}
+                          balances={sourceTokenBalances}
+                          className="tc-select"
+                          ariaLabel="Token"
+                          disabled={Boolean(nativeMeta) || Boolean(longtailMeta)}
+                        />
                       ) : (
-                        <select data-testid="token" value={token} onChange={(e) => changeToken(e.target.value)} className="tc-select" aria-label="Token to burn on X1">
-                          {tokensOn("x1").map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <TokenSelect
+                          testid="token"
+                          value={token}
+                          onChange={(e) => changeToken(e.target.value)}
+                          symbols={tokensOn("x1")}
+                          prices={priceMap}
+                          balances={sourceTokenBalances}
+                          className="tc-select"
+                          ariaLabel="Token to burn on X1"
+                        />
                       )}
                     </div>
-                    {direction === "forward" && !nativeMeta && (
+                    {direction === "forward" && !nativeMeta && !longtailMeta && (
                       <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 120 }} data-testid="x1-token-slot">
                         <span className="tc-label">Land as</span>
-                        <select data-testid="x1-token" value={x1Token} onChange={(e) => changeX1Token(e.target.value)} className="tc-select" aria-label="Token on X1">
-                          {tokensOn("x1").map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <TokenSelect
+                          testid="x1-token"
+                          value={x1Token}
+                          onChange={(e) => changeX1Token(e.target.value)}
+                          symbols={tokensOn("x1")}
+                          prices={priceMap}
+                          balances={destTokenBalances}
+                          className="tc-select"
+                          ariaLabel="Token on X1"
+                        />
                       </div>
                     )}
                     {direction === "reverse" && (
                       <div className="tc-slot" style={{ flex: "0 0 auto", minWidth: 120 }} data-testid="to-token-slot">
                         <span className="tc-label">Receive</span>
-                        <select data-testid="to-token" value={toToken} onChange={(e) => changeToToken(e.target.value)} className="tc-select" aria-label="Receive token">
-                          {tokensOn(to).map((t) => <option key={t} value={t}>{t}</option>)}
-                        </select>
+                        <TokenSelect
+                          testid="to-token"
+                          value={toToken}
+                          onChange={(e) => changeToToken(e.target.value)}
+                          symbols={tokensOn(to)}
+                          prices={priceMap}
+                          balances={destTokenBalances}
+                          className="tc-select"
+                          ariaLabel="Receive token"
+                        />
                       </div>
                     )}
                     <div className="tc-slot tc-slot-grow" style={{ flex: 2 }} data-testid="amount-slot">
@@ -1547,13 +1804,13 @@ export default function TeleportConsole({
                     <button
                       type="button"
                       data-testid="teleport-now"
-                      className={armed ? "tc-fire tc-fire-armed" : "tc-fire"}
+                      className={(armed && !reverseMinBlocked) ? "tc-fire tc-fire-armed" : "tc-fire"}
                       onClick={onFire}
-                      disabled={busy || !amount || !(parseFloat(amount) > 0)}
+                      disabled={busy || reverseMinBlocked || !amount || !(parseFloat(amount) > 0)}
                     >
                       {phase === "quoting"
                         ? "CALCULATING ROUTE…"
-                        : phase === "quoted" || (rail === RAIL.THORCHAIN && amount && parseFloat(amount) > 0)
+                        : phase === "quoted" || ((rail === RAIL.THORCHAIN || rail === RAIL.INSTANTSWAP) && amount && parseFloat(amount) > 0)
                           ? "◉ TELEPORT"
                           : "TELEPORT"}
                     </button>

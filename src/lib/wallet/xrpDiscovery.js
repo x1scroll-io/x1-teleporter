@@ -37,6 +37,11 @@ function defaultWin() {
  */
 const GLOBAL_DETECTORS = Object.freeze({
   [XRP_WALLET_IDS.CROSSMARK]: (w) => Boolean(w?.xrpl?.crossmark),
+  // Starport injects a namespaced XRP provider alongside its EVM/Solana ones
+  // (window.starport = { ethereum, solana, xrp }). Wired 2026-09-14 so the
+  // THORChain XRP lane can quote with a REAL refund address instead of the dev
+  // mock (`mock:xrp:…`, which THORChain rejects as a THORName).
+  [XRP_WALLET_IDS.STARPORT]: (w) => Boolean(w?.starport?.xrp),
 });
 
 /** Is a registry wallet installed via its namespaced global? */

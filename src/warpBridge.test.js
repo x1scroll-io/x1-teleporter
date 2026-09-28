@@ -45,6 +45,33 @@ import {
   SOL_WARP_FEES,
   SOL_WARP_FEE_PCT_DEFAULT,
   solWarpFeeFor,
+  X1_REVERSE_DEST_MIN,
+  ONE_USDC,
+  warpFeeCut,
+  parseWarpConfig,
+  deriveDiscoveredRails,
+  registerDiscoveredRails,
+  clearDiscoveredRails,
+  getDiscoveredRails,
+  offerableWarpTokenKeys,
+  warpRailHealth,
+  resolveForwardToken,
+  resolveReverseToken,
+  resolveReverseDestMin,
+  WarpTokenError,
+  fetchWarpRegistry,
+  railBaseSymbol,
+  WARP_API,
+  warpForwardNetBase,
+  warpReverseNetBase,
+  planReverseRelease,
+  SOL_SPCX_MINT,
+  X1_SPCXX_MINT,
+  SOL_SPCX_FEE_ACCOUNT,
+  X1_SPCXX_FEE_ACCOUNT,
+  SOL_GOOGL_MINT,
+  X1_GOOGLX_MINT,
+  X1_GOOGLX_FEE_ACCOUNT,
   toBaseUnits,
   fromBaseUnits,
   deriveVaultAccounts,
@@ -52,6 +79,11 @@ import {
 import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { SimulationError } from "./lib/simulateTx.js";
 import { FEE_RATES } from "./lib/fees.ts";
+import {
+  setConnectedSession,
+  clearConnectedSession,
+  clearAllConnectedSessions,
+} from "./lib/wallet/connectedSessions.js";
 
 // Real keypairs so the mock wallet can produce VALID signatures (web3.js
 // serialize() verifies ed25519 signatures by default).
@@ -272,11 +304,66 @@ test("sendX1AtaCreation falls back to signAndSendTransaction when signTransactio
 });
 
 test("sendX1AtaCreation throws the no-wallet error when no provider is available", async () => {
+  clearAllConnectedSessions();
   const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
   await assert.rejects(
     () => sendX1AtaCreation(conn, makeLegacyTx(), null),
     /No Solana\/X1 wallet found to sign the X1 account-creation tx/,
   );
+});
+
+// ── The "reach out to the CONNECTED wallet" fix (V2 cutover) ──
+// The Warp leg no longer falls back to a hardcoded injected Solana global.
+// When the engine omits an explicit provider, the signer is resolved from the
+// CURRENTLY CONNECTED WalletContext session via the React-free
+// connectedSessions registry + the proven sessionProviders resolver.
+
+test("sendX1AtaCreation: with NO explicit provider, signs through the CONNECTED Solana session (never an injected global)", async () => {
+  clearAllConnectedSessions();
+  const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
+  const adapter = mockWallet({ keypairs: [K1] });
+  // Real wrapper shape: the session provider is the CONNECT adapter whose
+  // sign-capable surface lives at `.adapter` (resolveSolanaAdapter unwraps it).
+  setConnectedSession("solana", {
+    status: "connected",
+    address: K1.publicKey.toBase58(),
+    provider: { family: "solana", adapter },
+  });
+  try {
+    const tx = makeLegacyTx();
+    const sig = await sendX1AtaCreation(conn, tx, undefined);
+    assert.equal(sig, "raw-sig");
+    assert.deepEqual(adapter.calls.map((c) => c.method), ["signTransaction"], "the CONNECTED session's adapter signed");
+  } finally {
+    clearAllConnectedSessions();
+  }
+});
+
+test("sendStage2ViaPhantom: with NO explicit provider, signs through the CONNECTED Solana session", async () => {
+  clearAllConnectedSessions();
+  const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
+  const adapter = mockWallet({ keypairs: [K1] });
+  // Raw sign-capable adapter directly on the session provider (the other
+  // shape resolveSolanaAdapter accepts).
+  setConnectedSession("solana", { status: "connected", address: K1.publicKey.toBase58(), provider: adapter });
+  try {
+    const sig = await sendStage2ViaPhantom(conn, makeLegacyTx(), undefined);
+    assert.equal(sig, "raw-sig");
+    assert.deepEqual(adapter.calls.map((c) => c.method), ["signTransaction"]);
+  } finally {
+    clearAllConnectedSessions();
+  }
+});
+
+test("sendStage2ViaPhantom: a DISCONNECTED session resolves to null — honest no-wallet error, nothing signed", async () => {
+  setConnectedSession("solana", { status: "connected", address: K1.publicKey.toBase58(), provider: mockWallet() });
+  clearConnectedSession("solana"); // disconnect clears the published session
+  const conn = mockConnection({ simResult: { value: { err: null, logs: [] } } });
+  await assert.rejects(
+    () => sendStage2ViaPhantom(conn, makeLegacyTx(), undefined),
+    /No Solana wallet found to sign the Warp tx/,
+  );
+  assert.ok(!conn.calls.includes("sendRawTransaction"), "nothing broadcast without a signer");
 });
 
 // ── Step 1.3C fee-unification guard ──
@@ -1113,6 +1200,55 @@ test("pollWarpStatus: a pending status does NOT complete early — keeps polling
   } finally { mock.restore(); }
 });
 
+test("pollWarpStatus: a PERMANENT failure (BelowMinimum revert) is terminal — distinguished from pending", async () => {
+  // The reverse release reverts BridgeInV2 `BelowMinimum(6000)` when the net
+  // lands under the destination minimum — a FOREVER failure. The poller must
+  // return terminal (never keep waiting) and carry a reason, NOT a timeout.
+  const mock = mockWarpFetch({
+    statusBody: { transaction: { status: "failed", error: "BridgeInV2: BelowMinimum", errorCode: 6000 } },
+  });
+  try {
+    const stages = [];
+    const res = await pollWarpStatus(POLL_SIG, {
+      from: "x1", intervalMs: 5, maxMs: 2000,
+      onUpdate: (s, d) => stages.push([s, d]),
+    });
+    assert.equal(res.ok, false);
+    assert.equal(res.terminal, true, "terminal failure");
+    assert.equal(res.permanent, true);
+    assert.match(res.reason, /BelowMinimum/i);
+    assert.notEqual(res.timedOut, true, "a permanent failure is NOT a timeout/pending");
+    const failed = stages.find(([s]) => s === "failed");
+    assert.ok(failed, "failed stage fired");
+    assert.equal(failed[1].permanent, true);
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: an explicit error field (no fail status) is still terminal, never read as pending", async () => {
+  // Some Warp shapes carry the error beside a non-terminal status. The
+  // explicit error (here a BelowMinimum marker) must still trip terminal.
+  const mock = mockWarpFetch({
+    statusBody: { transaction: { status: "relaying" }, error: "release reverted: below minimum (6000)" },
+  });
+  try {
+    const res = await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 2000 });
+    assert.equal(res.ok, false);
+    assert.equal(res.terminal, true);
+    assert.equal(res.permanent, true);
+    assert.notEqual(res.timedOut, true);
+  } finally { mock.restore(); }
+});
+
+test("pollWarpStatus: a completed release is STILL complete even though error fields are absent (no false terminal)", async () => {
+  const mock = mockWarpFetch({ statusBody: { transaction: { status: "executed", destTxSig: DEST_SIG } } });
+  try {
+    const res = await pollWarpStatus(POLL_SIG, { from: "x1", intervalMs: 5, maxMs: 2000 });
+    assert.equal(res.ok, true);
+    assert.equal(res.destinationTx, DEST_SIG);
+    assert.equal(res.terminal, undefined);
+  } finally { mock.restore(); }
+});
+
 // ════════════════════════════════════════════════════════════════════════════
 //  WSOL / wSOL.X — the SOL rail (feat/wsol-path). Ground truth: live Warp
 //  config (api.bridge.mainnet.x1.xyz/config, Sep 2026): wSOL.X is a WRAPPED
@@ -1451,4 +1587,315 @@ test("X1_REVERSE_TOKENS: ETH.X + cbBTC.X registry entries match the live config 
   }
   // An unknown token must NOT resolve to USDC.x's flat in either module.
   assert.notEqual(x1WarpFeeShape("Unknown.X").kind, X1_WARP_FEES["USDC.x"].kind);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  xSTOCK RAILS (SPCXx…GOOGLx) — ported from the Starport wallet's warpBridge
+//  (ground truth: live Warp config, docs/bridge-token-floor-config.json
+//  2026-09-20). Forward + reverse + destination minimums + 25 bps pct fees.
+// ════════════════════════════════════════════════════════════════════════════
+const STOCK_SYMS = ["SPCXx", "METAx", "TSLAx", "COINx", "PLTRx", "NVDAx", "AMDx", "SPYx", "GOOGLx"];
+
+test("xStock rails: the 9 forward + reverse entries are present with the live-config mints/fee ATAs (8 dec)", () => {
+  assert.equal(SOL_SPCX_MINT.toBase58(), "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8");
+  assert.equal(X1_SPCXX_MINT.toBase58(), "CCqoyVud4QNCccV9EJtWEFPaC6jBaGJsaFTnyD8Ss47m");
+  assert.equal(SOL_SPCX_FEE_ACCOUNT.toBase58(), "RcyUsKGJVVUqhTCkE2qQNH39JccZGn8tjxQqeLv76XK");
+  assert.equal(X1_SPCXX_FEE_ACCOUNT.toBase58(), "2bwDWHU5bhm6gtmXpenHg7yGWcHELUZmVSRSHRjx285J");
+  assert.equal(SOL_GOOGL_MINT.toBase58(), "XsCPL9dNWBMvFtTmwcCA5v3xWPSMEBCszbQdiLLq6aN");
+  assert.equal(X1_GOOGLX_MINT.toBase58(), "E3v5m81RLR3ZAjNuCeMjbniCmwBUd1j2iWsvtpXiBVe5");
+  assert.equal(X1_GOOGLX_FEE_ACCOUNT.toBase58(), "GpbrnKinhzEh8sWfuv1MCL7vJ3qLQZHHKu8HWwbm5pd");
+
+  for (const s of STOCK_SYMS) {
+    // Reverse map — the X1 mint burned (Token-2022, 8 dec) + its fee ATA.
+    assert.ok(X1_REVERSE_TOKENS[s], `X1_REVERSE_TOKENS["${s}"] present`);
+    assert.equal(X1_REVERSE_TOKENS[s].decimals, 8, `${s}: 8 decimals`);
+    assert.ok(X1_REVERSE_TOKENS[s].mint instanceof PublicKey, `${s}: mint is a PublicKey`);
+    assert.ok(X1_REVERSE_TOKENS[s].feeAccount instanceof PublicKey, `${s}: feeAccount is a PublicKey`);
+    // Forward map — the Solana source mint locked + the X1 twin minted + floor.
+    assert.ok(X1_FORWARD_TOKENS[s], `X1_FORWARD_TOKENS["${s}"] present`);
+    assert.equal(X1_FORWARD_TOKENS[s].decimals, 8, `${s}: 8 decimals`);
+    assert.ok(X1_FORWARD_TOKENS[s].sourceMint instanceof PublicKey, `${s}: sourceMint is a PublicKey`);
+    assert.ok(X1_FORWARD_TOKENS[s].destMint instanceof PublicKey, `${s}: destMint is a PublicKey`);
+    assert.equal(
+      X1_FORWARD_TOKENS[s].destMint.toBase58(),
+      X1_REVERSE_TOKENS[s].mint.toBase58(),
+      `${s}: forward destMint === reverse mint (same X1 twin)`,
+    );
+    // 25 bps pct on BOTH sides — never the USDC.x flat $1.
+    assert.equal(X1_WARP_FEES[s].kind, "pct", `${s}: X1 fee is pct`);
+    assert.equal(X1_WARP_FEES[s].bps, 25, `${s}: X1 fee is 25 bps`);
+    const solSym = s.slice(0, -1); // SPCXx → SPCX
+    assert.equal(SOL_WARP_FEES[solSym].kind, "pct", `${solSym}: Solana fee is pct`);
+    assert.equal(SOL_WARP_FEES[solSym].bps, 25, `${solSym}: Solana fee is 25 bps`);
+  }
+
+  // Exact 1.5×-of-config forward floors (docs/bridge-token-floor-config.json).
+  const FWD_MIN = {
+    SPCXx: 10_050_000n, METAx: 2_250_000n, TSLAx: 3_750_000n, COINx: 8_100_000n,
+    PLTRx: 8_700_000n, NVDAx: 7_500_000n, AMDx: 3_000_000n, SPYx: 1_950_000n, GOOGLx: 4_350_000n,
+  };
+  for (const [s, min] of Object.entries(FWD_MIN)) {
+    assert.equal(X1_FORWARD_TOKENS[s].minBase, min, `${s}: forward minBase ${min}`);
+  }
+});
+
+test("X1_REVERSE_DEST_MIN: the destination floors for the 9 xStocks + the existing rails", () => {
+  const expected = {
+    "SPCXx": 10_050_000n, "METAx": 2_250_000n, "TSLAx": 3_750_000n, "COINx": 8_100_000n,
+    "PLTRx": 8_700_000n, "NVDAx": 7_500_000n, "AMDx": 3_000_000n, "SPYx": 1_950_000n, "GOOGLx": 4_350_000n,
+  };
+  for (const [t, m] of Object.entries(expected)) {
+    assert.equal(X1_REVERSE_DEST_MIN[t], m, `${t}: destination min ${m}`);
+  }
+  assert.equal(X1_REVERSE_DEST_MIN["USDC.x"], 15n * ONE_USDC, "USDC.x dest min = 1.5 × $10 = $15");
+  assert.equal(X1_REVERSE_DEST_MIN["wSOL.X"], 150_000_000n, "wSOL.X dest min = 1.5 × 0.1 = 0.15");
+});
+
+test("warpFeeCut: xStocks charge the 25 bps pct (never the USDC.x flat $1)", () => {
+  for (const s of STOCK_SYMS) {
+    // 8-dec stock: 1.0 (100_000_000 base) → 25 bps = 250_000 base.
+    assert.equal(warpFeeCut(100_000_000n, s), 250_000n, `${s}: 25 bps of the gross`);
+  }
+  // USDC.x keeps the flat $1 carve (1_000_000 at 6 dp).
+  assert.equal(warpFeeCut(11_000_000n, "USDC.x"), 1_000_000n, "USDC.x: flat $1 regardless of size");
+  // NET helpers apply the same cut.
+  assert.equal(warpForwardNetBase(100_000_000n, "SPCXx"), 99_750_000n);
+  assert.equal(warpReverseNetBase(100_000_000n, "SPCXx"), 99_750_000n);
+});
+
+test("planReverseRelease: refuses a reverse whose net (burn − Warp fee) is below the destination minimum, and passes when it clears", () => {
+  // USDC.x: dest min $15; net = burn − $1 flat. burn 10 → net 9 < 15 → REFUSE.
+  const bad = planReverseRelease({ burnHuman: 10, token: "USDC.x" });
+  assert.equal(bad.ok, false, "USDC.x burn 10 → net 9 < 15 → refused");
+  assert.match(bad.reason, /below destination minimum after fee/);
+  assert.match(bad.reason, /nothing was burned/);
+  assert.equal(bad.netBase, 9_000_000n);
+  assert.equal(bad.destMinBase, 15_000_000n);
+  assert.equal(bad.requiredBurnBase, 16_000_000n, "need ≥ min + fee = $15 + $1 = $16 burn");
+
+  // USDC.x: burn 20 → net 19 ≥ 15 → OK.
+  const good = planReverseRelease({ burnHuman: 20, token: "USDC.x" });
+  assert.equal(good.ok, true);
+  assert.equal(good.reason, null);
+
+  // GOOGLx: dest min 4_350_000 (8 dec); 0.04 → net 3_990_000 < min → REFUSE.
+  const stockBad = planReverseRelease({ burnHuman: 0.04, token: "GOOGLx" });
+  assert.equal(stockBad.ok, false, "GOOGLx 0.04 → net 0.0399 < 0.0435 → refused");
+  assert.match(stockBad.reason, /below destination minimum after fee/);
+  assert.equal(stockBad.netBase, 3_990_000n, "net = 4_000_000 − 25 bps (10_000)");
+
+  // GOOGLx: 0.05 → net 4_987_500 ≥ 4_350_000 → OK.
+  const stockGood = planReverseRelease({ burnHuman: 0.05, token: "GOOGLx" });
+  assert.equal(stockGood.ok, true);
+
+  // grossHuman path skims SKIM_BPS first (the form's input), matching the burn.
+  const viaGross = planReverseRelease({ grossHuman: 20, token: "USDC.x" });
+  assert.equal(viaGross.ok, true, "20 gross → skim 0.1 → burn 19.9 → net 18.9 ≥ 15");
+});
+
+test("runReverse refuses (fail-closed) below the destination minimum BEFORE touching the chain — nothing built/sent", async () => {
+  // No connection is supplied: the gate returns before any build/burn, so this
+  // proves nothing is constructed or sent when the net can't be released.
+  const res = await runReverse({
+    connection: null,
+    userPubkey: USER,
+    amountHuman: 10, // burn 10 USDC.x → net 9 < $15 dest min
+    token: "USDC.x",
+  });
+  assert.equal(res.stage, "destination-minimum");
+  assert.equal(res.success, false);
+  assert.equal(res.built, null);
+  assert.equal(res.prep, null);
+  assert.match(res.reason, /below destination minimum after fee/);
+  assert.equal(res.plan.ok, false);
+});
+
+test("buildStage2 rejects a net (after the 0.5% skim) below a stock token's Warp minimum, naming the source symbol", async () => {
+  // SPCXx minBase = 10_050_000 (8 dec, 0.1005 SPCX). 0.1 gross → 0.0995 net.
+  await assert.rejects(
+    () => buildStage2({
+      connection: {}, // never reached — the minBase guard throws first
+      userPubkey: USER,
+      feeWalletSvm: FEE_WALLET,
+      amountHuman: 0.1,
+      seq: 42n,
+      destToken: "SPCXx",
+    }),
+    (e) => {
+      assert.match(e.message, /below the Warp minimum/, `message names the Warp minimum: ${e.message}`);
+      assert.match(e.message, /SPCX/, `message names the source symbol (SPCX): ${e.message}`);
+      return true;
+    },
+  );
+});
+
+test("reverseQuote mirror agrees with warpBridge for every xStock rail (kind + bps)", async () => {
+  const { x1WarpFeeShape } = await import("./lib/reverseQuote.js");
+  for (const s of STOCK_SYMS) {
+    const mirror = x1WarpFeeShape(s);
+    assert.equal(mirror.kind, "pct", `${s}: mirror is pct`);
+    assert.equal(mirror.bps, 25, `${s}: mirror is 25 bps`);
+    assert.equal(mirror.bps, X1_WARP_FEES[s].bps, `${s}: mirror + warpBridge agree`);
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+//  DYNAMIC TOKEN DISCOVERY + LANE HEALTH (live Warp config) — fail-closed.
+//  The hardcoded maps are the baseline; the LIVE registry is the source of new
+//  rails (Jack/XDEX add tokens over time). Discovered rails are offered ONLY
+//  when COMPLETE + OPEN; paused/unknown/incomplete → skipped, never guessed.
+// ════════════════════════════════════════════════════════════════════════════
+import { readFileSync } from "node:fs";
+
+// A synthetic config exercising every fail-closed branch. Mints/fee ATAs are
+// real base58 pubkeys (from the live capture) so PublicKey construction is
+// valid, but the pairings are contrived to isolate each skip reason.
+const SYN_CONFIG = {
+  solana: { config: { paused: false, pauseReason: "none" }, tokens: [
+    { symbol: "USDC", displaySymbol: "USDC", mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", decimals: 6, paused: false, minAmount: "10000000", flatFeeAmount: "1000000", percentageFeeBps: 0, feeCollectorAta: "6ob9XW6f6mweGu5sGh3JwW2Vp6UNQApjuPvrubXMQXyi" },
+    { symbol: "SPCX", displaySymbol: "SPCXx", mint: "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8", decimals: 8, paused: false, minAmount: "6700000", flatFeeAmount: "0", percentageFeeBps: 25, feeCollectorAta: "RcyUsKGJVVUqhTCkE2qQNH39JccZGn8tjxQqeLv76XK" },
+    { symbol: "AAPL", displaySymbol: "AAPLx", mint: "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp", decimals: 8, paused: false, minAmount: "3000000", flatFeeAmount: "0", percentageFeeBps: 25, feeCollectorAta: "DW7JMDuNi3UeGCFQSb4o7BPP8zVsYYtTVGJ6NHDcYhib" },
+    { symbol: "HALT", displaySymbol: "HALTx", mint: "Fd8TNp5GhhTk6Uq6utMvK13vfQdLN1yUUHCnapWvpump", decimals: 8, paused: true, minAmount: "1000000", flatFeeAmount: "0", percentageFeeBps: 25, feeCollectorAta: "A4rfWUkGfqn5S4RnFE8mpCkneZuRAuo2eE95hVfMRQVW" },
+    { symbol: "xencat", displaySymbol: "xencat", mint: "J8Uev16V9jFxLRBSqvy78AcE5sxBh8Ax6gyGhwGMZYTE", decimals: 6, paused: false, minAmount: "100000000000", flatFeeAmount: "10000000000", percentageFeeBps: 0, feeCollectorAta: "8gGQuxPEHd3G3Y3F8ngq91XEtzxuykLy8xmHVxBkqeQW" },
+    { symbol: "NOATA", displaySymbol: "NOATAx", mint: "7UN8WkBumTUCofVPXCPjNWQ6msQhzrg9tFQRP48Nmw5V", decimals: 8, paused: false, minAmount: "1000000", flatFeeAmount: "0", percentageFeeBps: 25, feeCollectorAta: "" },
+  ] },
+  x1: { config: { paused: false, pauseReason: "none" }, tokens: [
+    { symbol: "USDC", displaySymbol: "USDC.X", mint: "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq", decimals: 6, paused: false, minAmount: "10000000", flatFeeAmount: "1000000", percentageFeeBps: 0, feeCollectorAta: "4uRFjqVU5ZKkp7hQLx3Lm3YeWFts17ER8a5HLUE18ayG" },
+    { symbol: "SPCX", displaySymbol: "SPCX.X", mint: "CCqoyVud4QNCccV9EJtWEFPaC6jBaGJsaFTnyD8Ss47m", decimals: 8, paused: false, minAmount: "6700000", flatFeeAmount: "0", percentageFeeBps: 25, feeCollectorAta: "2bwDWHU5bhm6gtmXpenHg7yGWcHELUZmVSRSHRjx285J" },
+    { symbol: "AAPL", displaySymbol: "AAPL.X", mint: "u7i4awutsHa9qcy6YdDQKfjER16i9fx4PRhG4ZqUXZ5", decimals: 8, paused: false, minAmount: "3000000", flatFeeAmount: "0", percentageFeeBps: 25, feeCollectorAta: "8fss9h8LcgTzTGz9rZmEBcRufm2UJbejd58dYYA9eM98" },
+    { symbol: "HALT", displaySymbol: "HALT.X", mint: "9B5wngHiCprCAPARSrdYbLaD9iwwpCzgJf4s3KYkPDiz", decimals: 8, paused: false, minAmount: "1000000", flatFeeAmount: "0", percentageFeeBps: 25, feeCollectorAta: "749DjzrrDBatxaD5HMtTC9fc6ixax9GC8L9NwMR5hr4W" },
+    { symbol: "xencat", displaySymbol: "xencat", mint: "So11111111111111111111111111111111111111112", decimals: 6, paused: false, minAmount: "100000000000", flatFeeAmount: "10000000000", percentageFeeBps: 0, feeCollectorAta: "3kboPLZ5iCGuT5ckYNBJqnTr3UNZb2SGfFVKQ82nYdLA" },
+    { symbol: "NOATA", displaySymbol: "NOATA.X", mint: "E8ZQx48ov2Lg6iHLvPt5At2dEtiFfCwrRkss5yqYwcms", decimals: 8, paused: false, minAmount: "1000000", flatFeeAmount: "0", percentageFeeBps: 25, feeCollectorAta: "749DjzrrDBatxaD5HMtTC9fc6ixax9GC8L9NwMR5hr4W" },
+  ] },
+};
+
+test("parseWarpConfig: validates the /config shape (ok on the live shape, fail-closed otherwise)", () => {
+  const p = parseWarpConfig(SYN_CONFIG);
+  assert.equal(p.ok, true);
+  assert.equal(p.solana.tokens.length, 6);
+  assert.equal(p.x1.tokens.length, 6);
+  assert.equal(parseWarpConfig({}).ok, false);
+  assert.equal(parseWarpConfig({ solana: {} }).ok, false, "missing tokens[] → fail-closed");
+  assert.equal(parseWarpConfig(null).ok, false);
+});
+
+test("deriveDiscoveredRails: discovers ONLY complete, open, non-excluded NEW tokens (fail-closed)", () => {
+  const rails = deriveDiscoveredRails(parseWarpConfig(SYN_CONFIG));
+  assert.equal(rails.ok, true);
+  // AAPL is new + complete → discovered; USDC/SPCX are baseline (skipped quietly).
+  assert.deepEqual(rails.tokens, ["AAPLx"]);
+  const f = rails.forward.AAPLx;
+  assert.equal(f.sourceMint.toBase58(), "XsbEhLAtcf6HdfpFZ5xEMdqW8nfAvcsP5bdudRLJzJp");
+  assert.equal(f.destMint.toBase58(), "u7i4awutsHa9qcy6YdDQKfjER16i9fx4PRhG4ZqUXZ5");
+  assert.equal(f.decimals, 8);
+  assert.equal(f.feeAccount.toBase58(), "DW7JMDuNi3UeGCFQSb4o7BPP8zVsYYtTVGJ6NHDcYhib");
+  assert.equal(f.minBase, 4_500_000n, "floor = 1.5 × minAmount 3_000_000");
+  assert.equal(rails.reverse.AAPLx.mint.toBase58(), "u7i4awutsHa9qcy6YdDQKfjER16i9fx4PRhG4ZqUXZ5");
+  assert.equal(rails.reverse.AAPLx.feeAccount.toBase58(), "8fss9h8LcgTzTGz9rZmEBcRufm2UJbejd58dYYA9eM98");
+  assert.equal(rails.destMin.AAPLx, 4_500_000n);
+  assert.deepEqual(rails.x1Fees.AAPLx, { kind: "pct", bps: 25 });
+  // Fail-closed skips, each with a reason:
+  const reason = (s) => rails.skipped.find((x) => x.symbol === s)?.reason || "";
+  assert.match(reason("HALT"), /paused/);
+  assert.match(reason("xencat"), /excluded/);
+  assert.match(reason("NOATA"), /fee-collector ATA/);
+  assert.ok(rails.pausedSymbols.has("halt"), "the paused base symbol is recorded for the health gate");
+  assert.equal(rails.chainPaused, false);
+  // USDC/SPCX are NOT re-emitted (baseline wins) — no silent duplicate.
+  assert.equal(rails.forward.USDC, undefined);
+  assert.equal(rails.reverse["SPCX.X"], undefined);
+});
+
+test("deriveDiscoveredRails: a paused CHAIN lane blocks every discovery (nothing offered)", () => {
+  const paused = JSON.parse(JSON.stringify(SYN_CONFIG));
+  paused.x1.config.paused = true;
+  paused.x1.config.pauseReason = "maintenance";
+  const rails = deriveDiscoveredRails(parseWarpConfig(paused));
+  assert.equal(rails.ok, true);
+  assert.equal(rails.chainPaused, true);
+  assert.deepEqual(rails.tokens, [], "no token discovered while the lane is paused");
+  assert.match(rails.skipped.find((x) => x.symbol === "AAPL")?.reason || "", /lane paused/);
+});
+
+test("register/resolve/clear: the overlay teaches the executor new rails; unknown → WarpTokenError (no wrong-token fallback)", () => {
+  clearDiscoveredRails();
+  // Baseline resolves; a discovered symbol does NOT yet.
+  assert.equal(resolveForwardToken("USDC.x").minBase, 10_000_000n);
+  assert.throws(() => resolveForwardToken("AAPLx"), WarpTokenError);
+  assert.throws(() => resolveReverseToken("AAPLx"), WarpTokenError);
+
+  registerDiscoveredRails(deriveDiscoveredRails(parseWarpConfig(SYN_CONFIG)));
+  const f = resolveForwardToken("AAPLx");
+  assert.equal(f.destMint.toBase58(), "u7i4awutsHa9qcy6YdDQKfjER16i9fx4PRhG4ZqUXZ5");
+  assert.equal(resolveReverseToken("AAPLx").mint.toBase58(), "u7i4awutsHa9qcy6YdDQKfjER16i9fx4PRhG4ZqUXZ5");
+  assert.equal(resolveReverseDestMin("AAPLx"), 4_500_000n);
+  // Fees + reverse minimum flow through the discovered rails:
+  assert.equal(warpFeeCut(100_000_000n, "AAPLx"), 250_000n, "discovered asset charges its live 25 bps");
+  const refused = planReverseRelease({ burnHuman: 0.03, token: "AAPLx" });
+  assert.equal(refused.ok, false, "0.03 AAPLx → net 0.0299 < dest min 0.045 → refused");
+  assert.equal(refused.destMinBase, 4_500_000n);
+  const ok = planReverseRelease({ burnHuman: 0.05, token: "AAPLx" });
+  assert.equal(ok.ok, true);
+
+  clearDiscoveredRails();
+  assert.throws(() => resolveForwardToken("AAPLx"), WarpTokenError, "cleared overlay → discovered token is unknown again");
+  assert.equal(resolveForwardToken("USDC.x").minBase, 10_000_000n, "baseline survives the clear");
+});
+
+test("offerableWarpTokenKeys: appends discovered rails, drops paused ones, empties when the lane is paused", () => {
+  clearDiscoveredRails();
+  registerDiscoveredRails(deriveDiscoveredRails(parseWarpConfig(SYN_CONFIG)));
+  const known = ["USDC.x", "wSOL.X", "SPCXx"];
+  assert.deepEqual(offerableWarpTokenKeys(known), ["USDC.x", "wSOL.X", "SPCXx", "AAPLx"]);
+  // A paused known/discovered token is dropped from the offer.
+  assert.deepEqual(offerableWarpTokenKeys([...known, "HALTx"]), ["USDC.x", "wSOL.X", "SPCXx", "AAPLx"]);
+  // A paused chain → no route at all (fail-closed, honest "lane unavailable").
+  const paused = JSON.parse(JSON.stringify(SYN_CONFIG));
+  paused.solana.config.paused = true;
+  registerDiscoveredRails(deriveDiscoveredRails(parseWarpConfig(paused)));
+  assert.deepEqual(offerableWarpTokenKeys(known), []);
+  assert.equal(warpRailHealth().chainPaused, true);
+  clearDiscoveredRails();
+  assert.deepEqual(offerableWarpTokenKeys(known), known, "registry cleared → the known baseline still offers");
+});
+
+test("fetchWarpRegistry: injectable + NEVER throws (ok:false on HTTP error / throw / bad shape)", async () => {
+  const ok = await fetchWarpRegistry(WARP_API.mainnet, { fetchImpl: async () => ({ ok: true, json: async () => SYN_CONFIG }) });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.tokens, ["AAPLx"]);
+
+  const http500 = await fetchWarpRegistry("https://x", { fetchImpl: async () => ({ ok: false, status: 500 }) });
+  assert.equal(http500.ok, false);
+  assert.match(http500.error, /500/);
+
+  const threw = await fetchWarpRegistry("https://x", { fetchImpl: async () => { throw new Error("boom"); } });
+  assert.equal(threw.ok, false);
+  assert.match(threw.error, /boom/);
+
+  const badShape = await fetchWarpRegistry("https://x", { fetchImpl: async () => ({ ok: true, json: async () => ({ nope: 1 }) }) });
+  assert.equal(badShape.ok, false);
+});
+
+test("LIVE CONFIG FIXTURE (2026-09-26 capture): AAPLx is discovered while the baseline rails are skipped", () => {
+  const raw = JSON.parse(readFileSync(new URL("../test/fixtures/warp-config.live-2026-09-26.json", import.meta.url), "utf8"));
+  const rails = deriveDiscoveredRails(parseWarpConfig(raw));
+  assert.equal(rails.ok, true);
+  assert.equal(rails.chainPaused, false, "the live lane was open at capture");
+  // Operator-added AAPLx shows up dynamically; the 9 known stocks + USDC/wSOL/cbBTC/ETH do not.
+  assert.ok(rails.tokens.includes("AAPLx"), `discovered AAPLx: ${rails.tokens.join(",")}`);
+  assert.equal(rails.tokens.includes("SPCXx"), false, "baseline SPCXx is NOT re-emitted");
+  assert.equal(rails.tokens.includes("USDC"), false, "baseline USDC is NOT re-emitted");
+  // Owner-excluded symbols never surface.
+  for (const bad of ["xencat", "DGN", "XNT", "wXNT"]) {
+    assert.equal(rails.tokens.includes(bad), false, `${bad} excluded`);
+  }
+  // Every discovered rail is complete (both mints + both fee ATAs + a floor).
+  for (const k of rails.tokens) {
+    assert.ok(rails.forward[k]?.sourceMint && rails.reverse[k]?.mint, `${k}: both mints`);
+    assert.ok(rails.forward[k]?.feeAccount && rails.reverse[k]?.feeAccount, `${k}: both fee ATAs`);
+    assert.ok(rails.destMin[k] > 0n, `${k}: positive floor`);
+  }
+  assert.equal(railBaseSymbol("AAPLx"), "AAPL");
+  assert.equal(railBaseSymbol("USDC.x"), "USDC");
+  assert.equal(railBaseSymbol("wSOL.X"), "wSOL");
 });
