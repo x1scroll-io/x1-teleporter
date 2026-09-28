@@ -31,6 +31,7 @@ import { createLitecoinDiscovery } from "./litecoinDiscovery.js";
 import { createDogecoinDiscovery } from "./dogecoinDiscovery.js";
 import { createXrpDiscovery } from "./xrpDiscovery.js";
 import { createTronDiscovery } from "./tronDiscovery.js";
+import { createCardanoDiscovery } from "./cardanoDiscovery.js";
 
 /** Frozen empty snapshot — the "nothing discovered" default. */
 export const EMPTY_DISCOVERED = Object.freeze({
@@ -41,6 +42,7 @@ export const EMPTY_DISCOVERED = Object.freeze({
   dogecoin: Object.freeze([]),
   xrp: Object.freeze([]),
   tron: Object.freeze([]),
+  cardano: Object.freeze([]),
 });
 
 /**
@@ -76,6 +78,7 @@ export function createWalletDiscovery({
   xrpBalanceFetcher,
   tronAdapters,
   tronBalanceFetcher,
+  cardanoWin,
 } = {}) {
   const listeners = new Set();
 
@@ -88,6 +91,7 @@ export function createWalletDiscovery({
       dogecoin: dogecoin.getInstalled(),
       xrp: xrp.getInstalled(),
       tron: tron.getInstalled(),
+      cardano: cardano.getInstalled(),
     };
   }
 
@@ -131,6 +135,10 @@ export function createWalletDiscovery({
     balanceFetcher: tronBalanceFetcher,
     onChange: emit,
   });
+  const cardano = createCardanoDiscovery({
+    win: cardanoWin,
+    onChange: emit,
+  });
 
   return {
     /** Start all discoveries. Safe to call twice (idempotent per handle).
@@ -143,6 +151,7 @@ export function createWalletDiscovery({
       dogecoin.start();
       xrp.start();
       tron.start();
+      cardano.start();
     },
 
     /** Stop all discoveries. Discovered state stays readable. */
@@ -154,6 +163,7 @@ export function createWalletDiscovery({
       dogecoin.stop();
       xrp.stop();
       tron.stop();
+      cardano.stop();
     },
 
     /**
@@ -204,6 +214,9 @@ export function createWalletDiscovery({
       }
       if (family === "tron") {
         return tron.getProvider(walletId);
+      }
+      if (family === "cardano") {
+        return cardano.getProvider(walletId);
       }
       return null;
     },

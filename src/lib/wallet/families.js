@@ -22,6 +22,7 @@ export const WALLET_FAMILIES = Object.freeze([
   "dogecoin",
   "xrp",
   "tron",
+  "cardano",
 ]);
 
 /** Human-readable label per family — for UI and docs only. */
@@ -33,6 +34,7 @@ export const FAMILY_LABELS = Object.freeze({
   dogecoin: "Dogecoin",
   xrp: "XRP",
   tron: "Tron",
+  cardano: "Cardano",
 });
 
 /** Guard: is this a family the WalletContext manages? */

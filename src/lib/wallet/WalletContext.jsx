@@ -15,12 +15,13 @@
  *   - `discovery` prop: a handle from walletDiscovery.js (or a test fake)
  *     exposing `{ start, stop, subscribe, getDiscovered, getProvider }`.
  *     When provided, connect(family, walletId) first asks discovery for a
- *     REAL provider (EIP-6963 EVM wallet / Wallet Standard Solana adapter)
- *     and falls back to the mock provider (mockProviders.js) when nothing
- *     matches — so the mock stays as the test/dev fallback while real
- *     discovery is injected when window exists.
+ *     REAL provider (EIP-6963 EVM wallet / Wallet Standard Solana adapter).
+ *     The dev/test mock (mockProviders.js) is only a LAST resort, and only
+ *     when `allowMockFallback` is explicitly armed AND the family has nothing
+ *     discovered — never for a real user with a real wallet (see
+ *     defaultResolveProvider). Production leaves it off.
  *   - `connect(family, walletId?)`: walletId selects WHICH discovered wallet
- *     to connect (EVM rdns, Solana adapter name). Omitted → mock fallback.
+ *     to connect (EVM rdns, Solana adapter name).
  *   - `discovered`: live snapshot of discovered wallets, exposed on the
  *     context for the modal's installed-highlighting. Updates when wallets
  *     announce late (subscribe → state).
@@ -48,7 +49,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { isWalletFamily, WALLET_FAMILIES } from "./families.js";
+import { isWalletFamily, WALLET_FAMILIES, FAMILY_LABELS } from "./families.js";
 import { CONNECTED, canConnect, createInitialState, walletReducer } from "./walletReducer.js";
 import { createMockProvider } from "./mockProviders.js";
 import { STARPORT_NAMES, isStarportKey } from "./modalLogic.js";
@@ -68,15 +69,43 @@ const EMPTY_DISCOVERED = Object.freeze({
   dogecoin: Object.freeze([]),
   xrp: Object.freeze([]),
   tron: Object.freeze([]),
+  cardano: Object.freeze([]),
 });
 
 /**
- * Default provider resolution: real discovered wallet first, mock fallback.
- * Only used when no `providerFactory` prop is injected (tests inject their
- * own factory; the app relies on this default + discovery).
+ * Default provider resolution: real discovered wallet FIRST. The dev/test mock
+ * is a LAST resort — armed only when BOTH of these hold:
+ *   1. the mock seam is explicitly enabled (`allowMockFallback` — false in
+ *      production; main.jsx arms it only via VITE_FLAG_MOCK_WALLETS), AND
+ *   2. the family has GENUINELY nothing discovered (no installed wallet).
+ *
+ * Otherwise it returns null, and connect() surfaces an honest "no wallet
+ * detected" error. Without this gate the pinned Starport row (always
+ * actionable) fell through to the mock for a real user — a connected
+ * `mock:solana:9xQeWvG8…` / `mock:evm:0x1234…` address that NO wallet ever
+ * approved. The mock must never masquerade as a real wallet for a real user.
+ *
+ * Only used when no `providerFactory` prop is injected (tests inject their own
+ * factory; the app relies on this default + discovery).
  */
-function defaultResolveProvider(discovery, family, walletId) {
-  return resolveDiscovered(discovery, family, walletId) ?? createMockProvider(family);
+function defaultResolveProvider(discovery, family, walletId, allowMockFallback = false) {
+  const real = resolveDiscovered(discovery, family, walletId);
+  if (real) return real;
+  if (allowMockFallback && familyDiscoveredEmpty(discovery, family)) {
+    return createMockProvider(family);
+  }
+  return null;
+}
+
+/**
+ * True when a family has NO discovered (installed) wallet — i.e. the mock
+ * fallback could not be shadowing a real wallet. No discovery handle at all
+ * counts as empty (nothing was ever announced).
+ */
+function familyDiscoveredEmpty(discovery, family) {
+  const snapshot = discovery?.getDiscovered?.();
+  const list = snapshot?.[family];
+  return !Array.isArray(list) || list.length === 0;
 }
 
 /**
@@ -129,7 +158,17 @@ function resolveDiscovered(discovery, family, walletId) {
  *   `discovered` on the context), stops it on unmount, and uses it to
  *   resolve real providers in connect().
  */
-export function WalletProvider({ children, providerFactory, initialState, discovery }) {
+export function WalletProvider({
+  children,
+  providerFactory,
+  initialState,
+  discovery,
+  // Dev/test seam for the mock providers (mockProviders.js). DEFAULT FALSE —
+  // a real user is never handed a mock. main.jsx arms it from
+  // VITE_FLAG_MOCK_WALLETS (default off); tests opt in explicitly. Even when
+  // armed, the mock only fires for a family with NOTHING discovered.
+  allowMockFallback = false,
+}) {
   const [state, dispatch] = useReducer(
     walletReducer,
     undefined,
@@ -180,8 +219,8 @@ export function WalletProvider({ children, providerFactory, initialState, discov
     (family, walletId) =>
       providerFactory
         ? providerFactory(family, walletId)
-        : defaultResolveProvider(discovery, family, walletId),
-    [providerFactory, discovery],
+        : defaultResolveProvider(discovery, family, walletId, allowMockFallback),
+    [providerFactory, discovery, allowMockFallback],
   );
 
   const connect = useCallback(
@@ -195,6 +234,14 @@ export function WalletProvider({ children, providerFactory, initialState, discov
       dispatch({ type: "CONNECT_START", family });
       try {
         const provider = resolveProvider(family, walletId);
+        // No real wallet resolved and the mock seam is off/not applicable:
+        // fail HONESTLY. Never silently connect a mock address (that is how a
+        // real user got a phantom "connected" session no wallet approved).
+        if (!provider) {
+          throw new Error(
+            `No ${FAMILY_LABELS[family] ?? family} wallet detected. Install or enable one, then connect again.`,
+          );
+        }
         const result = await provider.connect();
         dispatch({
           type: "CONNECT_SUCCESS",

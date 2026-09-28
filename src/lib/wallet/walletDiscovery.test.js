@@ -186,14 +186,14 @@ test("stop() detaches subscribers; snapshots stay readable", async () => {
     });
     discovery.subscribe(() => { notifications += 1; });
     discovery.start();
-    // One notification per sub-discovery's initial snapshot (7 families).
-    assert.equal(notifications, 7, "start notifies subscribers");
+    // One notification per sub-discovery's initial snapshot (8 families).
+    assert.equal(notifications, 8, "start notifies subscribers");
     await flush();
     discovery.stop();
 
     wallet.announce();
     await flush();
-    assert.equal(notifications, 7, "no subscriber notification after stop");
+    assert.equal(notifications, 8, "no subscriber notification after stop");
 
     const snap = discovery.getDiscovered();
     assert.ok(
@@ -442,4 +442,53 @@ test("composition: bitcoinLaserEyes + bitcoinBalanceFetcher wire the payment-add
   assert.notEqual(result.address, BTC_ORDINALS, "the ordinals (bc1p) address must never be used");
   assert.deepEqual(balanceFetchedFor, [BTC_PAYMENT], "balance fetched for the payment address");
   assert.equal(result.balance, 123_456);
+});
+
+/* ————————————— NON-STARPORT user (the core bridge requirement) ————————————— */
+
+test("NON-STARPORT user: MetaMask (EIP-6963) + Phantom (Wallet Standard) discovered + connected with NO Starport present", async () => {
+  // The bridge must serve a user who has MetaMask + Phantom and NOT Starport.
+  // Discovery is provider-AGNOSTIC: any EIP-6963 EVM wallet (via wagmi) + any
+  // Wallet Standard Solana wallet — never a Starport allowlist, never a
+  // Starport prerequisite.
+  const wallet = fakeEvmWallet({
+    uuid: "mm-1", rdns: "io.metamask", name: "MetaMask",
+    request: async ({ method }) => (method === "eth_requestAccounts" ? [EVM_ADDRESS] : undefined),
+  });
+  try {
+    const registry = makeFakeRegistry([makeStandardWallet({ name: "Phantom" })]);
+    const discovery = createWalletDiscovery({
+      evmConfig: createDefaultEvmConfig(),
+      solanaRegistry: registry,
+    });
+    discovery.start();
+
+    const snap = discovery.getDiscovered();
+    assert.ok(snap.evm.some((p) => p.rdns === "io.metamask"), "MetaMask discovered via EIP-6963 (its rdns)");
+    assert.ok(snap.solana.some((a) => a.name === "Phantom"), "Phantom discovered via Wallet Standard");
+
+    // No Starport anywhere in the discovered snapshot.
+    const ids = [
+      ...snap.evm.map((p) => p.rdns ?? p.name),
+      ...snap.solana.map((a) => a.name),
+    ].map((n) => String(n).toLowerCase());
+    assert.equal(ids.some((n) => n.includes("starport")), false, "no Starport required or present");
+
+    // Both connect through THEIR OWN discovered providers.
+    const evmProvider = discovery.getProvider("evm", "io.metamask");
+    assert.ok(evmProvider, "MetaMask resolves a real provider");
+    const evmResult = await evmProvider.connect();
+    assert.equal(evmResult.address.toLowerCase(), EVM_ADDRESS.toLowerCase());
+
+    const solProvider = discovery.getProvider("solana", "Phantom");
+    assert.ok(solProvider, "Phantom resolves a real provider");
+    const solResult = await solProvider.connect();
+    assert.equal(solResult.address, SOLANA_ADDRESS);
+
+    // Starport is simply NOT installed and resolves to null — no prerequisite.
+    assert.equal(discovery.getProvider("evm", "com.starportllc.starport"), null);
+    assert.equal(discovery.getProvider("solana", "Starport"), null);
+  } finally {
+    wallet.stop();
+  }
 });

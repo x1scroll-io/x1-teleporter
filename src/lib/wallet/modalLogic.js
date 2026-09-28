@@ -32,16 +32,28 @@ import { LITECOIN_WALLETS } from "./litecoinRegistry.js";
 import { DOGECOIN_WALLETS } from "./dogecoinRegistry.js";
 import { XRP_WALLETS } from "./xrpRegistry.js";
 import { TRON_WALLETS } from "./tronRegistry.js";
+import { CARDANO_WALLETS } from "./cardanoRegistry.js";
 
 /** Stable id of the pinned Starport wallet in every family. */
 export const STARPORT_ID = "starport";
 
 /**
- * Canonical id of the Starport wallet used by the X1 ecosystem.
- * Kept as a constant so later steps can match a real Starport adapter
- * (EVM rdns or Solana adapter name) against the pinned row.
+ * Canonical ids the Starport wallet announces under, across BOTH discovery
+ * protocols (see the wallet's inpage.ts):
+ *   - "starport"                 — the stable registry id (STARPORT_ID)
+ *   - "Starport"                 — the Solana/X1 Wallet Standard adapter name
+ *   - "com.starportllc.starport" — the EIP-6963 rdns (EVM discovery)
+ * Kept as a constant so discovery (EIP-6963 rdns for EVM, Wallet Standard name
+ * for Solana) matches the pinned row in EVERY family. Missing the EVM rdns
+ * made an installed Starport show up as a pinned NOT-installed row PLUS a
+ * separate announced row (double entry) and left its Connect on the dev mock —
+ * both regressions pinned by modalLogic.test.js.
  */
-export const STARPORT_NAMES = Object.freeze(["starport", "Starport"]);
+export const STARPORT_NAMES = Object.freeze([
+  "starport",
+  "Starport",
+  "com.starportllc.starport",
+]);
 
 /**
  * Small registry map: known wallets per family (id → metadata).
@@ -98,6 +110,7 @@ export const WALLET_REGISTRY = Object.freeze({
   dogecoin: DOGECOIN_WALLETS,
   xrp: XRP_WALLETS,
   tron: TRON_WALLETS,
+  cardano: CARDANO_WALLETS,
 });
 
 /**
