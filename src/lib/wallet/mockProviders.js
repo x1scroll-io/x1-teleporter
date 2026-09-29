@@ -20,6 +20,8 @@ export const MOCK_ADDRESSES = Object.freeze({
   dogecoin: "mock:dogecoin:DAnj4R9LPKFMgGWW1QvJ6jWfBzS7c3p3xG",
   xrp: "mock:xrp:rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
   tron: "mock:tron:T9yD14Nj9j7xAB4dbGeiX9h8unkKHxuWwb",
+  near: "mock:near:mock-near-account.near",
+  ton: "mock:ton:EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N",
 });
 
 /**

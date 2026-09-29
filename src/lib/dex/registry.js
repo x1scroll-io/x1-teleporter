@@ -37,6 +37,15 @@
  *   - Trader Joe router/factory          github.com/lfj-gg/joe-sdk (src/constants.ts)
  *   - Pangolin router/factory            github.com/pangolindex/sdk (src/chains.ts)
  *   - QuickSwap router/factory           github.com/QuickSwap/QuickSwap-sdk (protocol-core/src/chains/polygon.ts)
+ *
+ * 2026-09-29 pass — NEAR + TON native DEXes (see docs/NEAR-TON-DEX-RESEARCH.md),
+ * each address taken from the protocol's OWN SDK (never guessed):
+ *   - Ref Finance v2 exchange    @ref-finance/ref-sdk (REF_FI_CONTRACT_ID)
+ *   - Trisolaris (Aurora)        @trisolaris/sdk (ROUTER_ADDRESS/FACTORY_ADDRESS)
+ *   - STON.fi v1 Router          @ston-fi/sdk (ROUTER_ADDRESS)
+ *   - DeDust Factory             @dedust/sdk (MAINNET_FACTORY_ADDR)
+ * Jumbo / Orderly / Spin (NEAR) and Megaton Finance / TONCO (TON) had no
+ * authoritative address from an official source → left `verified:false`.
  * Venues that could not be verified from an authoritative source stay
  * `router: null, verified: false` (fail-closed) on purpose.
  */
@@ -47,7 +56,7 @@ export const VENUE = {
   id: null,
   /** human name */
   name: null,
-  /** "evm" | "svm" | "move" | "tvm" | "cardano" */
+  /** "evm" | "svm" | "move" | "tvm" | "cardano" | "near" | "ton" */
   family: null,
   /** protocol: "uni-v2" | "uni-v3" | "uni-v4" | "curve" | "balancer" | "joe" | "ve33" | "clmm" | "amm" */
   protocol: null,
@@ -132,6 +141,32 @@ export const DEX_REGISTRY = Object.freeze({
     Object.freeze({ id: "minswap", name: "Minswap", family: "cardano", protocol: "amm", router: null, factory: null, source: "", verified: false }),
     Object.freeze({ id: "sundaeswap", name: "SundaeSwap", family: "cardano", protocol: "amm", router: null, factory: null, source: "", verified: false }),
     Object.freeze({ id: "wingriders", name: "WingRiders", family: "cardano", protocol: "amm", router: null, factory: null, source: "", verified: false }),
+  ]),
+  // --- NEAR + TON native DEXes (2026-09-29) — see docs/NEAR-TON-DEX-RESEARCH.md.
+  //     Only venues with an authoritative address from the protocol's OWN
+  //     SDK/docs are verified; the rest fail closed (router:null).
+  near: Object.freeze([
+    // Ref Finance — the reference AMM. router = the v2 exchange contract
+    // (Swaps/Pools are resolved via it). Verified via the official
+    // @ref-finance/ref-sdk config (REF_FI_CONTRACT_ID = 'v2.ref-finance.near').
+    Object.freeze({ id: "ref-finance", name: "Ref Finance", family: "near", protocol: "amm", router: "v2.ref-finance.near", factory: null, source: "canonical (Ref Finance v2 exchange contract — verified via @ref-finance/ref-sdk config REF_FI_CONTRACT_ID)", verified: true }),
+    // Trisolaris — Aurora (NEAR's EVM-compatible L2). router = the Aurora
+    // Router. Verified via @trisolaris/sdk ROUTER_ADDRESS/FACTORY_ADDRESS[ChainId.AURORA].
+    Object.freeze({ id: "trisolaris", name: "Trisolaris", family: "near", protocol: "uni-v2", router: "0x2CB45Edb4517d5947aFdE3BEAbF95A582506858B", factory: "0xc66F594268041dB60507F00703b152492fb176E7", source: "canonical (Trisolaris Router + Factory on Aurora — verified via @trisolaris/sdk ROUTER_ADDRESS/FACTORY_ADDRESS[ChainId.AURORA])", verified: true }),
+    Object.freeze({ id: "jumbo", name: "Jumbo Exchange", family: "near", protocol: "amm", router: null, factory: null, source: "", verified: false }),
+    Object.freeze({ id: "orderly", name: "Orderly Network", family: "near", protocol: "clob", router: null, factory: null, source: "", verified: false }),
+    Object.freeze({ id: "spin", name: "Spin", family: "near", protocol: "amm", router: null, factory: null, source: "", verified: false }),
+  ]),
+  ton: Object.freeze([
+    // STON.fi — the reference AMM. router = the v1 Router contract (pools are
+    // resolved via its get_pool_address). Verified via @ston-fi/sdk ROUTER_ADDRESS.
+    Object.freeze({ id: "stonfi", name: "STON.fi", family: "ton", protocol: "amm", router: "EQB3ncyBUTjZUA5EnFKR5_EnOMI9V1tTEAAPaiU71gc4TiUt", factory: null, source: "canonical (STON.fi v1 Router — verified via @ston-fi/sdk ROUTER_ADDRESS)", verified: true }),
+    // DeDust — no single Router: swaps enter via per-asset Vaults located by
+    // the Factory, so the Factory IS the entry-point program. Verified via the
+    // official @dedust/sdk MAINNET_FACTORY_ADDR.
+    Object.freeze({ id: "dedust", name: "DeDust", family: "ton", protocol: "amm", router: "EQBfBWT7X2BHg9tXAxzhz2aKiNTU1tpt5NsiK0uSDW_YAJ67", factory: "EQBfBWT7X2BHg9tXAxzhz2aKiNTU1tpt5NsiK0uSDW_YAJ67", source: "canonical (DeDust Factory = swap entry point, no router — verified via @dedust/sdk MAINNET_FACTORY_ADDR)", verified: true }),
+    Object.freeze({ id: "megaton", name: "Megaton Finance", family: "ton", protocol: "amm", router: null, factory: null, source: "", verified: false }),
+    Object.freeze({ id: "tonco", name: "TONCO", family: "ton", protocol: "amm", router: null, factory: null, source: "", verified: false }),
   ]),
   pulsechain: Object.freeze([
     Object.freeze({ id: "pulsex", name: "PulseX", family: "evm", protocol: "uni-v2", router: null, factory: "0x1715a3E4A142d8b698131108995174F37aEBA10D", source: "chain-test-log (factory only — router pending)", verified: false }),

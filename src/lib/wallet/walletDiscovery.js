@@ -4,9 +4,9 @@
  * Wires the per-family discovery modules into ONE handle that the
  * WalletContext and the connect modal share:
  *
- *   - `getDiscovered()` — snapshot of everything discovered for ALL seven
- *     families ({ evm, solana, bitcoin, litecoin, dogecoin, xrp, tron })
- *     for the modal's installed-highlighting.
+ *   - `getDiscovered()` — snapshot of everything discovered for ALL ten
+ *     families ({ evm, solana, bitcoin, litecoin, dogecoin, xrp, tron,
+ *     cardano, near, ton }) for the modal's installed-highlighting.
  *   - `getProvider(family, walletId)` — resolve a discovered wallet to a
  *     WalletContext provider ({ connect, disconnect }). Returns null when no
  *     real provider matches, so the context falls back to the mock provider.
@@ -32,6 +32,8 @@ import { createDogecoinDiscovery } from "./dogecoinDiscovery.js";
 import { createXrpDiscovery } from "./xrpDiscovery.js";
 import { createTronDiscovery } from "./tronDiscovery.js";
 import { createCardanoDiscovery } from "./cardanoDiscovery.js";
+import { createNearDiscovery } from "./nearDiscovery.js";
+import { createTonDiscovery } from "./tonDiscovery.js";
 
 /** Frozen empty snapshot — the "nothing discovered" default. */
 export const EMPTY_DISCOVERED = Object.freeze({
@@ -43,6 +45,8 @@ export const EMPTY_DISCOVERED = Object.freeze({
   xrp: Object.freeze([]),
   tron: Object.freeze([]),
   cardano: Object.freeze([]),
+  near: Object.freeze([]),
+  ton: Object.freeze([]),
 });
 
 /**
@@ -79,6 +83,10 @@ export function createWalletDiscovery({
   tronAdapters,
   tronBalanceFetcher,
   cardanoWin,
+  nearSelector,
+  nearBalanceFetcher,
+  tonConnect,
+  tonBalanceFetcher,
 } = {}) {
   const listeners = new Set();
 
@@ -92,6 +100,8 @@ export function createWalletDiscovery({
       xrp: xrp.getInstalled(),
       tron: tron.getInstalled(),
       cardano: cardano.getInstalled(),
+      near: near.getInstalled(),
+      ton: ton.getInstalled(),
     };
   }
 
@@ -139,6 +149,16 @@ export function createWalletDiscovery({
     win: cardanoWin,
     onChange: emit,
   });
+  const near = createNearDiscovery({
+    selector: nearSelector,
+    balanceFetcher: nearBalanceFetcher,
+    onChange: emit,
+  });
+  const ton = createTonDiscovery({
+    tonConnect,
+    balanceFetcher: tonBalanceFetcher,
+    onChange: emit,
+  });
 
   return {
     /** Start all discoveries. Safe to call twice (idempotent per handle).
@@ -152,6 +172,8 @@ export function createWalletDiscovery({
       xrp.start();
       tron.start();
       cardano.start();
+      near.start();
+      ton.start();
     },
 
     /** Stop all discoveries. Discovered state stays readable. */
@@ -164,6 +186,8 @@ export function createWalletDiscovery({
       xrp.stop();
       tron.stop();
       cardano.stop();
+      near.stop();
+      ton.stop();
     },
 
     /**
@@ -217,6 +241,12 @@ export function createWalletDiscovery({
       }
       if (family === "cardano") {
         return cardano.getProvider(walletId);
+      }
+      if (family === "near") {
+        return near.getProvider(walletId);
+      }
+      if (family === "ton") {
+        return ton.getProvider(walletId);
       }
       return null;
     },

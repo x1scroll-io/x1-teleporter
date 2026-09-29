@@ -8,6 +8,10 @@ import { WalletProvider } from "./lib/wallet/WalletContext.jsx";
 import { createWalletDiscovery } from "./lib/wallet/walletDiscovery.js";
 import { createLaserEyesHandle } from "./lib/wallet/laserEyesHandle.js";
 import { createBtcBalanceFetcher } from "./lib/wallet/bitcoinBalance.js";
+import { createNearWalletSelector } from "./lib/wallet/nearSelector.js";
+import { createNearBalanceFetcher } from "./lib/wallet/nearBalance.js";
+import { createTonConnectHandle } from "./lib/wallet/tonConnect.js";
+import { createTonBalanceFetcher } from "./lib/wallet/tonBalance.js";
 import { LEGACY_UI, THORCHAIN, WARP_LIVE_SEND, MOCK_WALLETS, resolveConsoleUi, selectRootCard } from "./lib/flags.ts";
 import { resolveUiVariant } from "./lib/uiVariant.js";
 import { buildBanner } from "./lib/buildBanner.js";
@@ -38,6 +42,18 @@ console.log(
 const discovery = createWalletDiscovery({
   bitcoinLaserEyes: createLaserEyesHandle(),
   bitcoinBalanceFetcher: createBtcBalanceFetcher(),
+  // NEAR (Step 2.5): the NEAR Wallet Selector + a NEAR-RPC balance read.
+  // createNearWalletSelector() is browser-only (returns null elsewhere) and
+  // async — nearDiscovery resolves the promise and reports modules when ready.
+  nearSelector: createNearWalletSelector(),
+  nearBalanceFetcher: createNearBalanceFetcher(),
+  // TON (Step 2.5): TON Connect + a toncenter balance read. TON Connect needs
+  // a hosted /tonconnect-manifest.json — passed via env; without it the handle
+  // is null (fail closed to the deposit-address row, never a dead button).
+  tonConnect: createTonConnectHandle({
+    manifestUrl: import.meta.env?.VITE_TONCONNECT_MANIFEST_URL ?? null,
+  }),
+  tonBalanceFetcher: createTonBalanceFetcher(),
 });
 
 // Flag → card. Pure decision, tested in src/lib/flags.test.ts.

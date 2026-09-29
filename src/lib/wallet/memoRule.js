@@ -84,6 +84,10 @@ export function depositRowSubtitle(family) {
       return "Send from any Dogecoin wallet — no extension needed";
     case "xrp":
       return "Send from any XRP wallet or exchange — no extension needed";
+    case "near":
+      return "Send from any NEAR wallet or exchange — no extension needed";
+    case "ton":
+      return "Send from any TON wallet or exchange — no extension needed";
     default:
       return "Send from any desktop wallet (Sparrow, Electrum, …) — no extension needed";
   }
@@ -106,6 +110,9 @@ export function depositMemoNote(family) {
       return "THORChain needs the memo as an OP_RETURN — copy address + memo from the THORChain tab's deposit stage.";
     case "xrp":
       return "THORChain needs the memo in the XRPL Memos field (NOT a destination tag) — copy address + memo from the THORChain tab's deposit stage.";
+    case "near":
+    case "ton":
+      return "Copy the deposit address (and any memo/comment) from the quote's deposit stage — not guessed here.";
     default:
       return "Copy the deposit address + memo from the THORChain tab's deposit stage — not guessed here.";
   }

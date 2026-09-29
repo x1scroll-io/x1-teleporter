@@ -186,14 +186,14 @@ test("stop() detaches subscribers; snapshots stay readable", async () => {
     });
     discovery.subscribe(() => { notifications += 1; });
     discovery.start();
-    // One notification per sub-discovery's initial snapshot (8 families).
-    assert.equal(notifications, 8, "start notifies subscribers");
+    // One notification per sub-discovery's initial snapshot (10 families).
+    assert.equal(notifications, 10, "start notifies subscribers");
     await flush();
     discovery.stop();
 
     wallet.announce();
     await flush();
-    assert.equal(notifications, 8, "no subscriber notification after stop");
+    assert.equal(notifications, 10, "no subscriber notification after stop");
 
     const snap = discovery.getDiscovered();
     assert.ok(
@@ -219,6 +219,9 @@ test("default handle (no injected config/registry) degrades to fallback-only dis
   assert.deepEqual(snap.dogecoin, [], "no dogecoin globals in the default env");
   assert.deepEqual(snap.xrp, [], "no xrp globals in the default env");
   assert.deepEqual(snap.tron, [], "no tron adapters in the default env");
+  assert.deepEqual(snap.cardano, [], "no cardano window in the default env");
+  assert.deepEqual(snap.near, [], "no near selector in the default env");
+  assert.deepEqual(snap.ton, [], "no ton connect handle in the default env");
   assert.equal(discovery.getProvider("evm", "io.metamask"), null);
   assert.equal(discovery.getProvider("bitcoin", "Xverse"), null);
   assert.equal(discovery.getProvider("litecoin", "Ctrl"), null);
@@ -491,4 +494,88 @@ test("NON-STARPORT user: MetaMask (EIP-6963) + Phantom (Wallet Standard) discove
   } finally {
     wallet.stop();
   }
+});
+
+/* ————————————— Step 2.5 families through the composition (NEAR + TON) ————————————— */
+
+import { NEAR_WALLET_IDS as NEAR_IDS } from "./nearRegistry.js";
+import { TON_WALLET_IDS as TON_IDS } from "./tonRegistry.js";
+
+/** Fake NEAR Wallet Selector (module list + a sign-in wallet). */
+function makeFakeNearSelector({ modules = [], accountId = "alice.near" } = {}) {
+  return {
+    store: { getState: () => ({ modules, accounts: [], selectedWalletId: null }) },
+    wallet: async () => ({
+      async signIn() {
+        return [{ accountId }];
+      },
+      async signOut() {},
+    }),
+    on: () => ({ unsubscribe() {} }),
+  };
+}
+
+/** Fake TON Connect handle. */
+function makeFakeTonConnect({ wallets = [], address = "EQComposeTonUser" } = {}) {
+  return {
+    getWallets: async () => wallets,
+    connect: async () => ({ address }),
+    onStatusChange: () => () => {},
+    disconnect: async () => {},
+  };
+}
+
+test("composition: NEAR (Wallet Selector) + TON (TON Connect) are discovered together", async () => {
+  const discovery = createWalletDiscovery({
+    evmConfig: createDefaultEvmConfig(),
+    solanaRegistry: makeFakeRegistry(),
+    nearSelector: makeFakeNearSelector({
+      modules: [
+        { id: NEAR_IDS.MY_NEAR_WALLET, metadata: { name: "MyNearWallet", available: true } },
+        { id: NEAR_IDS.METEOR, metadata: { name: "Meteor Wallet", available: true } },
+      ],
+    }),
+    tonConnect: makeFakeTonConnect({
+      wallets: [{ appName: TON_IDS.TONKEEPER, name: "Tonkeeper" }],
+    }),
+  });
+  discovery.start();
+  await new Promise((r) => setTimeout(r, 0)); // TON Connect's wallet list resolves asynchronously
+  const snap = discovery.getDiscovered();
+  assert.deepEqual(snap.near.map((w) => w.key).sort(), [NEAR_IDS.METEOR, NEAR_IDS.MY_NEAR_WALLET]);
+  assert.deepEqual(snap.ton.map((w) => w.key), [TON_IDS.TONKEEPER]);
+});
+
+test("composition: getProvider resolves the NEAR + TON real providers", async () => {
+  const discovery = createWalletDiscovery({
+    evmConfig: createDefaultEvmConfig(),
+    solanaRegistry: makeFakeRegistry(),
+    nearSelector: makeFakeNearSelector({
+      modules: [{ id: NEAR_IDS.SENDER, metadata: { name: "Sender", available: true } }],
+      accountId: "sender-user.near",
+    }),
+    tonConnect: makeFakeTonConnect({
+      wallets: [{ appName: TON_IDS.TONHUB, name: "Tonhub" }],
+      address: "EQComposeTonUser",
+    }),
+  });
+  discovery.start();
+  await new Promise((r) => setTimeout(r, 0)); // let the TON wallet list resolve
+
+  const nearProvider = discovery.getProvider("near", NEAR_IDS.SENDER);
+  assert.ok(nearProvider, "Sender on NEAR resolves");
+  assert.equal(nearProvider.isReal, true);
+  const nearResult = await nearProvider.connect();
+  assert.equal(nearResult.address, "sender-user.near");
+
+  const tonProvider = discovery.getProvider("ton", TON_IDS.TONHUB);
+  assert.ok(tonProvider, "Tonhub on TON resolves");
+  const tonResult = await tonProvider.connect();
+  assert.equal(tonResult.address, "EQComposeTonUser");
+
+  // Not available / unknown → null (deposit-address fallback).
+  assert.equal(discovery.getProvider("near", NEAR_IDS.STARPORT), null, "Starport NEAR not wired → null");
+  assert.equal(discovery.getProvider("ton", TON_IDS.STARPORT), null, "Starport TON not wired → null");
+  assert.equal(discovery.getProvider("near", NEAR_IDS.DEPOSIT_ADDRESS), null, "the deposit row is never connectable");
+  assert.equal(discovery.getProvider("ton", TON_IDS.DEPOSIT_ADDRESS), null);
 });

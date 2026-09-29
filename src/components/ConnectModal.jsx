@@ -46,6 +46,8 @@ import {
   normalizeDogecoinDiscovered,
   normalizeXrpDiscovered,
   normalizeTronDiscovered,
+  normalizeNearDiscovered,
+  normalizeTonDiscovered,
 } from "../lib/wallet/modalLogic.js";
 
 const S = {
@@ -171,7 +173,11 @@ export default function ConnectModal() {
                 ? normalizeXrpDiscovered(discovered.xrp ?? [])
                 : family === "tron"
                   ? normalizeTronDiscovered(discovered.tron ?? [])
-                  : [];
+                  : family === "near"
+                    ? normalizeNearDiscovered(discovered.near ?? [])
+                    : family === "ton"
+                      ? normalizeTonDiscovered(discovered.ton ?? [])
+                      : [];
   const rows = buildFamilyWalletRows({ family, discovered: discoveredItems });
 
   /** Per-family balance formatter for the connected-session line. */

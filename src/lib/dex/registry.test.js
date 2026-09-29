@@ -53,3 +53,31 @@ test("the registry is frozen (no runtime mutation of the MEV surface)", () => {
   assert.ok(Object.isFrozen(DEX_REGISTRY));
   assert.ok(Object.isFrozen(DEX_REGISTRY.eth));
 });
+
+test("near + ton carry their verified native-DEX venues (Ref Finance; STON.fi + DeDust)", () => {
+  // 2026-09-29 pass — addresses verified from each protocol's OWN SDK
+  // (docs/NEAR-TON-DEX-RESEARCH.md). Unverified NEAR/TON venues stay dropped
+  // (fail closed).
+  const near = venuesFor("near").map((v) => v.id).sort();
+  assert.deepEqual(near, ["ref-finance", "trisolaris"]);
+  assert.equal(hasVenues("near"), true);
+
+  const ton = venuesFor("ton").map((v) => v.id).sort();
+  assert.deepEqual(ton, ["dedust", "stonfi"]);
+  assert.equal(hasVenues("ton"), true);
+
+  // Ref Finance = the v2 exchange contract; STON.fi = the v1 router.
+  assert.equal(DEX_REGISTRY.near.find((v) => v.id === "ref-finance").router, "v2.ref-finance.near");
+  assert.equal(DEX_REGISTRY.ton.find((v) => v.id === "stonfi").router, "EQB3ncyBUTjZUA5EnFKR5_EnOMI9V1tTEAAPaiU71gc4TiUt");
+});
+
+test("near + ton unverified venues are present but NOT routable (fail closed)", () => {
+  const unverified = (chain) => DEX_REGISTRY[chain].filter((v) => !v.verified).map((v) => v.id).sort();
+  assert.deepEqual(unverified("near"), ["jumbo", "orderly", "spin"]);
+  assert.deepEqual(unverified("ton"), ["megaton", "tonco"]);
+  for (const chain of ["near", "ton"]) {
+    for (const v of DEX_REGISTRY[chain].filter((x) => !x.verified)) {
+      assert.equal(v.router, null, `${chain}.${v.id} unverified rows must carry router:null`);
+    }
+  }
+});

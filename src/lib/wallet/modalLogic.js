@@ -33,6 +33,8 @@ import { DOGECOIN_WALLETS } from "./dogecoinRegistry.js";
 import { XRP_WALLETS } from "./xrpRegistry.js";
 import { TRON_WALLETS } from "./tronRegistry.js";
 import { CARDANO_WALLETS } from "./cardanoRegistry.js";
+import { NEAR_WALLETS } from "./nearRegistry.js";
+import { TON_WALLETS } from "./tonRegistry.js";
 
 /** Stable id of the pinned Starport wallet in every family. */
 export const STARPORT_ID = "starport";
@@ -90,6 +92,11 @@ export const STARPORT_NAMES = Object.freeze([
  * (Crossmark / GemWallet) are badged unmaintained and ranked last, the
  * WalletConnect row (Tron) sorts after hardware, and the deposit-address
  * row is always final on BTC/LTC/DOGE/XRP (no deposit row for Tron).
+ *
+ * The NEAR / TON families (Step 2.5) use their FULL canonical tables too
+ * (nearRegistry.js — NEAR Wallet Selector modules; tonRegistry.js — TON
+ * Connect wallets): every registry row renders in the fixed modal order and
+ * a deposit-address row is always final (both are ChangeNOW deposit chains).
  */
 export const WALLET_REGISTRY = Object.freeze({
   evm: Object.freeze([
@@ -111,6 +118,8 @@ export const WALLET_REGISTRY = Object.freeze({
   xrp: XRP_WALLETS,
   tron: TRON_WALLETS,
   cardano: CARDANO_WALLETS,
+  near: NEAR_WALLETS,
+  ton: TON_WALLETS,
 });
 
 /**
@@ -206,6 +215,30 @@ export function normalizeXrpDiscovered(wallets) {
  * shape: `{ key, name, raw }`. `key` is the registry id (adapter name).
  */
 export function normalizeTronDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered NEAR wallets (nearDiscovery.js) into the match shape:
+ * `{ key, name, raw }`. `key` is the NEAR Wallet Selector module id.
+ */
+export function normalizeNearDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered TON wallets (tonDiscovery.js) into the match shape:
+ * `{ key, name, raw }`. `key` is the TON Connect `appName`.
+ */
+export function normalizeTonDiscovered(wallets) {
   return (wallets ?? []).map((w) => ({
     key: w.key,
     name: w.name,

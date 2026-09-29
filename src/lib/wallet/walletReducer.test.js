@@ -45,7 +45,7 @@ test("(c) every family starts disconnected", () => {
   assert.deepEqual(
     Object.keys(state).sort(),
     [...WALLET_FAMILIES].sort(),
-    "state has exactly the seven registered families",
+    "state has exactly the registered families",
   );
   for (const family of WALLET_FAMILIES) {
     assert.deepEqual(state[family], { status: DISCONNECTED }, `${family} starts disconnected`);

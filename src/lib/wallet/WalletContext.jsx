@@ -3,7 +3,7 @@
  * Phase 2 wallet layer; extended Step 2.2 with real-wallet discovery).
  *
  * Holds one session per family (evm, solana, bitcoin, litecoin, dogecoin,
- * xrp, tron). Connecting or disconnecting one family NEVER affects another —
+ * xrp, tron, cardano, near, ton). Connecting or disconnecting one family NEVER affects another —
  * the reducer only ever touches `state[family]` (see walletReducer.js) and
  * the isolation tests prove it at both the pure-state and the hook level.
  *
@@ -70,6 +70,8 @@ const EMPTY_DISCOVERED = Object.freeze({
   xrp: Object.freeze([]),
   tron: Object.freeze([]),
   cardano: Object.freeze([]),
+  near: Object.freeze([]),
+  ton: Object.freeze([]),
 });
 
 /**

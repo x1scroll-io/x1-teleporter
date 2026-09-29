@@ -206,7 +206,7 @@ test("one-card shell: Teleport tab hosts the modal; THORChain and Buy are placeh
   }
 });
 
-test("family list renders all 8 families in fixed order", () => {
+test("family list renders all 10 families in fixed order", () => {
   const { container, unmount } = renderCard(fakeDiscovery());
   try {
     const familyButtons = [...container.querySelectorAll(".family-row")];
@@ -575,7 +575,7 @@ const DOGE_ADDRESS = "DQyfNhuqN9mseL9YmgW8Sh7GNDjUn6oC1R";
 
 /**
  * Extend the base fake discovery with the four Step 2.4 families.
- * Re-emits the FULL snapshot (all seven families) on every change so a
+ * Re-emits the FULL snapshot (all ten families) on every change so a
  * late announce in one family never wipes the others from context state.
  */
 function extendFakeDiscovery() {
