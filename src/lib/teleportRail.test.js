@@ -201,7 +201,7 @@ test("rail layer: the LONG-TAIL source group routes to ChangeNOW (INSTANTSWAP, d
   // /v2/exchange/estimated-amount (2026-09-26).
   assert.deepEqual(
     [...LONGTAIL_CHAIN_IDS],
-    ["xmr", "ada", "atom", "near", "zec", "dash", "bch", "algo", "xtz", "fil", "hbar", "vet", "theta", "osmo"],
+    ["xmr", "ada", "atom", "near", "zec", "dash", "bch", "algo", "xtz", "fil", "hbar", "vet", "theta", "osmo", "ton"],
     "the verified long-tail set (ChangeNOW-listed), in display order",
   );
   for (const c of LONGTAIL_CHAIN_IDS) {

@@ -213,6 +213,7 @@ export const LONGTAIL_CHAINS = Object.freeze({
   vet:  { id: "vet",  name: "VeChain",      glyph: "Ⓥ", asset: "VET",   decimals: 18, ticker: "vet",   network: "vet",   family: "vechain" },
   theta:{ id: "theta",name: "Theta",        glyph: "θ", asset: "THETA", decimals: 18, ticker: "theta", network: "theta", family: "theta" },
   osmo: { id: "osmo", name: "Osmosis",      glyph: "Ⓞ", asset: "OSMO",  decimals: 6,  ticker: "osmo",  network: "osmo",  family: "osmosis" },
+  ton:  { id: "ton",  name: "TON",          glyph: "Ⓣ", asset: "TON",   decimals: 9,  ticker: "ton",   network: "ton",   family: "ton" },
 });
 
 /** The long-tail chain ids, in display order. */
@@ -302,6 +303,7 @@ export const COVERAGE_MATRIX = Object.freeze({
   vet: Object.freeze([RAIL.INSTANTSWAP]),
   theta: Object.freeze([RAIL.INSTANTSWAP]),
   osmo: Object.freeze([RAIL.INSTANTSWAP]),
+  ton: Object.freeze([RAIL.INSTANTSWAP]),
   // Polkadot: NO RAIL — ChangeNOW has no NATIVE DOT (only bsc/assethub
   // WRAPPED rows); nothing else serves it.
   polkadot: Object.freeze([]),
