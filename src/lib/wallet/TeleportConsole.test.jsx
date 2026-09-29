@@ -97,6 +97,7 @@ function renderConsole({
         {
           discovery: FAKE_DISCOVERY,
           initialState: initialState || connectedState({ evm, solana, evmProvider, solProvider }),
+          allowMockFallback: true,
         },
         React.createElement(BridgeCard, {
           variant: "console",
@@ -267,7 +268,7 @@ test("classic variant untouched: default BridgeCard still renders the classic ca
     root.render(
       React.createElement(
         WalletProvider,
-        { discovery: FAKE_DISCOVERY, initialState: connectedState({ evm: true, solana: true, evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() }) },
+        { discovery: FAKE_DISCOVERY, initialState: connectedState({ evm: true, solana: true, evmProvider: makeEvmProvider(), solProvider: makeSolAdapter() }), allowMockFallback: true },
         React.createElement(BridgeCard, { formProps: { balancesDeps: NOOP_BALANCES } }),
       ),
     );

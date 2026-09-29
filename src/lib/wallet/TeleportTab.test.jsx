@@ -75,7 +75,7 @@ function renderWithProvider(element, initialState) {
   });
   act(() => {
     root.render(
-      React.createElement(WalletProvider, { discovery: FAKE_DISCOVERY, initialState },
+      React.createElement(WalletProvider, { discovery: FAKE_DISCOVERY, initialState, allowMockFallback: true },
         el),
     );
   });
