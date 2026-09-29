@@ -118,6 +118,11 @@ const S = {
 export default function ConnectModal() {
   const { sessions, connect, disconnect, discovered } = useWalletContext();
   const [selectedFamily, setSelectedFamily] = useState(null);
+  // PER-WALLET connecting state: the id of the ONE wallet whose connect is in
+  // flight (null when idle). This is deliberately NOT the family session's
+  // `connecting` status — that is per-FAMILY, so one click used to flip EVERY
+  // row to "Connecting…" at once (the bug). Only the clicked row shows it.
+  const [pendingWalletId, setPendingWalletId] = useState(null);
 
   // Step 1: pick a family (fixed order).
   if (!selectedFamily) {
@@ -179,6 +184,24 @@ export default function ConnectModal() {
                       ? normalizeTonDiscovered(discovered.ton ?? [])
                       : [];
   const rows = buildFamilyWalletRows({ family, discovered: discoveredItems });
+  const hasDepositRow = rows.some((r) => r.depositAddress);
+  const busy = pendingWalletId !== null;
+
+  /**
+   * Connect ONE wallet. Tracks the in-flight wallet id so only that row shows
+   * "Connecting…"; connect() never throws (WalletContext captures errors into
+   * the session), so the finally always clears the pending id — the row can
+   * never be left stuck on "Connecting…".
+   */
+  async function handleConnect(rowId) {
+    if (busy) return; // one connect at a time per modal
+    setPendingWalletId(rowId);
+    try {
+      await connect(family, rowId);
+    } finally {
+      setPendingWalletId(null);
+    }
+  }
 
   /** Per-family balance formatter for the connected-session line. */
   function formatBalance(familyName, balance) {
@@ -222,6 +245,11 @@ export default function ConnectModal() {
       {session.status === "error" && (
         <div className="status status--error" data-testid="connect-status" style={{ ...S.status, ...S.statusError }}>
           {session.error}
+          {hasDepositRow && (
+            <span className="deposit-fallback-hint" data-testid="deposit-fallback-hint" style={S.depositOnlyNote}>
+              Couldn't connect — use the deposit address below instead.
+            </span>
+          )}
         </div>
       )}
       {session.status === "connecting" && (
@@ -239,12 +267,17 @@ export default function ConnectModal() {
           // OP_RETURN for LTC/DOGE, the XRPL Memos field for XRP). No
           // guessed APIs.
           if (row.depositAddress) {
+            // The always-last deposit-address row is an INFORMATIONAL
+            // fallback, not a wallet option. It is deliberately rendered
+            // non-interactive (no button, no link, `data-interactive="false"`)
+            // and clearly labelled so it never reads as a dead connect button.
             return (
               <li
                 key={row.id}
                 className="wallet-row wallet-row--deposit-address"
                 data-wallet-id={row.id}
                 data-deposit-address="true"
+                data-interactive="false"
                 style={{ ...S.walletRow, ...S.depositRow }}
               >
                 <div style={{ display: "flex", alignItems: "center", width: "100%" }}>
@@ -252,6 +285,9 @@ export default function ConnectModal() {
                   <div>
                     <span style={S.walletName}>{row.name}</span>
                     <span style={S.walletSub}>{depositRowSubtitle(family)}</span>
+                    <span className="deposit-only-note" style={S.depositOnlyNote}>
+                      Deposit address only — not a wallet connection
+                    </span>
                     <span className="deposit-memo-todo" style={S.memoTodo}>
                       {depositMemoNote(family)}
                     </span>
@@ -340,11 +376,11 @@ export default function ConnectModal() {
                 <button
                   type="button"
                   className="connect-btn"
-                  style={{ ...S.connectBtn, ...(session.status === "connecting" ? S.connectBtnDisabled : {}) }}
-                  disabled={session.status === "connecting"}
-                  onClick={() => connect(family, row.id)}
+                  style={{ ...S.connectBtn, ...(busy ? S.connectBtnDisabled : {}) }}
+                  disabled={busy}
+                  onClick={() => handleConnect(row.id)}
                 >
-                  {session.status === "connecting" ? "Connecting…" : "Connect"}
+                  {pendingWalletId === row.id ? "Connecting…" : "Connect"}
                 </button>
               ) : row.installUrl ? (
                 <a className="install-link" style={S.installLink} href={row.installUrl} target="_blank" rel="noreferrer">

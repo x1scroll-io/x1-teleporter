@@ -84,6 +84,7 @@ export function createWalletDiscovery({
   tronBalanceFetcher,
   cardanoWin,
   nearSelector,
+  nearWin,
   nearBalanceFetcher,
   tonConnect,
   tonBalanceFetcher,
@@ -151,6 +152,7 @@ export function createWalletDiscovery({
   });
   const near = createNearDiscovery({
     selector: nearSelector,
+    win: nearWin,
     balanceFetcher: nearBalanceFetcher,
     onChange: emit,
   });

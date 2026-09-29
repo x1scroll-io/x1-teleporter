@@ -63,6 +63,7 @@ import {
 import { DOGECOIN_WALLET_IDS as DOGE_IDS } from "./dogecoinRegistry.js";
 import { XRP_WALLET_IDS as XRP_IDS } from "./xrpRegistry.js";
 import { TRON_WALLET_IDS as TRON_IDS } from "./tronRegistry.js";
+import { NEAR_WALLET_IDS as NEAR_IDS } from "./nearRegistry.js";
 
 const EVM_ADDRESS = "0x1111222233334444555566667777888899990000";
 const MOCK_EVM_ADDRESS = "mock:evm:0x1234567890abcdef1234567890abcdef12345678";
@@ -852,6 +853,122 @@ test("tron: connecting an installed adapter wallet stores the address and shows 
     const balance = container.querySelector('[data-testid="tron-balance"]');
     assert.ok(balance, "balance rendered in the connected body");
     assert.equal(balance.textContent.includes("7.5 TRX"), true);
+  } finally {
+    unmount();
+  }
+});
+
+/* ————————————— NEAR fail-closed (Step 2.5 bug fix) ————————————— */
+
+test("near: with zero wallets NOTHING is Installed and the deposit row is non-interactive", () => {
+  // The QA repro: NEAR used to claim "Installed" for MyNearWallet/Meteor/
+  // Nightly/Ledger with NOTHING installed (the selector's `metadata.available`
+  // is not an install signal). With no positively-detected wallet every row
+  // must fall through to its Install link, and the deposit-address row must be
+  // an informational (non-interactive) fallback — not a dead-looking option.
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="near"]'));
+
+    const allRows = rows(container);
+    assert.deepEqual(
+      allRows.filter((r) => r.installed).map((r) => r.id),
+      [],
+      "zero wallets installed → nothing highlighted",
+    );
+
+    for (const id of [NEAR_IDS.MY_NEAR_WALLET, NEAR_IDS.METEOR, NEAR_IDS.NIGHTLY, NEAR_IDS.LEDGER]) {
+      const el = container.querySelector(`[data-wallet-id="${id}"]`);
+      assert.ok(el, `${id} row rendered`);
+      assert.equal(el.getAttribute("data-installed"), "false", `${id} is NOT installed`);
+      assert.equal(el.querySelector(".badge--installed"), null, `${id} shows NO Installed badge`);
+      assert.equal(el.querySelector(".connect-btn"), null, `${id} has no Connect button`);
+      assert.ok(el.querySelector("a.install-link"), `${id} shows its Install link instead`);
+    }
+
+    const deposit = allRows[allRows.length - 1];
+    assert.equal(deposit.id, NEAR_IDS.DEPOSIT_ADDRESS, "deposit-address row is final");
+    assert.equal(deposit.el.getAttribute("data-deposit-address"), "true");
+    assert.equal(deposit.el.getAttribute("data-interactive"), "false", "deposit row is non-interactive");
+    assert.equal(deposit.el.querySelector(".connect-btn"), null, "deposit row has no Connect button");
+    assert.equal(deposit.el.querySelector("a.install-link"), null, "deposit row is not a link");
+    assert.ok(deposit.el.querySelector(".deposit-only-note"), "deposit row is clearly labelled non-interactive");
+  } finally {
+    unmount();
+  }
+});
+
+/* ————————————— per-wallet connecting state (global-bug fix) ————————————— */
+
+/** Discovery whose EVM provider connect() is resolved manually by the test. */
+function controllableEvmDiscovery() {
+  const listeners = new Set();
+  const evm = [
+    { rdns: "io.metamask", name: "MetaMask" },
+    { rdns: "com.coinbase.wallet", name: "Coinbase Wallet" },
+  ];
+  let resolveConnect = null;
+  return {
+    start() {},
+    stop() {},
+    subscribe(l) {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    getDiscovered() {
+      return { evm: [...evm] };
+    },
+    getProvider(family, walletId) {
+      if (family === "evm" && evm.some((e) => e.rdns === walletId)) {
+        return {
+          family: "evm",
+          id: walletId,
+          isReal: true,
+          connect: () => new Promise((resolve) => { resolveConnect = () => resolve({ address: "0xabc", provider: null }); }),
+          disconnect: async () => {},
+        };
+      }
+      return null;
+    },
+    _resolveAll() {
+      if (resolveConnect) {
+        const r = resolveConnect;
+        resolveConnect = null;
+        r();
+      }
+    },
+  };
+}
+
+test("connecting state is PER-WALLET: only the clicked row shows 'Connecting…'", async () => {
+  // The bug: one Connect click flipped EVERY row to "Connecting…" because the
+  // state was the per-FAMILY session status. Now only the in-flight wallet id
+  // shows it; the other installed wallets stay on "Connect".
+  const discovery = controllableEvmDiscovery();
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="evm"]'));
+    const metaMask = rows(container).find((r) => r.id === "io.metamask");
+    const coinbase = rows(container).find((r) => r.id === "com.coinbase.wallet");
+    assert.ok(metaMask && coinbase, "both discovered EVM wallets render");
+
+    act(() => metaMask.el.querySelector(".connect-btn").click());
+
+    assert.equal(metaMask.el.querySelector(".connect-btn").textContent, "Connecting…", "clicked row shows Connecting…");
+    assert.equal(coinbase.el.querySelector(".connect-btn").textContent, "Connect", "other row does NOT show Connecting…");
+    assert.equal(
+      container.querySelectorAll(".connect-btn").length
+        - [...container.querySelectorAll(".connect-btn")].filter((b) => b.textContent === "Connect").length,
+      1,
+      "exactly ONE row shows Connecting…",
+    );
+
+    await act(async () => {
+      discovery._resolveAll();
+      await flush();
+    });
+    assert.ok(container.querySelector('[data-testid="teleport-connected"]'), "connect completed → body rendered");
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "picker closed after connect");
   } finally {
     unmount();
   }

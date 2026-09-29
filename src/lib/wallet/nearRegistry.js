@@ -23,10 +23,15 @@
  * row) — the bridge still works, it just routes the user through the
  * out-of-band deposit rail instead of a dApp session.
  *
- * DISCOVERY RULE (binding): the NEAR Wallet Selector ONLY. We never read a
- * NEAR wallet's injected global directly — the selector owns that. Discovery
- * enumerates `selector.store.getState().modules`; connect goes through
- * `selector.wallet(id).signIn(...)`.
+ * DISCOVERY RULE (binding): the NEAR Wallet Selector OWNS CONNECT — discovery
+ * enumerates `selector.store.getState().modules` and connect goes through
+ * `selector.wallet(id).signIn(...)`. INSTALL DETECTION, however, is a POSITIVE
+ * presence probe against the injected globals (nearDiscovery.js
+ * NEAR_PRESENCE_PROBES): the selector's `metadata.available` is unreliable
+ * (the web wallets hard-code `available: true`, Ledger reports WebHID
+ * support), so trusting it made every NEAR row claim "Installed" with nothing
+ * installed. Wallets with no positive signal (MyNearWallet, Ledger) always
+ * show "Install".
  *
  * ISOLATION RULE (binding): NEAR wallets must NEVER appear in the EVM/Solana
  * lists. NEAR discovery is Wallet-Selector-only.

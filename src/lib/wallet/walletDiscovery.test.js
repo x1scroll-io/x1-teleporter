@@ -535,6 +535,10 @@ test("composition: NEAR (Wallet Selector) + TON (TON Connect) are discovered tog
         { id: NEAR_IDS.METEOR, metadata: { name: "Meteor Wallet", available: true } },
       ],
     }),
+    // Positive-detection signal: only Meteor is actually injected. MyNearWallet
+    // is a popup web wallet with NO injected global, so it is NOT discovered
+    // (it shows "Install") — `available: true` is not an install signal.
+    nearWin: { meteorWallet: {} },
     tonConnect: makeFakeTonConnect({
       wallets: [{ appName: TON_IDS.TONKEEPER, name: "Tonkeeper" }],
     }),
@@ -542,7 +546,7 @@ test("composition: NEAR (Wallet Selector) + TON (TON Connect) are discovered tog
   discovery.start();
   await new Promise((r) => setTimeout(r, 0)); // TON Connect's wallet list resolves asynchronously
   const snap = discovery.getDiscovered();
-  assert.deepEqual(snap.near.map((w) => w.key).sort(), [NEAR_IDS.METEOR, NEAR_IDS.MY_NEAR_WALLET]);
+  assert.deepEqual(snap.near.map((w) => w.key).sort(), [NEAR_IDS.METEOR]);
   assert.deepEqual(snap.ton.map((w) => w.key), [TON_IDS.TONKEEPER]);
 });
 
@@ -554,6 +558,7 @@ test("composition: getProvider resolves the NEAR + TON real providers", async ()
       modules: [{ id: NEAR_IDS.SENDER, metadata: { name: "Sender", available: true } }],
       accountId: "sender-user.near",
     }),
+    nearWin: { near: { isSender: true } },
     tonConnect: makeFakeTonConnect({
       wallets: [{ appName: TON_IDS.TONHUB, name: "Tonhub" }],
       address: "EQComposeTonUser",
