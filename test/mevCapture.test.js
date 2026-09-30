@@ -38,7 +38,7 @@ test("mev: captureCandidatesForChain returns the same-chain venue lists (registr
 });
 
 test("mev: CAPTURE_SCAN_CHAINS covers the served same-chain swap chains", () => {
-  assert.deepEqual(RoutePlanner.CAPTURE_SCAN_CHAINS, ["eth", "arb", "bas", "opt", "pol", "bsc", "sol"]);
+  assert.deepEqual(RoutePlanner.CAPTURE_SCAN_CHAINS, ["eth", "arb", "bas", "opt", "pol", "bsc", "sol", "near", "ton"]);
   for (const chain of RoutePlanner.CAPTURE_SCAN_CHAINS) {
     assert.ok(RoutePlanner.captureCandidatesForChain(chain).length >= 1, `${chain} has candidates`);
   }

@@ -119,6 +119,8 @@ import { createPancakeSwapSwapLeg } from "./legs/dexDirect/pancakeswapSwapLeg.js
 import { createRaydiumSwapLeg } from "./legs/dexDirect/raydiumSwapLeg.js";
 import { buildCctpLegs } from "./legs/cctp/index.js";
 import { createOrcaSwapLeg } from "./legs/dexDirect/orcaSwapLeg.js";
+import { createNearSwapLeg } from "./legs/dexDirect/nearSwapLeg.js";
+import { createTonSwapLeg } from "./legs/dexDirect/tonSwapLeg.js";
 import { runCaptureScan, runRouteCaptureScan, captureGate, capturePayoutForChain, dropAsIsRecords } from "../lib/mev/captureGate.js";
 // The live-flow PIPELINE (quote → detect → record ledger → sweep plan) — the
 // orchestrator joining the detector/gate/ledger/planner. Fail-closed: the
@@ -629,6 +631,9 @@ export function buildDexDirectLegs() {
     pancakeswap: createPancakeSwapSwapLeg(),
     raydium: createRaydiumSwapLeg(),
     orca: createOrcaSwapLeg(),
+    // NEAR + TON native-DEX legs (docs/NEAR-TON-DEX-RESEARCH.md §3).
+    ref: createNearSwapLeg(),
+    stonfi: createTonSwapLeg(),
   };
 }
 
@@ -638,6 +643,8 @@ export const DEX_DIRECT_LEG_IDS = Object.freeze({
   pancakeswap: Object.freeze(["pancakeswap-swap"]),
   raydium: Object.freeze(["raydium-swap"]),
   orca: Object.freeze(["orca-swap"]),
+  ref: Object.freeze(["near-swap"]),
+  stonfi: Object.freeze(["ton-swap"]),
 });
 
 /** Stage grouping of each dexDirect route (one stage — the swap). */
@@ -646,6 +653,8 @@ export const DEX_DIRECT_STAGES = Object.freeze({
   pancakeswap: Object.freeze({ swap: Object.freeze({ label: "PancakeSwap v3 swap (DEX-direct, BNB)", legIds: DEX_DIRECT_LEG_IDS.pancakeswap }) }),
   raydium: Object.freeze({ swap: Object.freeze({ label: "Raydium swap (DEX-direct, Solana)", legIds: DEX_DIRECT_LEG_IDS.raydium }) }),
   orca: Object.freeze({ swap: Object.freeze({ label: "Orca swap (DEX-direct, Solana)", legIds: DEX_DIRECT_LEG_IDS.orca }) }),
+  ref: Object.freeze({ swap: Object.freeze({ label: "Ref Finance swap (DEX-direct, NEAR)", legIds: DEX_DIRECT_LEG_IDS.ref }) }),
+  stonfi: Object.freeze({ swap: Object.freeze({ label: "STON.fi swap (DEX-direct, TON)", legIds: DEX_DIRECT_LEG_IDS.stonfi }) }),
 });
 
 /** The default dexDirect dex per chain family. */
@@ -657,6 +666,8 @@ export const DEX_DIRECT_DEFAULT_DEX = Object.freeze({
   pol: "uniswap",
   bsc: "pancakeswap",
   sol: "orca", // Solana direct default: Orca (the deepest live-verified fixture); raydium via ctx.dex
+  near: "ref", // NEAR direct default: Ref Finance
+  ton: "stonfi", // TON direct default: STON.fi
 });
 
 /**
@@ -684,15 +695,26 @@ export const DEX_DIRECT_FALLBACKS = Object.freeze({
     sol: Object.freeze(["jupiter", "orca", "raydium"]),
     x1: Object.freeze(["xdex"]),
   }),
+  // NEAR + TON native-DEX families (docs/NEAR-TON-DEX-RESEARCH.md §3–§4).
+  // NEAR has no aggregator lane in-app → the Ref Finance direct leg is the
+  // primary. TON lists STON.fi (the built leg) then DeDust (a registry-verified
+  // venue — its own leg is a later step; listed as a capture candidate only).
+  near: Object.freeze({
+    near: Object.freeze(["ref"]),
+  }),
+  ton: Object.freeze({
+    ton: Object.freeze(["stonfi", "dedust"]),
+  }),
 });
 
 /**
  * Plan a DEX-direct swap route (the Phase-6 fallback family).
  *
  * @param {{dex?: string, chain?: string}} opts dex: "uniswap" |
- *   "pancakeswap" | "raydium" | "orca"; chain: the CHAINS key (defaults per
- *   DEX_DIRECT_DEFAULT_DEX). The raydium leg serves both cpmm and clmm —
- *   the run ctx selects via ctx.dex: "cpmm"|"clmm" at build time.
+ *   "pancakeswap" | "raydium" | "orca" | "ref" | "stonfi"; chain: the CHAINS
+ *   key (defaults per DEX_DIRECT_DEFAULT_DEX). The raydium leg serves both
+ *   cpmm and clmm — the run ctx selects via ctx.dex: "cpmm"|"clmm" at build
+ *   time.
  * @returns {object} the planned route { id, direction, sourceChain,
  *   destChain, legs, stages }.
  */
@@ -700,9 +722,9 @@ export function planDexDirect({ dex, chain = null } = {}) {
   const legs = buildDexDirectLegs();
   const leg = legs[dex];
   if (!leg) {
-    throw new Error(`planDexDirect: unknown dex "${dex}" (uniswap | pancakeswap | raydium | orca)`);
+    throw new Error(`planDexDirect: unknown dex "${dex}" (uniswap | pancakeswap | raydium | orca | ref | stonfi)`);
   }
-  const effChain = chain ?? (dex === "pancakeswap" ? "bsc" : dex === "orca" || dex === "raydium" ? "sol" : "eth");
+  const effChain = chain ?? (dex === "pancakeswap" ? "bsc" : dex === "orca" || dex === "raydium" ? "sol" : dex === "ref" ? "near" : dex === "stonfi" ? "ton" : "eth");
   return {
     id: `swap-${effChain}-${effChain}-dexdirect-${dex}`,
     direction: "swap",
@@ -772,10 +794,16 @@ export const CAPTURE_CANDIDATES = Object.freeze({
     sol: Object.freeze([...DEX_DIRECT_FALLBACKS.svm.sol]),
     x1: Object.freeze([...DEX_DIRECT_FALLBACKS.svm.x1]),
   }),
+  near: Object.freeze({
+    near: Object.freeze([...DEX_DIRECT_FALLBACKS.near.near]),
+  }),
+  ton: Object.freeze({
+    ton: Object.freeze([...DEX_DIRECT_FALLBACKS.ton.ton]),
+  }),
 });
 
 /** The chains the capture scan can consult (served same-chain swap chains). */
-export const CAPTURE_SCAN_CHAINS = Object.freeze(["eth", "arb", "bas", "opt", "pol", "bsc", "sol"]);
+export const CAPTURE_SCAN_CHAINS = Object.freeze(["eth", "arb", "bas", "opt", "pol", "bsc", "sol", "near", "ton"]);
 
 /**
  * captureCandidatesForChain — the same-chain venue list for a chain (the
@@ -786,9 +814,11 @@ export const CAPTURE_SCAN_CHAINS = Object.freeze(["eth", "arb", "bas", "opt", "p
  *   lifi/pancakeswap, jupiter/orca/raydium, …)
  */
 export function captureCandidatesForChain(chain) {
-  const family = CAPTURE_CANDIDATES.evm[chain] ? CAPTURE_CANDIDATES.evm : CAPTURE_CANDIDATES.svm;
-  const list = family?.[chain];
-  return list ? [...list] : [];
+  for (const family of Object.values(CAPTURE_CANDIDATES)) {
+    const list = family?.[chain];
+    if (list) return [...list];
+  }
+  return [];
 }
 
 /** Plan one side of a capture pair from its via/dex spec. */

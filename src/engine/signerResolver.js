@@ -3,12 +3,18 @@
  * keyed by chain family.
  *
  * The engine never pokes at session shapes itself. A route leg declares its
- * family ("evm" | "svm" | "external") and the resolver returns the
- * sign-capable surface for that family from the WalletContext session:
+ * family ("evm" | "svm" | "external" | "near" | "ton") and the resolver
+ * returns the sign-capable surface for that family from the WalletContext
+ * session:
  *
  *   evm      → the EIP-1193 provider ({ request }) — resolveEvmProvider
  *   svm      → the Wallet-Standard adapter (publicKey + signAndSendTransaction /
  *              signTransaction) — resolveSolanaAdapter
+ *   near     → the NEAR Wallet Selector wallet (signAndSendTransaction) —
+ *              resolveNearProvider (null until a signing surface is attached;
+ *              the connect adapter is session-only by design)
+ *   ton      → the TON Connect handle (sendTransaction) — resolveTonProvider
+ *              (null until a signing surface is attached)
  *   external → null BY DESIGN — the deposit-address lane (THORChain, Phase 3):
  *              the artifact (vault address + memo) is executed OUT-OF-BAND in
  *              the user's OWN external wallet (BTC/DOGE/LTC/XRP), never by an
@@ -32,15 +38,23 @@ import {
   resolveEvmProvider,
   resolveSolanaAdapter,
   solanaSessionCanSign,
+  resolveNearProvider,
+  nearSessionCanSign,
+  resolveTonProvider,
+  tonSessionCanSign,
 } from "../lib/wallet/sessionProviders.js";
 
 /** The chain families the engine can resolve signers for (Phase 1: evm + svm;
  *  Phase 3 adds "external" — the deposit-address lane, which resolves null by
- *  design: no in-app session signer exists for an out-of-band external send). */
+ *  design: no in-app session signer exists for an out-of-band external send;
+ *  the NEAR + TON native-DEX lanes add "near" (NEAR Wallet Selector) and "ton"
+ *  (TON Connect) — see docs/NEAR-TON-DEX-RESEARCH.md §3). */
 export const SIGNER_FAMILIES = Object.freeze({
   evm: "evm",
   svm: "svm",
   external: "external",
+  near: "near",
+  ton: "ton",
 });
 
 /**
@@ -60,6 +74,12 @@ export async function resolveSigner(family, session) {
   if (family === SIGNER_FAMILIES.svm) {
     return resolveSolanaAdapter(session);
   }
+  if (family === SIGNER_FAMILIES.near) {
+    return resolveNearProvider(session);
+  }
+  if (family === SIGNER_FAMILIES.ton) {
+    return resolveTonProvider(session);
+  }
   return null; // external (deposit-address lane) + unknown families — fail-soft
 }
 
@@ -71,6 +91,8 @@ export async function resolveSigner(family, session) {
  */
 export function familyCanSign(family, session) {
   if (family === SIGNER_FAMILIES.svm) return solanaSessionCanSign(session);
+  if (family === SIGNER_FAMILIES.near) return nearSessionCanSign(session);
+  if (family === SIGNER_FAMILIES.ton) return tonSessionCanSign(session);
   return false;
 }
 
@@ -81,6 +103,8 @@ export function familyLabel(family) {
   if (family === SIGNER_FAMILIES.evm) return "EVM";
   if (family === SIGNER_FAMILIES.svm) return "Solana/X1";
   if (family === SIGNER_FAMILIES.external) return "External wallet (deposit address)";
+  if (family === SIGNER_FAMILIES.near) return "NEAR";
+  if (family === SIGNER_FAMILIES.ton) return "TON";
   return String(family);
 }
 

@@ -23,6 +23,14 @@
  * effect there. It holds session OBJECTS (never serialized, never persisted)
  * and is module-local — no window, no globals, no DOM. Pure and testable under
  * `node --test`.
+ *
+ * EVERY family is keyed the same way — including the NEAR + TON native-DEX
+ * families ("near" / "ton", docs/NEAR-TON-DEX-RESEARCH.md §3): the engine
+ * reads the connected session here and resolves the signer through the SAME
+ * sessionProviders resolvers the React path uses (resolveEvmProvider /
+ * resolveSolanaAdapter for evm/svm; resolveNearProvider / resolveTonProvider
+ * for near/ton). No per-family state lives in this module — it is the single
+ * family-keyed handoff.
  */
 
 /** family → session (the WalletContext `sessions[family]` object). */
@@ -49,8 +57,9 @@ export function clearConnectedSession(family) {
 /**
  * The currently-published session for a family, or null. The engine resolves
  * the sign-capable surface from this via sessionProviders.js
- * (resolveEvmProvider / resolveSolanaAdapter) — the same resolvers the React
- * path uses, so the two can never disagree about who signs.
+ * (resolveEvmProvider / resolveSolanaAdapter / resolveNearProvider /
+ * resolveTonProvider) — the same resolvers the React path uses, so the two can
+ * never disagree about who signs.
  */
 export function getConnectedSession(family) {
   return sessions.get(family) ?? null;

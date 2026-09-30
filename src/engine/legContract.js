@@ -61,9 +61,11 @@ export const LEG_PHASES = [
  * lane (THORChain) whose artifact is executed OUT-OF-BAND in the user's own
  * external wallet — there is deliberately NO in-app session signer, and the
  * resolver returns null for it (the UI surfaces the honest "send from your
- * wallet" step instead of a wallet prompt).
+ * wallet" step instead of a wallet prompt). The NEAR + TON native-DEX lanes add
+ * "near" (NEAR Wallet Selector) and "ton" (TON Connect) — see
+ * docs/NEAR-TON-DEX-RESEARCH.md §3.
  *
- * @param {{id: string, family: "evm"|"svm"|"external", chain: string,
+ * @param {{id: string, family: "evm"|"svm"|"external"|"near"|"ton", chain: string,
  *          description: string, goldenStep?: string,
  *          phases: Partial<Record<Phase, Function>>}} def
  */
@@ -71,8 +73,8 @@ export function createLeg(def) {
   if (!def || typeof def.id !== "string" || !def.id) {
     throw new Error("createLeg: a leg needs an id");
   }
-  if (!def.family || !["evm", "svm", "external"].includes(def.family)) {
-    throw new Error(`createLeg(${def.id}): family must be "evm", "svm" or "external"`);
+  if (!def.family || !["evm", "svm", "external", "near", "ton"].includes(def.family)) {
+    throw new Error(`createLeg(${def.id}): family must be "evm", "svm", "external", "near" or "ton"`);
   }
   const phases = {};
   for (const phase of LEG_PHASES) {
