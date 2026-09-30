@@ -18,7 +18,12 @@
  *        both)
  *      BTC/XRP/… can be added later IF captures ever happen on those rails
  *      (today the capture engine scans the same-chain swap venues:
- *      eth/arb/bas/opt/pol/bsc/sol — CAPTURE_SCAN_CHAINS in routePlanner).
+ *      eth/arb/bas/opt/pol/bsc/sol/near/ton — CAPTURE_SCAN_CHAINS in
+ *      routePlanner).
+ *      NEAR + TON are DEPOSIT-ONLY, ENV-SUPPLIED groups (family "near"/
+ *      "ton"): no default address is committed (nothing guessed) — while
+ *      unset they resolve with NO chains, treasuryForChain is null, and the
+ *      ledger refuses a real capture record there (fail-closed).
  *   2. CAPTURE CHEAP (drop-as-is): a captured token is dropped AS-IS into
  *      that chain's treasury — no per-trade conversion, no per-trade send
  *      beyond the deposit. Minimal gas per capture.
@@ -85,6 +90,26 @@ export const MEV_PAYOUT_GROUPS_DEFAULT = Object.freeze({
     family: "svm",
     address: "H3JfpvBRxAQ9ejrkyeKtCEy3WSRKbwcCxxxFBcohKSuY",
     chains: Object.freeze(["sol", "x1"]),
+  }),
+  // NEAR + TON — DEPOSIT-ONLY, ENV-SUPPLIED destinations (docs/NEAR-TON-DEX-
+  // RESEARCH.md §4.3). Unlike the EVM/SVM groups above there is NO committed
+  // default address: Mr. Esters supplies the NEAR/TON treasury destinations at
+  // deploy/arm time via the override path (VITE_MEV_PAYOUT_NEAR /
+  // VITE_MEV_PAYOUT_TON, mirroring VITE_MEV_PAYOUT_EVM). No address is
+  // GUESSED. FAIL-CLOSED: while unset the group resolves with NO chains (it
+  // serves nothing → treasuryForChain null → the ledger refuses a real capture
+  // record there; a flagged sandbox measurement may still drop as-is).
+  near: Object.freeze({
+    label: "NEAR treasury (deposit-only, family near — ENV-SUPPLIED via VITE_MEV_PAYOUT_NEAR; no default address is guessed)",
+    family: "near",
+    address: null,
+    chains: Object.freeze(["near"]),
+  }),
+  ton: Object.freeze({
+    label: "TON treasury (deposit-only, family ton — ENV-SUPPLIED via VITE_MEV_PAYOUT_TON; no default address is guessed)",
+    family: "ton",
+    address: null,
+    chains: Object.freeze(["ton"]),
   }),
 });
 
@@ -159,6 +184,11 @@ export const BASKET_TARGETS = Object.freeze({
   avax: Object.freeze({ USDC: "USDC" }),
   sonic: Object.freeze({ USDC: "USDC" }),
   rbn: Object.freeze({}),
+  // NEAR + TON: EMPTY until a canonical basket member resolves on the chain —
+  // captures drop AS-IS into the per-chain treasury; the sweep is a later
+  // decision (docs/NEAR-TON-DEX-RESEARCH.md §4.3).
+  near: Object.freeze({}),
+  ton: Object.freeze({}),
 });
 
 /** Which group family a chain key belongs to (evm | svm | null). Mirrors
@@ -168,6 +198,7 @@ const CHAIN_FAMILY = Object.freeze({
   eth: "evm", bsc: "evm", arb: "evm", bas: "evm", opt: "evm", pol: "evm",
   avax: "evm", sonic: "evm", rbn: "evm", tron: "evm",
   sol: "svm", x1: "svm",
+  near: "near", ton: "ton",
 });
 
 // ── pure address validation (fail-closed) ──────────────────────────────────
@@ -214,15 +245,57 @@ export function isValidSvmAddress(address) {
   }
 }
 
+/**
+ * True when the address is a well-formed NEAR account id.
+ * Rules (fail-closed — a wrong treasury is a lost deposit):
+ *   - lowercase only, 2–64 chars;
+ *   - an IMPLICIT account id is exactly 64 lowercase hex chars; OR
+ *   - a NAMED account id: `.`-separated segments, each `[a-z0-9]+` with
+ *     interior `-`/`_` (no leading/trailing separator, no consecutive dots).
+ * This admits `*.near` names (e.g. `mev-treasury.near`) and the 64-hex form.
+ */
+export function isValidNearAccountId(address) {
+  if (typeof address !== "string") return false;
+  if (address.length < 2 || address.length > 64) return false;
+  if (/^[0-9a-f]{64}$/.test(address)) return true; // implicit account id
+  return /^(([a-z\d]+[-_])*[a-z\d]+)(\.([a-z\d]+[-_])*[a-z\d]+)*$/.test(address);
+}
+
+/**
+ * True when the address is a well-formed TON friendly address.
+ * Rules (fail-closed): base64url, exactly 48 chars, first two chars the
+ * bounceable `EQ` / non-bounceable `UQ` tag (0x11 / 0x51). A raw
+ * `0:hex` form is deliberately NOT accepted — the deposit destinations are
+ * friendly (base64url) addresses.
+ */
+export function isValidTonAddress(address) {
+  if (typeof address !== "string") return false;
+  return /^(EQ|UQ)[A-Za-z0-9_-]{46}$/.test(address);
+}
+
+/** Human-readable format hint per family (carried in the fail-closed throw). */
+const ADDRESS_FORMAT_HINT = Object.freeze({
+  evm: "0x + 40 hex chars",
+  svm: "base58 encoding 32 bytes",
+  near: "NEAR account id — lowercase, 2–64 chars (named segments / 64-hex implicit)",
+  ton: "TON friendly address — base64url EQ…/UQ…, 48 chars",
+});
+
 /** The per-family format validator (used by resolvePayoutConfig). */
 export function assertValidTreasuryAddress(groupId, address) {
   const family = MEV_PAYOUT_GROUPS_DEFAULT[groupId]?.family;
-  if (!family) throw new Error(`payoutConfig: unknown payout group "${groupId}" (evm | solana_x1)`);
-  const ok = family === "evm" ? isValidEvmAddress(address) : isValidSvmAddress(address);
+  if (!family) throw new Error(`payoutConfig: unknown payout group "${groupId}" (evm | solana_x1 | near | ton)`);
+  const validator =
+    family === "evm" ? isValidEvmAddress
+    : family === "svm" ? isValidSvmAddress
+    : family === "near" ? isValidNearAccountId
+    : family === "ton" ? isValidTonAddress
+    : null;
+  const ok = validator ? validator(address) : false;
   if (!ok) {
     throw new Error(
       `payoutConfig: group "${groupId}" address "${address}" is not a valid ${family.toUpperCase()} address ` +
-      `(${family === "evm" ? "0x + 40 hex chars" : "base58 encoding 32 bytes"}) — a wrong treasury destination is a lost deposit, so the config fails closed`,
+      `(${ADDRESS_FORMAT_HINT[family] ?? "unknown family"}) — a wrong treasury destination is a lost deposit, so the config fails closed`,
     );
   }
   return true;
@@ -262,7 +335,6 @@ export function resolvePayoutConfig(overrides = {}) {
   for (const [groupId, def] of Object.entries(MEV_PAYOUT_GROUPS_DEFAULT)) {
     const ov = groupsRaw[groupId] ?? {};
     const address = typeof ov.address === "string" && ov.address ? ov.address : def.address;
-    assertValidTreasuryAddress(groupId, address);
     const chains = Array.isArray(ov.chains) && ov.chains.length > 0 ? [...ov.chains] : [...def.chains];
     for (const chain of chains) {
       if (typeof chain !== "string" || !chain) throw new Error(`payoutConfig: group "${groupId}" has an invalid chain key`);
@@ -270,6 +342,16 @@ export function resolvePayoutConfig(overrides = {}) {
         throw new Error(`payoutConfig: chain "${chain}" is not ${def.family} — it cannot be served by the "${groupId}" group`);
       }
     }
+    if (address === null || address === undefined || address === "") {
+      // UNSET destination (the NEAR/TON groups before Mr. Esters supplies the
+      // env address — no address is guessed): the group resolves with NO
+      // chains. It serves nothing → treasuryForChain is null for its chains and
+      // the ledger REFUSES a real capture record there (a flagged sandbox
+      // measurement may still drop as-is). FAIL-CLOSED by construction.
+      groups[groupId] = Object.freeze({ ...def, address: null, chains: Object.freeze([]) });
+      continue;
+    }
+    assertValidTreasuryAddress(groupId, address);
     groups[groupId] = Object.freeze({ ...def, address, chains: Object.freeze([...chains]) });
     for (const chain of chains) payouts[chain] = address;
   }
@@ -317,6 +399,8 @@ export const DEFAULT_MEV_PAYOUT_CONFIG = resolvePayoutConfig({});
  * Recognized keys:
  *   VITE_MEV_PAYOUT_EVM | NEXT_PUBLIC_MEV_PAYOUT_EVM  → groups.evm.address
  *   VITE_MEV_PAYOUT_SOLANA_X1 | NEXT_PUBLIC_MEV_PAYOUT_SOLANA_X1 → groups.solana_x1.address
+ *   VITE_MEV_PAYOUT_NEAR | NEXT_PUBLIC_MEV_PAYOUT_NEAR → groups.near.address
+ *   VITE_MEV_PAYOUT_TON  | NEXT_PUBLIC_MEV_PAYOUT_TON  → groups.ton.address
  *   MEV_SWEEP_FREQUENCY   → sweepFrequency ("daily" | "weekly")
  *   MEV_SWEEP_BASKET      → sweepBasket (comma-separated)
  *
@@ -336,6 +420,10 @@ export function readPayoutEnv(env = {}) {
   if (evm) groups.evm = { address: evm };
   const svm = pick(["VITE_MEV_PAYOUT_SOLANA_X1", "NEXT_PUBLIC_MEV_PAYOUT_SOLANA_X1"]);
   if (svm) groups.solana_x1 = { address: svm };
+  const near = pick(["VITE_MEV_PAYOUT_NEAR", "NEXT_PUBLIC_MEV_PAYOUT_NEAR"]);
+  if (near) groups.near = { address: near };
+  const ton = pick(["VITE_MEV_PAYOUT_TON", "NEXT_PUBLIC_MEV_PAYOUT_TON"]);
+  if (ton) groups.ton = { address: ton };
   const overrides = {};
   if (Object.keys(groups).length) overrides.groups = groups;
   const frequency = pick(["MEV_SWEEP_FREQUENCY"]);

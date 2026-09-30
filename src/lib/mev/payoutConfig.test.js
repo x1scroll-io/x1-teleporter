@@ -33,12 +33,16 @@ import {
   configuredChains,
   isValidEvmAddress,
   isValidSvmAddress,
+  isValidNearAccountId,
+  isValidTonAddress,
   base58Decode,
 } from "./payoutConfig.js";
 import { resolve, CHAIN_META } from "../tokenResolver.js";
 
 const EVM_TREASURY = "0xd907e2d4770D3222382eE619980075ac1e59a369";
 const SVM_TREASURY = "H3JfpvBRxAQ9ejrkyeKtCEy3WSRKbwcCxxxFBcohKSuY";
+const NEAR_TREASURY = "mev-treasury.near";
+const TON_TREASURY = "EQB3ncyBUTjZUA5EnFKR5_EnOMI9V1tTEAAPaiU71gc4TiUt";
 
 test("payout config: the DEFAULT groups are the public deposit-only treasury map (Mr. Esters' addresses)", () => {
   const cfg = DEFAULT_MEV_PAYOUT_CONFIG;
@@ -54,6 +58,75 @@ test("payout config: the DEFAULT groups are the public deposit-only treasury map
   assert.equal(cfg.groups.solana_x1.address, SVM_TREASURY);
   assert.deepEqual([...cfg.groups.solana_x1.chains], ["sol", "x1"]);
   assert.equal(cfg.groups.solana_x1.family, "svm");
+});
+
+test("payout config: NEAR + TON groups exist but DEFAULT to NO destination (env-supplied, fail-closed)", () => {
+  const cfg = DEFAULT_MEV_PAYOUT_CONFIG;
+  // the group definitions declare the intended family + chains,
+  assert.equal(MEV_PAYOUT_GROUPS_DEFAULT.near.family, "near");
+  assert.deepEqual([...MEV_PAYOUT_GROUPS_DEFAULT.near.chains], ["near"]);
+  assert.equal(MEV_PAYOUT_GROUPS_DEFAULT.near.address, null, "no NEAR address is committed/guessed");
+  assert.equal(MEV_PAYOUT_GROUPS_DEFAULT.ton.family, "ton");
+  assert.deepEqual([...MEV_PAYOUT_GROUPS_DEFAULT.ton.chains], ["ton"]);
+  assert.equal(MEV_PAYOUT_GROUPS_DEFAULT.ton.address, null, "no TON address is committed/guessed");
+  // but the RESOLVED config serves nothing for them while unset
+  assert.equal(cfg.groups.near.address, null);
+  assert.deepEqual([...cfg.groups.near.chains], [], "an unset group serves no chain");
+  assert.equal(cfg.groups.ton.address, null);
+  assert.deepEqual([...cfg.groups.ton.chains], []);
+  // fail-closed: no destination ⇒ treasuryForChain null ⇒ the ledger refuses a real capture there
+  assert.equal(treasuryForChain(cfg, "near"), null);
+  assert.equal(treasuryForChain(cfg, "ton"), null);
+  assert.equal(payoutGroupForChain(cfg, "near"), null);
+  assert.equal(payoutGroupForChain(cfg, "ton"), null);
+  // the default configured chain set is UNCHANGED (near/ton add nothing while unset)
+  assert.deepEqual(configuredChains(cfg), ["eth", "bas", "bsc", "arb", "opt", "pol", "rbn", "sol", "x1"]);
+});
+
+test("payout config: NEAR + TON env addresses flow through readPayoutEnv → resolvePayoutConfig", () => {
+  const o = readPayoutEnv({ VITE_MEV_PAYOUT_NEAR: NEAR_TREASURY, NEXT_PUBLIC_MEV_PAYOUT_TON: TON_TREASURY });
+  const cfg = resolvePayoutConfig(o);
+  assert.equal(treasuryForChain(cfg, "near"), NEAR_TREASURY);
+  assert.equal(treasuryForChain(cfg, "ton"), TON_TREASURY);
+  assert.equal(payoutGroupForChain(cfg, "near"), "near");
+  assert.equal(payoutGroupForChain(cfg, "ton"), "ton");
+  assert.deepEqual([...cfg.groups.near.chains], ["near"], "the group serves its chain once an address is set");
+  assert.equal(cfg.groups.near.family, "near");
+  assert.ok(configuredChains(cfg).includes("near"));
+  assert.ok(configuredChains(cfg).includes("ton"));
+  // an unset override leaves the default (unset) standing — never guesses
+  assert.equal(treasuryForChain(resolvePayoutConfig(readPayoutEnv({ VITE_MEV_PAYOUT_NEAR: "" })), "near"), null);
+});
+
+test("payout config: NEAR + TON address format validators (accept/reject) + fail-closed resolver", () => {
+  // NEAR account id — named + 64-hex implicit accepted; malformed rejected
+  assert.equal(isValidNearAccountId(NEAR_TREASURY), true);
+  assert.equal(isValidNearAccountId("usdt.tether-token.near"), true);
+  assert.equal(isValidNearAccountId("a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"), true, "64-hex implicit account id");
+  assert.equal(isValidNearAccountId("UPPERCASE.near"), false, "uppercase rejected");
+  assert.equal(isValidNearAccountId("a"), false, "too short");
+  assert.equal(isValidNearAccountId("x".repeat(65)), false, "too long (named)");
+  assert.equal(isValidNearAccountId("bad..dots.near"), false, "consecutive dots");
+  assert.equal(isValidNearAccountId("has space.near"), false);
+  assert.equal(isValidNearAccountId(""), false);
+  assert.equal(isValidNearAccountId(null), false);
+  // TON friendly address — EQ…/UQ… base64url 48 chars accepted; else rejected
+  assert.equal(isValidTonAddress(TON_TREASURY), true);
+  assert.equal(isValidTonAddress("UQ" + "A".repeat(46)), true);
+  assert.equal(isValidTonAddress("EQ" + "A".repeat(45)), false, "too short");
+  assert.equal(isValidTonAddress("EQ" + "A".repeat(47)), false, "too long");
+  assert.equal(isValidTonAddress("AA" + "A".repeat(46)), false, "wrong tag");
+  assert.equal(isValidTonAddress("EQ" + "!".repeat(46)), false, "non-base64url char");
+  assert.equal(isValidTonAddress("0:" + "ab".repeat(32)), false, "raw form not accepted");
+  assert.equal(isValidTonAddress(""), false);
+  // the resolver fails closed on a malformed near/ton override
+  assert.throws(() => resolvePayoutConfig({ groups: { near: { address: "Bad Address" } } }), /not a valid NEAR address/);
+  assert.throws(() => resolvePayoutConfig({ groups: { ton: { address: "not-a-ton-addr" } } }), /not a valid TON address/);
+});
+
+test("payout config: NEAR + TON basket targets are EMPTY (drop-as-is until a canonical member resolves)", () => {
+  assert.deepEqual(Object.keys(BASKET_TARGETS.near), []);
+  assert.deepEqual(Object.keys(BASKET_TARGETS.ton), []);
 });
 
 test("payout config: the derived chain→treasury map covers every capture chain + RH", () => {
