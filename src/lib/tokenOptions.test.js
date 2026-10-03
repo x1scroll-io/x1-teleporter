@@ -9,6 +9,8 @@ import {
   formatTokenAmount,
   formatUsdText,
   tokenIcon,
+  tokenLogo,
+  TOKEN_LOGOS,
 } from "./tokenOptions.js";
 
 test("buildTokenOptions: every option carries symbol + icon + $ value + amount", () => {
@@ -65,6 +67,33 @@ test("tokenIcon: known tokens get distinct branded badges; unknown gets a neutra
   const unknown = tokenIcon("FOO");
   assert.ok(unknown.startsWith("data:image/svg+xml"), "unknown symbol still yields an icon");
   assert.equal(tokenIcon(""), tokenIcon(""), "deterministic");
+});
+
+test("buildTokenOptions: every option carries a `logo` field (real URL or null) alongside the badge icon", () => {
+  const opts = buildTokenOptions({ symbols: ["USDC", "FOO"] });
+  assert.ok(opts[0].logo && /^https:\/\//.test(opts[0].logo), "USDC has a real logo URL");
+  assert.equal(opts[1].logo, null, "an unknown symbol has no logo → null (badge is the fallback)");
+  for (const o of opts) {
+    assert.ok(o.icon.startsWith("data:image/svg+xml"), `${o.symbol}: badge icon is still a data URI (always renderable)`);
+  }
+});
+
+test("tokenLogo: known brand symbols resolve to real URLs; aliases + case-insensitive; unknown → null", () => {
+  assert.ok(/^https:\/\//.test(tokenLogo("USDC")), "USDC logo");
+  assert.ok(/^https:\/\//.test(tokenLogo("USDT")), "USDT logo");
+  assert.ok(/^https:\/\//.test(tokenLogo("DAI")), "DAI logo");
+  // X1 / wrapped aliases reuse the underlying asset's logo
+  assert.equal(tokenLogo("USDC.x"), tokenLogo("USDC"), "USDC.x reuses the USDC logo");
+  assert.equal(tokenLogo("wSOL.X"), tokenLogo("WSOL"), "wSOL.X reuses the WSOL logo");
+  assert.equal(tokenLogo("usdc"), tokenLogo("USDC"), "lookup is case-insensitive");
+  assert.equal(tokenLogo("FOO"), null, "unknown symbol → null");
+  assert.equal(tokenLogo(""), null, "empty symbol → null");
+});
+
+test("TOKEN_LOGOS: every registered logo is an absolute https URL (no relative/data/local paths)", () => {
+  for (const [sym, url] of Object.entries(TOKEN_LOGOS)) {
+    assert.ok(/^https:\/\//.test(url), `${sym}: absolute https URL`);
+  }
 });
 
 test("format helpers: null-safe", () => {

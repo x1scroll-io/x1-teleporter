@@ -33,6 +33,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CHAINS, TOKENS } from "../lib/teleportConstants.js";
+import TokenIcon from "./TokenIcon.jsx";
 import { resolveEvmProvider } from "../lib/wallet/sessionProviders.js";
 import { getPricesUSD, usdValue } from "../lib/prices.js";
 import {
@@ -164,40 +165,42 @@ export default function BalancesLine({
   };
   const fmtUsd = (v) => (v == null ? null : `$${v.toFixed(2)}`);
 
+  // Every token in the line gets its icon (real logo → badge fallback) so the
+  // row reads like a wallet, not a bare string. The icon carries no text, so
+  // the amount/USD text assertions are unaffected.
+  const iconFor = (sym) => <TokenIcon symbol={sym} size={12} testid={`balance-icon-${sym}`} style={{ marginRight: 4, verticalAlign: "-1px" }} />;
+
   const evmPart = balances?.evm
     ? `${formatBalance(balances.evm.balance)} ${token}${fmtUsd(usd(token, balances.evm.balance)) ? ` (${fmtUsd(usd(token, balances.evm.balance))})` : ""}`
     : "—";
 
-  /** Render a side's token parts joined by " · " separators. */
-  const joinParts = (parts) =>
-    parts.flatMap((p, i) =>
-      i === 0 ? [<span key={0} style={S.value}>{p}</span>] : [<span key={`s${i}`} style={S.dash}> · </span>, <span key={i} style={S.value}>{p}</span>],
-    );
-  const solParts = balances?.sol
-    ? joinParts(SOLANA_MINTS.map((m) => {
-        const b = balances.sol[m.symbol];
-        const u = usd(m.symbol, b);
-        return b == null
-          ? `${m.symbol}: —`
-          : `${formatBalance(b)} ${m.symbol}${u != null ? ` (${fmtUsd(u)})` : ""}`;
-      }))
-    : null;
-  const x1Parts = balances?.x1
-    ? joinParts(X1_MINTS.map((m) => {
-        const b = balances.x1[m.symbol];
-        const u = usd(m.symbol, b);
-        return b == null
-          ? `${m.symbol}: —`
-          : `${formatBalance(b)} ${m.symbol}${u != null ? ` (${fmtUsd(u)})` : ""}`;
-      }))
-    : null;
+  /** A side's token parts (symbol + text), joined by " · " separators. */
+  const sideParts = (mints, map) =>
+    mints.map((m) => {
+      const b = map?.[m.symbol];
+      const u = usd(m.symbol, b);
+      const text = b == null
+        ? `${m.symbol}: —`
+        : `${formatBalance(b)} ${m.symbol}${u != null ? ` (${fmtUsd(u)})` : ""}`;
+      return { symbol: m.symbol, text };
+    });
+  const renderParts = (parts) =>
+    parts.map((p, i) => (
+      <span key={p.symbol} style={S.side}>
+        {i > 0 && <span style={S.dash}> · </span>}
+        {iconFor(p.symbol)}
+        <span style={S.value}>{p.text}</span>
+      </span>
+    ));
+  const solParts = balances?.sol ? renderParts(sideParts(SOLANA_MINTS, balances.sol)) : null;
+  const x1Parts = balances?.x1 ? renderParts(sideParts(X1_MINTS, balances.x1)) : null;
 
   return (
     <div className="balances-line" data-testid="balances-line" style={S.line}>
       <span style={S.label}>Balances</span>
       {evmAddr && (
         <span className="balances-side" data-testid="balance-evm" style={S.side}>
-          {evmChainName}: <span data-testid={`balance-token-${token}`} style={S.value}>{evmPart}</span>
+          {evmChainName}: <span data-testid={`balance-token-${token}`} style={S.value}>{iconFor(token)}{evmPart}</span>
         </span>
       )}
       {solAddr && (

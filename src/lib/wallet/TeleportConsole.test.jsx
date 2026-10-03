@@ -950,8 +950,11 @@ test("token dropdowns populate icon + symbol + $ value + token amount for every 
     // The FROM-token dropdown: icon + symbol + $ value + amount per option.
     const tokenSel = container.querySelector('[data-testid="token"]');
     const tokenIconEl = container.querySelector('[data-testid="token-icon"]');
-    assert.ok(tokenIconEl && tokenIconEl.getAttribute("src").startsWith("data:image/svg+xml"),
-      "the selected token renders an icon");
+    const tokenIconSrc = tokenIconEl?.getAttribute("src") || "";
+    assert.ok(tokenIconEl && (tokenIconSrc.startsWith("data:image/svg+xml") || /^https:\/\//.test(tokenIconSrc)),
+      `the selected token renders an icon (real logo or badge), got: ${tokenIconSrc}`);
+    assert.ok((tokenIconEl.getAttribute("data-fallback") || "").startsWith("data:image/svg+xml"),
+      "the icon carries a badge fallback for a failed logo load");
     const usdc = [...tokenSel.options].find((o) => o.value === "USDC");
     assert.equal(usdc.textContent, "USDC · $25.50 · 25.5", "option caption = symbol + $ value + amount");
     assert.equal(usdc.getAttribute("data-usd"), "$25.50");

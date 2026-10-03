@@ -9,12 +9,15 @@
  * <option> cannot host an <img>; the icon therefore rides the visible control
  * for the chosen token, and every option carries the symbol/$/amount text).
  *
- * The four fields come from tokenOptions.js (buildTokenOptions) so the
- * "icon + symbol + $ value + amount, never blank, never a fabricated price"
- * contract is proven by unit tests without a DOM.
+ * The icon is <TokenIcon/>: the real brand logo when one is registered, with
+ * the deterministic badge as the onError/no-logo fallback — so the control is
+ * never iconless. The four fields come from tokenOptions.js
+ * (buildTokenOptions) so the "icon + symbol + $ value + amount, never blank,
+ * never a fabricated price" contract is proven by unit tests without a DOM.
  */
 
 import { buildTokenOptions } from "../lib/tokenOptions.js";
+import TokenIcon from "./TokenIcon.jsx";
 
 /**
  * @param {{testid: string, value: string, onChange: Function, symbols: string[],
@@ -44,14 +47,11 @@ export default function TokenSelect({
       data-testid={`${testid}-wrap`}
       style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", minWidth: 0 }}
     >
-      <img
+      <TokenIcon
+        symbol={selected?.symbol}
+        testid={`${testid}-icon`}
         className="token-select-icon"
-        data-testid={`${testid}-icon`}
-        src={selected?.icon}
-        alt={selected ? `${selected.symbol} icon` : ""}
-        width={18}
-        height={18}
-        style={{ flex: "0 0 auto", borderRadius: "50%", ...iconStyle }}
+        style={iconStyle}
       />
       <select
         data-testid={testid}

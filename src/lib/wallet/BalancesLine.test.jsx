@@ -236,6 +236,39 @@ test("all three sides render together when both wallets are connected", async ()
   }
 });
 
+// ── token icons in the balance rows ─────────────────────────────────────────
+
+test("balance rows carry a token icon per token (real logo → badge fallback); amount text unchanged", async () => {
+  const { container, unmount } = renderBalances({
+    ...BASE, ...DI,
+    evmSession: { status: "connected", address: EVM_ADDR },
+    solSession: { status: "connected", address: SOL_ADDR },
+    evmBalanceFetcher: async () => 100,
+    solBalanceFetcher: async () => ({ USDC: 5.2, WSOL: 0.3 }),
+    x1BalanceFetcher: async () => ({ "USDC.x": 27.59, "wSOL.X": 0.3 }),
+  });
+  try {
+    await flush();
+    const evmIcon = container.querySelector('[data-testid="balance-icon-USDC"]');
+    assert.ok(evmIcon, "EVM token row has an icon");
+    const src = evmIcon.getAttribute("src") || "";
+    assert.ok(src.startsWith("data:image/svg+xml") || src.startsWith("https://"),
+      `the icon is a real logo or a badge data URI, got: ${src}`);
+    assert.ok((evmIcon.getAttribute("data-fallback") || "").startsWith("data:image/svg+xml"),
+      "the icon always carries a badge fallback");
+    // Solana + X1 rows each carry their tokens' icons
+    assert.ok(container.querySelector('[data-testid="balance-icon-USDC"]'), "Solana USDC icon");
+    assert.ok(container.querySelector('[data-testid="balance-icon-WSOL"]'), "Solana WSOL icon");
+    assert.ok(container.querySelector('[data-testid="balance-icon-USDC.x"]'), "X1 USDC.x icon");
+    assert.ok(container.querySelector('[data-testid="balance-icon-wSOL.X"]'), "X1 wSOL.X icon");
+    // ...and the text content is untouched by the icon (icons carry no text)
+    const evm = container.querySelector('[data-testid="balance-evm"]');
+    assert.ok(evm.textContent.includes("100 USDC ($100.00)"), "amount text unchanged by the icon");
+  } finally {
+    unmount();
+  }
+});
+
 // ── fail-soft: RPC errors never block the form ─────────────────────────────
 
 test("fail-soft: EVM RPC error → '—' for the EVM side, others still render", async () => {

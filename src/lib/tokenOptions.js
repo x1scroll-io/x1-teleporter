@@ -61,7 +61,9 @@ const ICON_SPECS = Object.freeze({
 /**
  * The icon (data-URI) for a token symbol. Always returns a usable icon — an
  * unknown symbol gets a neutral badge carrying its first letter, so a picker
- * option is never iconless.
+ * option is never iconless. This is the FALLBACK used whenever a real logo is
+ * missing OR fails to load (dead link, hotlink-block, CORS) — a token always
+ * renders *something*.
  */
 export function tokenIcon(symbol) {
   const s = String(symbol ?? "");
@@ -69,6 +71,46 @@ export function tokenIcon(symbol) {
   if (spec) return badge(spec[0], spec[1]);
   const glyph = (s[0] || "?").toUpperCase();
   return badge(DEFAULT_ICON_COLOR, glyph);
+}
+
+/**
+ * Real brand logo URIs for the well-known tokens the bridge actually offers.
+ * Hosted on TrustWallet's public asset CDN (raw.githubusercontent.com) — the
+ * same git-hosted source Starport's Jupiter list uses. Best-effort only: any
+ * token without a verified URL here falls back to the deterministic badge
+ * (tokenIcon), and a URL that dies at runtime is caught by the <img> onError
+ * → badge swap in <TokenIcon/>. Never a network call at import time.
+ *
+ * DELIBERATELY a plain symbol→URL map (no per-chain keying): the app's symbols
+ * are globally unique (USDC vs USDC.x vs wSOL.X …), so one row per symbol is
+ * sufficient and keeps the resolver trivial + testable.
+ */
+export const TOKEN_LOGOS = Object.freeze({
+  USDC: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
+  "USDC.e": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
+  "USDC.x": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
+  USDT: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xdAC17F958D2ee523a2206206994597C13D831ec7/logo.png",
+  DAI: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0x6B175474E89094C44Da98b954EedeAC495271d0F/logo.png",
+  SOL: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png",
+  WSOL: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png",
+  "wSOL.X": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/solana/info/logo.png",
+  ETH: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png",
+  "ETH.X": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/info/logo.png",
+  BTC: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png",
+  cbBTC: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png",
+  "cbBTC.X": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/bitcoin/info/logo.png",
+  LTC: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/litecoin/info/logo.png",
+  SUI: "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/sui/info/logo.png",
+});
+
+/**
+ * The real brand logo URI for a symbol, or null when none is registered.
+ * Pure + synchronous (no network). Callers render this as the <img> src and
+ * keep tokenIcon(symbol) as the onError fallback.
+ */
+export function tokenLogo(symbol) {
+  const s = String(symbol ?? "");
+  return TOKEN_LOGOS[s] ?? TOKEN_LOGOS[s.toUpperCase()] ?? null;
 }
 
 /** Format a USD amount → "$1.00"; null / non-finite → "—" (never fabricated). */
@@ -90,13 +132,17 @@ export function formatTokenAmount(amount) {
  * Build the picker view-models for a list of token symbols.
  *
  * @param {{symbols?: string[], prices?: Object<string, number>,
- *          balances?: Object<string, number>, icon?: (s: string) => string}} [opts]
- * @returns {Array<{symbol: string, icon: string, usdText: string,
- *   amountText: string, label: string}>} one entry per symbol, in order. The
- *   `label` is the plain-text option caption ("SYMBOL · $X · AMOUNT") used by
- *   the native <option>; the icon rides alongside the control.
+ *          balances?: Object<string, number>, icon?: (s: string) => string,
+ *          logo?: (s: string) => (string|null)}} [opts]
+ * @returns {Array<{symbol: string, icon: string, logo: (string|null),
+ *   usdText: string, amountText: string, label: string}>} one entry per symbol,
+ *   in order. `icon` is ALWAYS a usable data-URI badge; `logo` is the real
+ *   brand logo URI when one is registered (null otherwise). The renderer draws
+ *   `logo || icon` with an onError swap back to `icon`, so an option is never
+ *   iconless. The `label` is the plain-text option caption ("SYMBOL · $X ·
+ *   AMOUNT") used by the native <option>; the icon rides alongside the control.
  */
-export function buildTokenOptions({ symbols = [], prices = {}, balances = {}, icon = tokenIcon } = {}) {
+export function buildTokenOptions({ symbols = [], prices = {}, balances = {}, icon = tokenIcon, logo = tokenLogo } = {}) {
   return [...(symbols ?? [])].map((symbol) => {
     const bal = balances?.[symbol];
     const price = prices?.[symbol];
@@ -107,6 +153,7 @@ export function buildTokenOptions({ symbols = [], prices = {}, balances = {}, ic
     return {
       symbol,
       icon: icon(symbol),
+      logo: logo(symbol) || null,
       usdText,
       amountText,
       label: `${symbol} · ${usdText} · ${amountText}`,
