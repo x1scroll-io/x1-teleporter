@@ -1,4 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { validateLiFiApproval, buildApprovalData, LiFiApprovalValidationError } from "./lib/lifiApproval.js";
+import { guardedSendEvmTx, SimulationError } from "./lib/simulateTx.js";
+import { REVERSE_ENABLED, WARP_LIVE_SEND } from "./lib/flags.ts";
+import { determineRoute } from "./lib/routes.ts";
+import { computeFee, quoteFees, lifiIntegratorFeeFor, FEE_RATES, FEE_WALLETS } from "./lib/fees.ts"; // Step 1.3C+D
+import { executeLiFiSolanaTx as executeLiFiSolanaTxShared } from "./lib/lifiSolanaTx.js"; // Step 3.1 — shared SOL→USDC executor (THORChain hop reuse)
 
 /**
  * TELEPORTER — any-chain → any-chain stablecoin aggregator + X1 on-ramp
@@ -38,6 +44,7 @@ const CHAINS = {
   pol:   { id: "pol",   name: "Polygon",     lifiKey: "pol", chainId: 137,   walletType: "evm",    color: "#8247E5", glyph: "⬡" },
   avax:  { id: "avax",  name: "Avalanche",   lifiKey: "ava", chainId: 43114, walletType: "evm",    color: "#E84142", glyph: "▲" },
   sonic: { id: "sonic", name: "Sonic",       lifiKey: "son", chainId: 146,   walletType: "evm",    color: "#5BC8F5", glyph: "S" },
+  rbn:   { id: "rbn",   name: "Robinhood Chain", lifiKey: "out", chainId: 4663,  walletType: "evm",    color: "#00C805", glyph: "R" }, // Arbitrum Orbit L2; added 2026-09-05 (PR #57) — canonical id rbn mirrors teleportConstants CHAINS / tokenResolver CHAIN_META; canonical stable is Paxos USDG, NO Circle USDC on-chain
   // TRON — gated. walletType 'tron' needs a TronLink connector (window.tronLink)
   // and TVM sign path. LiFi routes Tron, so quotes work; signing is the add.
   ...(ENABLE_TRON ? {
@@ -55,6 +62,7 @@ const TOKENS = {
   pol:   { USDC: { decimals: 6, address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174" }, USDT: { decimals: 6, address: "0xc2132D05D31c914a87C6611C10748AEb04B58e8F" }, DAI: { decimals: 18, address: "0x8f3Cf7ad23Cd3CaDbD9735AFf958023239c6A063" } },
   avax:  { USDC: { decimals: 6, address: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E" }, USDT: { decimals: 6, address: "0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7" }, DAI: { decimals: 18, address: "0xd586E7F844cEa2F87f50152665BCbc2C279D8d70" } },
   sonic: { USDC: { decimals: 6, address: "0x29219dd400f2Bf60E5a23d13Be72B486D4038894" }, USDT: { decimals: 6, address: "0xE5DA20F15420aD15DE0fa650600aFc998bbE3955" } },
+  rbn:   { USDG: { decimals: 6, address: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168" } }, // Robinhood Chain — Paxos USDG only (no USDC/USDT/DAI on-chain; mirrors the resolver TOKEN_TABLE USDG row, PR #57)
   x1:    { "USDC.x": { decimals: 6, address: "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq" } }, // X1 USDC.x (Token-2022 burn mint)
   // TRON tokens — USDT is the headline (huge volume). TRC-20 addresses.
   ...(ENABLE_TRON ? {
@@ -96,41 +104,43 @@ const store = {
 const HISTORY_KEY = "teleporter.history";
 const PENDING_KEY = "teleporter.pending";
 
-const FEE = { flat: 1, pct: 0.01, threshold: 100 }; // legacy display model (unused once LiFi fee is live)
-
 // ── LiFi integrator config ──
 // IMPORTANT: INTEGRATOR must be your registered LiFi integrator string for fees
-// to actually collect to your account. INTEGRATOR_FEE is a float: 0.01 = 1%.
+// to actually collect to your account. INTEGRATOR_FEE is a float: 0.005 = 0.5%
+// (fee-model v2, 2026-09-02 — capped at $250 in the quote).
 // Fees are withdrawn later via /v1/integrators/{INTEGRATOR}/withdraw/{chainId}.
 const INTEGRATOR = "x1-teleporter-labs"; // registered LiFi integrator string
-const INTEGRATOR_FEE = 0.01;     // 1% — LiFi max is 10% (0.10)
+const INTEGRATOR_FEE = FEE_RATES.LIFI_INTEGRATOR; // 0.5% — LiFi max is 10% (0.10) — sourced from src/lib/fees.ts (Step 1.3C)
 // Proxy base — Vercel serves /api/* as serverless functions on the same origin.
 const API_BASE = "";
 
 // ── Warp Bridge (Solana ↔ X1) — VERIFIED from live mainnet tx ──
 // Program 6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD, instruction BridgeOut.
-// The bridge charges a FLAT 1 USDC fee (hardcoded, not %), and rejects bridges
-// under $10. We skim our 1% BEFORE the bridge, so the post-skim amount must
-// still clear Warp's $10 floor. Hence a $25 minimum into X1 (after 1% = $24.75,
-// safely above $10 even if the LiFi leg lands a little short).
-const WARP_FLAT_FEE = 1;     // USDC, charged by the Warp bridge itself
+// The bridge charges a FLAT 1 USDC fee (USDC.x, verified on-chain 2026-09-02 —
+// not 0.25%), and rejects bridges under $10. We skim our 0.5% BEFORE the
+// bridge, so the post-skim amount must still clear Warp's $10 floor.
+// Warp's flat $1 is a THIRD-PARTY pass-through (policy) — it lives in
+// src/lib/fees.ts as the warp-flat component (labeled "Warp bridge fee"),
+// rendered as its own quote line, never as a Teleporter fee.
 const WARP_MIN = 10;         // Warp rejects bridges below this (USDC)
-// Minimum into X1. 25 (post-1%-skim must clear Warp's $10 floor with a buffer
-// for LiFi slippage on the EVM->X1 path). $25 post-skim = $24.75, safely above
-// Warp's $10 floor even if the LiFi leg lands a little short.
-const X1_MIN = 25;
-// $25 minimum BOTH directions (in and out of X1). Out of X1 the $25 covers
-// Warp's flat $1 fee + our 1% with room for a second LiFi leg if the user is
-// bridging onward past Solana to another chain.
-const X1_REVERSE_MIN = 25;
+// Minimum into X1 — REMOVED 2026-09-02 (fee-model v2): the Teleporter fee is
+// now 0.5% capped at $250, so small bridges are viable — NO floor (kept as 0
+// so the dormant v1 fallback's gate can never block; v1 mirrors v2 policy).
+const X1_MIN = 0;
+// Minimum OUT of X1 — REMOVED 2026-09-02 (fee-model v2): NO floor, same
+// reasoning as X1_MIN (kept as 0 so the v1 gate can never block).
+const X1_REVERSE_MIN = 0;
 // WARP_LIVE gates the REAL Solana→X1 Warp execution (warpBridge.js).
 // false (default) = stage 2 stays in safe demo animation; the real bridge code
 // is NOT fired. Flip to true ONLY after runStage2({allowLive:false}) simulates
 // clean against mainnet and you've confirmed the PDAs + seq. See STAGE2_README.
 const WARP_LIVE = true;
 // SECOND gate: even with WARP_LIVE true, this must ALSO be true to actually
-// broadcast. ENABLED for operator mainnet validation — real bridge_out fires.
-const WARP_LIVE_SEND = true;
+// broadcast.
+// WARP_LIVE_SEND is env-driven — read from src/lib/flags.ts
+// (NEXT_PUBLIC_FLAG_WARP_LIVE_SEND then VITE_WARP_LIVE_SEND, default false).
+// MUST NEVER be true without a working completion path. See step 1.2 — a
+// partial fix enabled burns with no relay behind them.
 // X1 HANDOFF MODE: when AUTO_X1_HOP is false, Teleporter hands users to the
 // official Warp Bridge. TRUE = fire bridge_out ourselves (correct chain-
 // discriminated seq) and let the official submitter auto-relay to X1.
@@ -150,30 +160,17 @@ const SOLANA_RPC =
 const X1_RPC =
   (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_X1_RPC) ||
   "https://rpc.mainnet.x1.xyz";
-// Your SVM fee wallet — where the Warp X1-hop 1% skim lands. (LiFi-collected
+// Your SVM fee wallet — where the Warp X1-hop 0.5% skim lands. (LiFi-collected
 // fees go to the wallets you registered in the LiFi portal; this address is
 // used ONLY for the pure Warp Solana→X1 skim that LiFi doesn't touch.)
-const FEE_WALLET_SVM = "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu"; // "tip" vanity SVM wallet
+const FEE_WALLET_SVM = FEE_WALLETS.SVM; // "tip" vanity SVM wallet — sourced from src/lib/fees.ts (Step 1.3C)
 
-// X1 fee wallet for reverse (X1→Solana) bridge fee collection
-const FEE_WALLET_X1 = "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu";
+// X1 fee wallet for reverse (X1→Solana) bridge fee collection — sourced from src/lib/fees.ts (Step 1.3C)
+const FEE_WALLET_X1 = FEE_WALLETS.X1;
 
-function calcFee(amountUsd) {
-  const n = parseFloat(amountUsd);
-  if (isNaN(n) || n <= 0) return 0;
-  return n < FEE.threshold ? FEE.flat : n * FEE.pct;
-}
-
-// route type from a (from,to) pair — the core routing brain, mirrored
-function determineRoute(from, to) {
-  if (to === "x1") return from === "sol" ? "sol_x1" : "x1";
-  if (from === "x1") {
-    // X1 → Solana is a single Warp burn/release. X1 → any other chain is a
-    // TWO-leg route: Warp burn (X1→Sol) then LiFi (Sol→destination).
-    return to === "sol" ? "x1_reverse" : "x1_onward";
-  }
-  return "direct";
-}
+// route type from a (from,to) pair — the core routing brain, mirrored in
+// src/lib/routes.ts (REVERSE_ENABLED gates all X1-source routes there).
+// routeAdvisory is defined here (below) and uses the imported determineRoute.
 
 // Pre-quote advisory: flags combinations that are KNOWN to be thin on liquidity
 // or route availability, so the user gets an instant heads-up instead of a quote
@@ -521,7 +518,7 @@ function RouteVisualizer({ hops, active, progress }) {
 //  SMALL UI PRIMITIVES
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ChainSelect({ label, value, onChange, exclude }) {
+function ChainSelect({ label, value, onChange, exclude, disabledChains = [] }) {
   return (
     <div style={{ flex: 1 }}>
       <div style={S.fieldLabel}>{label}</div>
@@ -529,6 +526,7 @@ function ChainSelect({ label, value, onChange, exclude }) {
         <select value={value} onChange={(e) => onChange(e.target.value)} style={S.select}>
           {Object.values(CHAINS)
             .filter((c) => c.id !== exclude)
+            .filter((c) => !disabledChains.includes(c.id))
             .map((c) => <option key={c.id} value={c.id} style={S.opt}>{c.glyph === c.name ? c.name : `${c.glyph}  ${c.name}`}</option>)}
         </select>
       </div>
@@ -565,10 +563,6 @@ export default function Teleporter() {
   const [progress, setProgress] = useState(0);
   const [warpSig, setWarpSig] = useState(null);
   const [warpStatus, setWarpStatus] = useState(null);
-  const [pendingRelay, setPendingRelay] = useState(null);
-  const [relayLoading, setRelayLoading] = useState(false);
-  const [relayError, setRelayError] = useState(null);
-  const relayAttemptedRef = useRef(null);
   const [bridgeStage, setBridgeStage] = useState(0); // 0-5 benchmark progress
   const [destTx, setDestTx] = useState(null);        // release/mint tx hash
   const [showSplash, setShowSplash] = useState(true); // landing page gate
@@ -834,58 +828,16 @@ export default function Teleporter() {
   // LiFi returns the Solana tx as a base64 VersionedTransaction in the quote;
   // the connected Solana/X1 wallet signs + sends it via its own RPC.
   const executeLiFiSolanaTx = useCallback(async (lifiData) => {
-    // LiFi returns the Solana tx in different shapes. Try direct locations first.
-    let txReq = lifiData?.transactionRequest
-      || lifiData?.steps?.[0]?.transactionRequest
-      || lifiData?.transactionData
-      || lifiData?.steps?.[0]?.transactionData;
-    let b64 = txReq?.data || txReq?.transaction || (typeof txReq === "string" ? txReq : null);
-
-    // If the quote didn't include the executable tx (common for Solana), ask
-    // LiFi to materialize it via /advanced/stepTransaction using the step.
-    if (!b64) {
-      const step = lifiData?.includedSteps?.[0] || lifiData?.steps?.[0] || lifiData;
-      console.log("[Onward leg2] no tx in quote — calling stepTransaction with step:", step?.id || "(quote)");
-      try {
-        const r = await fetch(`${API_BASE}/api/lifi/stepTransaction`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(step),
-        });
-        const stepData = await r.json();
-        console.log("[Onward leg2] stepTransaction response keys:", Object.keys(stepData || {}));
-        txReq = stepData?.transactionRequest || stepData?.steps?.[0]?.transactionRequest;
-        b64 = txReq?.data || txReq?.transaction || (typeof txReq === "string" ? txReq : null);
-      } catch (e) { console.error("[Onward leg2] stepTransaction failed:", e); }
-    }
-
-    if (!b64) {
-      console.error("[Onward leg2] STILL no tx data. Quote keys:", Object.keys(lifiData || {}),
-        "step0 keys:", Object.keys(lifiData?.steps?.[0] || {}),
-        "transactionRequest:", lifiData?.transactionRequest);
-      throw new Error("LiFi returned no executable Solana transaction for this route");
-    }
-
-    const sol = solWallet?.provider || listSolProviders()[0]?.provider || null;
-    if (!sol?.signAndSendTransaction && !sol?.signTransaction) {
-      throw new Error("Connect your Solana/X1 wallet to sign");
-    }
-
-    const { VersionedTransaction, Connection } = await import("@solana/web3.js");
-    const raw = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const vtx = VersionedTransaction.deserialize(raw);
-    console.log("[Onward leg2] deserialized Solana tx, signing…");
-
-    if (typeof sol.signAndSendTransaction === "function") {
-      const res = await sol.signAndSendTransaction(vtx);
-      const sig = res?.signature || res;
-      console.log("[Onward leg2] sent, sig:", sig);
-      return sig;
-    }
-    const signed = await sol.signTransaction(vtx);
-    const conn = new Connection(SOLANA_RPC, "confirmed");
-    const sig = await conn.sendRawTransaction(signed.serialize(), { maxRetries: 3 });
-    console.log("[Onward leg2] sent via RPC, sig:", sig);
-    return sig;
+    // Delegates to the shared executor (src/lib/lifiSolanaTx.js) — extracted
+    // verbatim in Step 3.1 so the THORChain hop's auto-advance calls the SAME
+    // code path (SOL→USDC same-chain swap) instead of duplicating it.
+    return executeLiFiSolanaTxShared({
+      lifiData,
+      solWallet,
+      listSolProviders,
+      apiBase: API_BASE,
+      solanaRpc: SOLANA_RPC,
+    });
   }, [solWallet, listSolProviders]);
 
   const executeLiFiTx = useCallback(async (lifiData) => {
@@ -925,19 +877,41 @@ export default function Teleporter() {
 
     // ── ERC-20 APPROVAL (the step whose absence caused the Across V4 revert) ──
     // LiFi must be allowed to pull your token before it can bridge it. For any
-    // ERC-20 source (i.e. not the chain's native coin), check the allowance for
-    // the LiFi spender and approve if it's short. Native sends (value-based)
-    // skip this. LiFi tells us the token + spender via the quote's estimate.
+    // ERC-20 source where LiFi says an allowance is needed (estimate.approvalAddress
+    // present), we approve EXACTLY the amount being bridged — never MaxUint256 —
+    // and only AFTER validating the spender:
+    //   1. the approval target must be the SAME contract the bridge tx calls
+    //      (transactionRequest.to),
+    //   2. the tool executing the step must be a tool LiFi lists for the source
+    //      chain in /v1/tools (fetched through our proxy), and
+    //   3. the approval target must be LiFi's pinned Diamond contract for the
+    //      chain (lifiDiamondAllowlist.js) — the independent anchor that
+    //      catches tampered responses which pass 1+2 by being self-consistent.
+    // Any check that fails ABORTS the transaction before anything is signed.
+    // Native sends (value-based) and steps LiFi marks as needing no allowance
+    // (no approvalAddress) skip this entirely.
     try {
-      const action = lifiData?.action || lifiData?.steps?.[0]?.action;
-      const est = lifiData?.estimate || lifiData?.steps?.[0]?.estimate;
+      // Validate against the SAME step object that supplies the bridge tx —
+      // never mix top-level fields with steps[0] fields from different steps.
+      const step = lifiData?.transactionRequest ? lifiData : (lifiData?.steps?.[0] || lifiData);
+      const action = step?.action || {};
+      const est = step?.estimate || {};
       const tokenAddr = action?.fromToken?.address;
-      const spender = est?.approvalAddress || txReq.to; // LiFi gives approvalAddress
-      const fromAmount = action?.fromAmount || est?.fromAmount;
+      const chainId = action?.fromToken?.chainId ?? txReq?.chainId;
       const isNative = !tokenAddr || /^0x0+$/.test(tokenAddr) ||
                        tokenAddr.toLowerCase() === "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
-      if (!isNative && tokenAddr && spender && fromAmount) {
-        const need = BigInt(fromAmount);
+      if (!isNative && est?.approvalAddress) {
+        // Fetch LiFi's tool list for the source chain. Fail-closed: if the
+        // list can't be fetched, validation aborts rather than approving blind.
+        let toolsData = null;
+        try {
+          const cidNum = Number(chainId);
+          const cidParam = Number.isFinite(cidNum) ? String(cidNum) : String(chainId);
+          const toolsRes = await fetch(`${API_BASE}/api/lifi/tools?chains=${encodeURIComponent(cidParam)}`);
+          if (toolsRes.ok) toolsData = await toolsRes.json();
+        } catch (e) { console.error("[LiFi] tools fetch failed:", e); }
+        const { spender, amount } = validateLiFiApproval({ step, toolsData });
+        const need = amount; // EXACT raw source amount from the quote
         // allowance(owner,spender) => 0xdd62ed3e
         const allowData = "0xdd62ed3e" +
           w.addr.slice(2).padStart(64, "0") +
@@ -949,13 +923,13 @@ export default function Teleporter() {
         const current = BigInt(allowanceHex && allowanceHex !== "0x" ? allowanceHex : "0x0");
         if (current < need) {
           flash("Approve token spend first (1 of 2)…", "info");
-          // approve(spender, max) => 0x095ea7b3
-          const maxUint = "f".repeat(64);
-          const approveData = "0x095ea7b3" +
-            spender.slice(2).padStart(64, "0") + maxUint;
-          const approveHash = await w.provider.request({
-            method: "eth_sendTransaction",
-            params: [{ from: w.addr, to: tokenAddr, data: approveData, value: "0x0" }],
+          // approve(spender, amount) — EXACT amount, never MaxUint256.
+          // Simulation-gated (Step 1.3A): the approval is simulated with
+          // eth_call before eth_sendTransaction; a revert blocks the send
+          // and surfaces the actual reason.
+          const approveData = buildApprovalData({ spender, amount: need });
+          const approveHash = await guardedSendEvmTx(w.provider, {
+            from: w.addr, to: tokenAddr, data: approveData, value: "0x0",
           });
           // wait for the approval to confirm before bridging
           flash("Approval sent — waiting for confirmation…", "info");
@@ -964,6 +938,11 @@ export default function Teleporter() {
         }
       }
     } catch (e) {
+      // Spender-validation aborts carry a user-facing message; pass them
+      // through untouched. Simulation rejections (Step 1.3A) also carry the
+      // surfaced revert reason — pass those through too. Everything else is
+      // an approval failure.
+      if (e instanceof LiFiApprovalValidationError || e instanceof SimulationError) throw e;
       throw new Error("Token approval failed: " + (e?.message || e));
     }
 
@@ -975,7 +954,11 @@ export default function Teleporter() {
       value: txReq.value || "0x0",
       ...(txReq.gasLimit ? { gas: typeof txReq.gasLimit === "string" ? txReq.gasLimit : "0x" + BigInt(txReq.gasLimit).toString(16) } : {}),
     }];
-    const txHash = await w.provider.request({ method: "eth_sendTransaction", params });
+    // Simulation-gated send (Step 1.3A): eth_call (+ gas estimate) with the
+    // EXACT params first. If the bridge would revert, eth_sendTransaction is
+    // NEVER called — the SimulationError (with the surfaced revert reason)
+    // propagates to the caller and is flashed to the user.
+    const txHash = await guardedSendEvmTx(w.provider, params[0]);
     return txHash;
   }, [evmWallet, solWallet]);
 
@@ -1166,7 +1149,13 @@ export default function Teleporter() {
   }, []);
 
   const buildLifiQuery = useCallback((feeOverride, amountOverride) => {
-    const effectiveFee = feeOverride != null ? feeOverride : INTEGRATOR_FEE;
+    // POLICY (Step 1.3D): x1-class legs OMIT the LiFi fee param entirely —
+    // absent means absent, no fee=0, no API-interpretation ambiguity (the
+    // stage-2 skim is the only Teleporter fee on the journey). Non-X1 legs
+    // carry fee=0.005 (the integrator IS the once-per-journey Teleporter fee).
+    // The server re-forces the same decision (api/lifi/quote.js).
+    const isX1Leg = routeType === "x1" || routeType === "x1_onward"; // the only x1-class routes with a LiFi leg
+    const effectiveFee = feeOverride != null ? feeOverride : lifiIntegratorFeeFor(routeType);
     const amt = amountOverride != null ? amountOverride : parseFloat(amount);
     // NO PLACEHOLDERS. Quotes use ONLY the real connected wallet addresses.
     // If the wallet for a VM this route touches isn't connected, we return null
@@ -1224,9 +1213,15 @@ export default function Teleporter() {
       toAddress: toAddr, // explicit — required for cross-VM routes
       slippage: String(slippage / 100),
       integrator: INTEGRATOR,
-      fee: String(effectiveFee), // dev fee, collected by LiFi to your account
       order: "CHEAPEST",
     };
+    // POLICY: x1-class legs OMIT the fee key entirely (absent means absent —
+    // never fee=0); non-X1 legs carry fee=0.005. The server re-forces the same
+    // decision (api/lifi/quote.js).
+    if (!isX1Leg) qsObj.fee = String(effectiveFee); // "0.005" on non-X1 legs
+    // x1-class marker — the server validates it (the leg must touch Solana)
+    // and strips any fee param for x1-class journeys; see api/lifi/quote.js.
+    if (isX1Leg) qsObj.x1Class = "1";
     if (crossVm) {
       // Prevent LiFi from building a fragile multi-hop that detours through a
       // THIRD chain (e.g. BNB→Ethereum→Solana via Relay, which was reverting on
@@ -1248,6 +1243,13 @@ export default function Teleporter() {
     if (!amount || parseFloat(amount) <= 0) return flash("Enter an amount", "err");
     if (from === to) return flash("Source and destination must differ", "err");
 
+    // Step 1.2: X1-source routes are gated behind REVERSE_ENABLED. The route
+    // builder already rejects them (determineRoute), but guard the quote path
+    // explicitly so a programmatic call can never price a disabled route.
+    if ((routeType === "x1_reverse" || routeType === "x1_onward") && !REVERSE_ENABLED) {
+      return flash("The X1 → off-ramp is disabled", "err");
+    }
+
     // CONNECT FIRST: quotes use your real wallet address (no placeholders), so
     // require the wallet(s) this route needs before pricing.
     const fromVm = CHAINS[from].walletType, toVm = CHAINS[to].walletType;
@@ -1259,12 +1261,12 @@ export default function Teleporter() {
     const amt = parseFloat(amount);
 
     // Routes that END in a Warp hop into X1 (x1 on-ramp + pure sol_x1) must clear
-    // the bridge's $10 floor AFTER our 1% skim.
+    // the bridge's $10 floor AFTER our 0.5% skim.
     const endsInX1 = routeType === "x1" || routeType === "sol_x1";
     if (endsInX1 && amt < X1_MIN) {
       return flash(`Bridge $${X1_MIN}+ into X1 to get started`, "err");
     }
-    // Reverse (X1→Sol) and onward (X1→other): $25 floor, same as forward.
+    // Reverse (X1→Sol) and onward (X1→other): floor removed 2026-09-02 (fee-model v2).
     if ((routeType === "x1_reverse" || routeType === "x1_onward") && amt < X1_REVERSE_MIN) {
       return flash(`Bridge $${X1_REVERSE_MIN}+ out of X1 to get started`, "err");
     }
@@ -1276,17 +1278,19 @@ export default function Teleporter() {
     const limits = await fetchWarpLimits(WARP_API.mainnet);
     if (limits.ok) setWarpLimits(limits);
 
-    // sol_x1 — pure Warp bridge, no LiFi leg. Our 1% skim. In HANDOFF mode we
+    // sol_x1 — pure Warp bridge, no LiFi leg. Our 0.5% skim. In HANDOFF mode we
     // land USDC on Solana and the user finishes on Warp Bridge (Warp charges
     // their own flat $1 there, so we don't deduct it on our side).
     if (routeType === "sol_x1") {
       await new Promise((r) => setTimeout(r, 400));
-      const ourFee = amt * INTEGRATOR_FEE;          // our 1%, skimmed first
-      const afterSkim = amt - ourFee;               // amount that reaches the user on Solana
+      // POLICY: x1-class Teleporter fee = the 0.5% skim only (integrator 0); Warp's
+      // $1 is a third-party pass-through line. In HANDOFF mode Warp charges their
+      // own $1 on their side, so it's excluded here (not shown, not deducted).
       if (!AUTO_X1_HOP) {
+        const qf = quoteFees({ from, to, routeType, amount: amt }, amt, ["warp-flat"]);
         setQuote({
-          amount: amt, feeUsd: ourFee, bridgeFee: 0,
-          net: Math.max(0, afterSkim),
+          amount: amt, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+          feeLines: qf.feeLines, net: qf.netUsd,
           recvToken: "USDC", recvChain: "Solana",
           note: "Land on Solana → finish on Warp Bridge",
           warpHandoff: true,
@@ -1295,9 +1299,10 @@ export default function Teleporter() {
         setPhase("quoted");
         return;
       }
-      const net = Math.max(0, afterSkim - WARP_FLAT_FEE); // Warp takes flat $1
+      const qf = quoteFees({ from, to, routeType, amount: amt }, amt);
       setQuote({
-        amount: amt, feeUsd: ourFee, bridgeFee: WARP_FLAT_FEE, net,
+        amount: amt, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+        feeLines: qf.feeLines, net: qf.netUsd,
         recvToken: "USDC.x", recvChain: "X1",
         note: "Solana → X1 via Warp Bridge",
         steps: hops.map((h) => ({ name: h.name, tool: "Warp Bridge" })),
@@ -1306,14 +1311,14 @@ export default function Teleporter() {
       return;
     }
 
-    // x1_reverse — X1 → Solana via Warp BURN. No LiFi. Our 1% skim + Warp's
+    // x1_reverse — X1 → Solana via Warp BURN. No LiFi. Our 0.5% skim + Warp's
     // flat 1 USDC.x token fee (deducted inside bridge_out on mainnet).
     if (routeType === "x1_reverse") {
       await new Promise((r) => setTimeout(r, 300));
-      const ourFee = amt * INTEGRATOR_FEE;
-      const net = Math.max(0, amt - ourFee - WARP_FLAT_FEE); // Warp burns net after its $1 fee
+      const qf = quoteFees({ from, to, routeType, amount: amt }, amt);
       setQuote({
-        amount: amt, feeUsd: ourFee, bridgeFee: WARP_FLAT_FEE, net,
+        amount: amt, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+        feeLines: qf.feeLines, net: qf.netUsd,
         recvToken: "USDC", recvChain: "Solana",
         note: "X1 → Solana via Warp Bridge (burn → release)",
         steps: [{ name: "X1", tool: "Warp Bridge" }, { name: "Solana", tool: "Warp Bridge" }],
@@ -1323,16 +1328,16 @@ export default function Teleporter() {
     }
 
     // x1_onward — X1 → other chain. Two legs: Warp burn (X1→Sol) + LiFi
-    // (Sol→destination). Quote shows our 1% + Warp's $1; the LiFi leg's own
+    // (Sol→destination). Quote shows our 0.5% + Warp's fee; the LiFi leg's own
     // fee/slippage is quoted live when leg 2 fires.
     if (routeType === "x1_onward") {
       await new Promise((r) => setTimeout(r, 300));
-      const ourFee = amt * INTEGRATOR_FEE;
-      const afterLeg1 = Math.max(0, amt - ourFee - WARP_FLAT_FEE);
+      const qf = quoteFees({ from, to, routeType, amount: amt }, amt);
       setQuote({
-        amount: amt, feeUsd: ourFee, bridgeFee: WARP_FLAT_FEE, net: afterLeg1,
+        amount: amt, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+        feeLines: qf.feeLines, net: qf.netUsd,
         recvToken: toToken, recvChain: CHAINS[to]?.name || to,
-        note: `X1 → Solana (Warp) → ${CHAINS[to]?.name || to} (LiFi)`,
+        note: `X1 → Solana (Warp) → ${CHAINS[to]?.name || to} (LiFi) — leg-2 LiFi runs with integrator fee 0 (policy); slippage is quoted live when leg 2 fires`,
         twoLeg: true,
         steps: [
           { name: "X1", tool: "Warp Bridge" },
@@ -1344,17 +1349,17 @@ export default function Teleporter() {
       return;
     }
 
-    // DEMO MODE — simulate, no backend needed
+    // DEMO MODE — simulate, no backend needed. Fee lines come from the same
+    // quoteFees() the live paths use, so the demo shows the policy picture
+    // (x1-class: 0.5% skim + Warp's fee third-party line; non-X1: 0.5% once).
     if (DEMO_MODE) {
       await new Promise((r) => setTimeout(r, 650));
-      const feeUsd = amt * INTEGRATOR_FEE;
-      // x1 on-ramp ends in a Warp hop, so it also eats Warp's flat $1.
-      const bridgeFee = routeType === "x1" ? WARP_FLAT_FEE : 0;
-      const net = Math.max(0, amt - feeUsd - bridgeFee);
+      const qf = quoteFees({ from, to, routeType, amount: amt }, amt);
       const recvToken = routeType === "x1" ? "USDC.x" : toToken;
       const recvChain = routeType === "x1" ? "X1" : CHAINS[to].name;
       setQuote({
-        amount: amt, feeUsd, bridgeFee, net, recvToken, recvChain, demo: true,
+        amount: amt, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+        feeLines: qf.feeLines, net: qf.netUsd, recvToken, recvChain, demo: true,
         steps: hops.map((h, i) => ({
           name: h.name,
           tool: h.name === "X1" ? "Warp Bridge" : (routeType === "sol_x1" ? "Warp Bridge" : "LiFi"),
@@ -1367,10 +1372,13 @@ export default function Teleporter() {
     // LIVE MODE — real LiFi call through your proxy.
     // Fee-cap resilience: some integrator tiers cap the fee (e.g. 0.5%). If a
     // quote is rejected in a way that looks fee-related, retry at lower fees so
-    // a cap can never silently break the bridge. We surface which fee actually
-    // worked so you know if you need to request a raise in the LiFi portal.
+    // a cap can never silently break the bridge. POLICY (Step 1.3D): x1-class
+    // routes OMIT the fee param entirely — the stage-2 skim is the only
+    // Teleporter fee — so their ladder is just [null] (no fee param at all);
+    // no integrator fee is ever sent for them.
+    const x1ClassLive = routeType === "x1" || routeType === "x1_onward"; // the only x1-class routes with a LiFi leg
     try {
-      const feeLadder = [INTEGRATOR_FEE, 0.005, 0.0025, 0]; // 1% → 0.5% → 0.25% → 0
+      const feeLadder = x1ClassLive ? [null] : [INTEGRATOR_FEE, 0.005, 0.0025, 0]; // 1% → 0.5% → 0.25% → 0 (non-X1 only)
       let data = null, usedFee = INTEGRATOR_FEE, lastErr = null;
       for (const f of feeLadder) {
         const built = buildLifiQuery(f);
@@ -1394,20 +1402,34 @@ export default function Teleporter() {
         // else loop to the next-lower fee
       }
       if (!data) { flash(lastErr || "Quote failed", "err"); setPhase("idle"); return; }
-      if (usedFee < INTEGRATOR_FEE) {
+      if (!x1ClassLive && usedFee < INTEGRATOR_FEE) {
         flash(`Fee capped at ${(usedFee*100).toFixed(2)}% by LiFi — request a raise in the portal to collect ${(INTEGRATOR_FEE*100).toFixed(0)}%`, "info");
       }
       const outDecimals = routeType === "x1"
         ? TOKENS.sol.USDC.decimals
         : (routeType === "x1_reverse" ? TOKENS[to][toToken].decimals : TOKENS[to][toToken].decimals);
       const out = parseFloat(data.estimate.toAmount) / 10 ** outDecimals;
-      const feeUsd = amt * usedFee; // reflect the fee that actually applied
-      const bridgeFee = routeType === "x1" ? WARP_FLAT_FEE : 0;
       const recvToken = routeType === "x1" ? "USDC.x" : toToken;
       const recvChain = routeType === "x1" ? "X1" : CHAINS[to].name;
 
+      // POLICY quote: every fee line comes from computeFee via quoteFees — no
+      // hardcoded fee math in the quote box. x1-class: LiFi out is pre-skim
+      // (integrator 0), so the stage-2 skim is quoted on what LiFi actually
+      // delivers and "you receive" is honest. Non-X1: LiFi's own estimate
+      // already nets the integrator fee + slippage, so net = out.
+      const route = { from, to, routeType, amount: amt };
+      const qf = x1ClassLive ? quoteFees(route, out) : quoteFees(route, amt);
+      // Non-X1: reflect the fee that actually applied after the cap ladder.
+      const feeLines = qf.feeLines.map((l) =>
+        l.id === "lifi-integrator" && usedFee !== FEE_RATES.LIFI_INTEGRATOR
+          ? { ...l, amountUsd: amt * usedFee } : l);
+      const teleporterFeeUsd = feeLines.filter((l) => l.party === "teleporter").reduce((s, l) => s + l.amountUsd, 0);
+      const thirdPartyFeeUsd = feeLines.filter((l) => l.party === "third-party").reduce((s, l) => s + l.amountUsd, 0);
+      const net = x1ClassLive ? qf.netUsd : Math.max(0, out - thirdPartyFeeUsd);
+
       setQuote({
-        amount: amt, feeUsd, bridgeFee, net: Math.max(0, out - bridgeFee), recvToken, recvChain, lifiData: data, feeUsed: usedFee,
+        amount: amt, feeUsd: teleporterFeeUsd, bridgeFee: thirdPartyFeeUsd, feeLines,
+        net, recvToken, recvChain, lifiData: data, feeUsed: usedFee,
         solanaAmount: out, // what LiFi delivers on Solana — Stage 2 Warp bridges THIS, not the original
         steps: hops.map((h) => ({
           name: h.name,
@@ -1449,6 +1471,13 @@ export default function Teleporter() {
           provider: sol, // the actual connected wallet (Backpack/Phantom/X1) — broadcasts via its own RPC
         });
         if (!res.success) {
+          // Step 1.3A fail-closed: a failed simulation (or a simulation we
+          // couldn't run because the RPC was unreachable) BLOCKS the send.
+          if (res.sim?.simUnavailable) {
+            flash(`Bridge sim couldn't run (RPC: ${res.sim?.rpcError || "unknown"}) — send blocked. Retry when the RPC is reachable.`, "err");
+            setPhase("quoted");
+            return;
+          }
           const logs = res.sim?.logs || [];
           // Full program logs to the console (reachable in-browser). These name
           // the EXACT failing assertion — seq mismatch, account/seed, privilege,
@@ -1478,7 +1507,7 @@ export default function Teleporter() {
           setBridgeStage((s) => Math.max(s, 2)); // "Bridge-out sent" done
           setPhase("relaying");
           flash(`bridge_out sent. Watching guardians + relay… (${sig?.slice(0,8)}…)`, "info");
-          const { pollWarpStatus, verifyX1Mint, WARP_API } = await import("./warpBridge.js");
+          const { pollWarpStatus, verifyX1Mint } = await import("./warpBridge.js");
           const { Connection } = await import("@solana/web3.js");
           const seq = res.built?.seq;
 
@@ -1506,7 +1535,6 @@ export default function Teleporter() {
           })();
 
           const result = await pollWarpStatus(sig, {
-            api: WARP_API.mainnet,
             from: "sol",
             onUpdate: (stage, detail) => {
               setWarpStatus({ stage, detail });
@@ -1558,11 +1586,11 @@ export default function Teleporter() {
     setPhase("bridging"); setProgress(0.6);
     try {
       // Leg 2 bridges what actually LANDED on Solana after leg 1 (Warp burn):
-      // original − 1% skim − Warp flat $1. Use that net, not the original input,
+      // original − 0.5% skim − Warp's fee. Use that net, not the original input,
       // or LiFi would quote/attempt more USDC than the wallet holds.
       const original = parseFloat(amount);
       const netOnSolana = quote?.net != null ? quote.net
-        : Math.max(0, original - original * INTEGRATOR_FEE - WARP_FLAT_FEE);
+        : Math.max(0, original - original * FEE_RATES.X1_HOP_SKIM - FEE_RATES.WARP_FLAT_USD);
       console.log("[Onward leg2] original:", original, "net on Solana:", netOnSolana);
       const built = buildLifiQuery(null, netOnSolana);
       if (!built) { flash("Couldn't build the onward route — is your EVM wallet connected?", "err"); setPhase("step2"); return; }
@@ -1591,71 +1619,6 @@ export default function Teleporter() {
     }
   }, [buildLifiQuery, executeLiFiSolanaTx, pending, updateHistory, clearIntent, to, amount, quote]);
 
-  // Auto-submit reverse relay when guardians sign
-  const executeRelay = useCallback(async () => {
-    if (!pendingRelay) { flash("No pending relay", "err"); return; }
-    setRelayLoading(true);
-    setRelayError(null);
-    try {
-      const { Connection } = await import("@solana/web3.js");
-      const { submitReverseRelay } = await import("./warpBridge.js");
-      const conn = new Connection(SOLANA_RPC || "https://api.mainnet-beta.solana.com", "confirmed");
-      const solProv = solWallet?.provider || listSolProviders()[0]?.provider;
-      if (!solProv?.publicKey) { flash("Connect your Solana wallet to complete the release", "err"); setRelayLoading(false); return; }
-      
-      flash("Simulating release…", "info");
-      const { tx, sim } = await submitReverseRelay(conn, {
-        signatures: pendingRelay.sigs,
-        seq: pendingRelay.seq,
-        sender: pendingRelay.sender,
-        amount: pendingRelay.amount,
-        timestamp: pendingRelay.timestamp,
-        payer: solProv.publicKey,
-        onProgress: (msg) => flash(msg, "info"),
-      });
-      
-      if (!WARP_LIVE_SEND) {
-        flash(`Release ready (sim OK) — set WARP_LIVE_SEND to true to execute`, "info");
-        setRelayLoading(false);
-        return;
-      }
-      
-      flash("Signing and sending…", "info");
-      tx.sign([solProv]);
-      const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-      await conn.confirmTransaction(sig, "confirmed");
-      
-      setPhase("done");
-      setDestTx(sig);
-      setPendingRelay(null);
-      const histId = pendingRelay.histId;
-      if (histId) updateHistory(histId, { status: "done", destTx: sig });
-      flash(`Released ✓ — ${String(sig).slice(0, 8)}…`, "success");
-    } catch (e) {
-      console.group("[Relay] Submission FAILED");
-      console.error("error:", e);
-      console.error("message:", e?.message);
-      console.error("stack:", e?.stack);
-      console.groupEnd();
-      setRelayError(e?.message || "Release failed");
-      flash(`Release failed: ${e?.message}. Check console for full error.`, "err");
-    } finally {
-      setRelayLoading(false);
-    }
-  }, [pendingRelay, solWallet, updateHistory]);
-
-  // Auto-submit reverse relay when guardians sign (defined AFTER executeRelay
-  // so the callback exists — const isn't hoisted, referencing it earlier crashes).
-  // Fires ONCE per transfer (keyed by histId) so a failed relay doesn't loop.
-  useEffect(() => {
-    if (phase === "relay_ready" && pendingRelay && !relayLoading) {
-      const key = pendingRelay.histId || String(pendingRelay.seq);
-      if (relayAttemptedRef.current === key) return; // already tried this one
-      relayAttemptedRef.current = key;
-      executeRelay();
-    }
-  }, [phase, pendingRelay, relayLoading, executeRelay]);
-
   // Dispatcher for the step2 button: x1_onward finishes via LiFi, everything
   // else (forward x1, sol_x1) finishes via the Warp Stage 2.
   const executeStep2 = useCallback(async () => {
@@ -1664,6 +1627,12 @@ export default function Teleporter() {
   }, [routeType, executeOnwardLeg2, executeStage2]);
 
   const execute = useCallback(async () => {
+    // Step 1.2: hard gate on the execute path — reverse routes cannot run
+    // while REVERSE_ENABLED is false, even if invoked programmatically.
+    if ((routeType === "x1_reverse" || routeType === "x1_onward") && !REVERSE_ENABLED) {
+      flash("The X1 → off-ramp is disabled", "err");
+      return;
+    }
     // SAFETY: require the RIGHT real wallet(s) for whatever VMs this route
     // touches, and NEVER let a placeholder address receive real funds.
     const PLACEHOLDER_SOL = "EAj1z4q6RN17BswMK38fADDEJQ5JTqy2WoTdky3drX6X";
@@ -1736,12 +1705,14 @@ export default function Teleporter() {
           const sol = solWallet?.provider || listSolProviders()[0]?.provider || null;
           if (!sol?.publicKey) { flash("Connect your X1 wallet to bridge from X1", "err"); setPhase("quoted"); return; }
           const { Connection, PublicKey } = await import("@solana/web3.js");
-          const { runReverse, WARP_API, pollWarpStatus } = await import("./warpBridge.js");
+          const { runReverse, pollWarpStatus } = await import("./warpBridge.js");
           const connection = new Connection(X1_RPC, "confirmed");
           let amountHuman = quote?.amount ?? pending?.amount;
-          // Deduct Teleporter 1% fee before burning (fee charged on Warp bridge_out).
+          // Deduct Teleporter 0.5% fee before burning (fee charged on Warp bridge_out).
           // The UI already showed the net amount to receive, so we skim it here.
-          const teleporterFee = quote?.feeUsd ? (amountHuman * 0.01) : 0;
+          const teleporterFee = quote?.feeUsd
+            ? computeFee({ from, to, routeType, amount: amountHuman }).component("warp-skim").amountUsd(amountHuman)
+            : 0;
           amountHuman = amountHuman - teleporterFee;
           console.log("[Reverse] starting runReverse amount:", amountHuman, "teleporter fee skimmed:", teleporterFee, "onward:", isOnward);
           const res = await runReverse({
@@ -1771,7 +1742,7 @@ export default function Teleporter() {
             // timers: "Guardians signed" / "Released on Solana" must NEVER show
             // unless the bridge actually reports guardian sigs and a dest tx.
             const poll = await pollWarpStatus(sig, {
-              api: WARP_API.mainnet, from: "x1", maxMs: 300000,
+              from: "x1", maxMs: 300000,
               onUpdate: (stage, detail) => {
                 setWarpStatus({ stage, detail });
                 if (stage === "status") setBridgeStage((s) => Math.max(s, 3));               // detected on X1
@@ -1794,23 +1765,14 @@ export default function Teleporter() {
                 flash(`USDC released on Solana ✓ — dest ${String(poll.destinationTx).slice(0, 8)}…`, "success");
               }
             } else {
-              // NOT released yet. If guardians signed, offer a self-relay button.
+              // NOT released yet. No self-relay: the reverse completion path
+              // was removed in step 1.2 (the auto-submit block is deleted).
+              // Funds stay safe until the official submitter completes.
               updateHistory(histId, { status: poll?.terminal ? "failed" : "relaying" });
               rememberIntent({ routeType, from, to, token, toToken, amount: quote?.amount, solanaAmount: quote?.solanaAmount,
                 recvToken: quote?.recvToken, recvChain: quote?.recvChain, stage: "awaiting_relay", histId, warpSig: sig, ts: Date.now() });
-              
-              // If guardians signed, auto-submit the release (no extra button).
-              if (warpStatus?.stage === "guardians_signing" && (warpStatus?.detail?.sigs?.length || 0) > 0) {
-                const sigs = warpStatus.detail.sigs;
-                console.log("[Reverse] Guardians signed, auto-submitting relay…");
-                flash(`Guardians signed (${sigs.length} sigs) — submitting release…`, "info");
-                // Store for auto-submit and fire immediately
-                setPendingRelay({ sigs, seq: BigInt(quote?.seq || 0), sender: Buffer.from(quote?.sender || "", "base64"), amount: quote?.amount || 0, timestamp: quote?.timestamp || 0, histId });
-                setPhase("relay_ready");
-              } else {
-                setPhase("relaying");
-                flash(`Waiting for guardians to sign. Source: ${String(sig).slice(0, 10)}…`, "info");
-              }
+              setPhase("relaying");
+              flash(`Waiting for guardians to sign. Source: ${String(sig).slice(0, 10)}…`, "info");
             }
           }
         } catch (e) {
@@ -1860,6 +1822,12 @@ export default function Teleporter() {
         console.groupEnd();
         updateHistory(histId, { status: "failed" });
         setPhase("quoted");
+        // Step 1.3A: a SimulationError already carries the surfaced revert /
+        // program reason — flash it verbatim (no generic "transaction failed").
+        if (e instanceof SimulationError) {
+          flash(e.message, "err");
+          return;
+        }
         const isReject = e?.message?.includes("reject") || e?.code === 4001 || e?.message?.includes("User rejected");
         const msg = isReject ? "Transaction rejected by wallet" : (e?.message || "Send failed");
         flash(`${msg}. Check console for full error.`, "err");
@@ -1890,19 +1858,31 @@ export default function Teleporter() {
   // resume an interrupted hop from the recovery banner
   const resumePending = useCallback(() => {
     if (!pending) return;
+    // Step 1.2: refuse to resume an X1-source intent while the reverse
+    // off-ramp is disabled (stored intents may predate the flag).
+    if (pending.from === "x1" && !REVERSE_ENABLED) {
+      flash("The X1 → off-ramp is disabled — this pending route can't be resumed", "err");
+      clearIntent();
+      return;
+    }
     // restore the form to the pending route and jump to stage 2
     setFrom(pending.from); setTo(pending.to);
     setToken(pending.token); setToToken(pending.toToken);
     setAmount(String(pending.amount || ""));
+    // POLICY: rebuild the fee picture from computeFee for the PENDING route
+    // (not the current form state, which hasn't been set yet).
+    const rt = determineRoute(pending.from, pending.to);
+    const amt = pending.amount || 0;
+    const qf = quoteFees({ from: pending.from, to: pending.to, routeType: rt, amount: amt }, amt);
     setQuote({
-      amount: pending.amount, feeUsd: (pending.amount || 0) * INTEGRATOR_FEE,
-      net: (pending.amount || 0) * (1 - INTEGRATOR_FEE),
+      amount: pending.amount, feeUsd: qf.teleporterFeeUsd, bridgeFee: qf.thirdPartyFeeUsd,
+      feeLines: qf.feeLines, net: qf.netUsd,
       recvToken: pending.recvToken, recvChain: pending.recvChain,
       steps: [], resumed: true,
     });
     setPhase("step2");
     flash("Resuming your X1 hop — approve Stage 2", "info");
-  }, [pending]);
+  }, [pending, clearIntent]);
 
   const reset = () => { setPhase("idle"); setQuote(null); setProgress(0); setTrackStatus(null); setRouteDetail(null); };
 
@@ -2058,11 +2038,13 @@ export default function Teleporter() {
                 inputMode="decimal" style={S.slipInput} />
             </div>
 
-            <div style={S.fieldLabel}>Bridge fee</div>
+            <div style={S.fieldLabel}>Fees</div>
             <div style={{ fontSize: 13, color: "#9aa6bb", lineHeight: 1.5 }}>
-              A {(INTEGRATOR_FEE * 100).toFixed(0)}% fee is included in every quote, collected by LiFi
-              on routes through an EVM chain, and at mint on the Solana↔X1 hop.
-              The quote's "you receive" already reflects it — no hidden charges.
+              Teleporter's fee is 0.5% per journey (max $250), charged once. On
+              X1 routes it's the pre-bridge skim (the LiFi integrator fee is 0);
+              on non-X1 routes it's the LiFi integrator fee. Warp's bridge fee
+              (USDC.x flat $1 / wSOL.X 0.25%) is a third-party pass-through. The
+              quote shows every line, and "you receive" reflects them all.
             </div>
           </div>
         )}
@@ -2071,8 +2053,15 @@ export default function Teleporter() {
         <div style={S.card}>
           {/* from / to selectors */}
           <div style={{ display: "flex", gap: 12, alignItems: "flex-end" }}>
-            <ChainSelect label="From" value={from} onChange={setFrom} exclude={to} />
-            <button style={S.swapBtn} onClick={() => { const f = from; setFrom(to); setTo(f); }}>⇄</button>
+            <ChainSelect label="From" value={from} onChange={setFrom} exclude={to}
+              disabledChains={REVERSE_ENABLED ? [] : ["x1"]} />
+            <button style={S.swapBtn} onClick={() => {
+              const f = from; const t = to;
+              // Step 1.2: swapping INTO an X1 source would construct a
+              // disabled reverse route — block it while the flag is off.
+              if (t === "x1" && !REVERSE_ENABLED) { flash("The X1 → off-ramp is disabled", "err"); return; }
+              setFrom(t); setTo(f);
+            }}>⇄</button>
             <ChainSelect label="To" value={to} onChange={setTo} exclude={from} />
           </div>
 
@@ -2104,12 +2093,12 @@ export default function Teleporter() {
                 placeholder="0.00" style={S.amountInput} />
               {(routeType === "x1" || routeType === "sol_x1") && (
                 <div style={{ fontSize: 11, color: "#5B9DFF", marginTop: 6, paddingLeft: 2 }}>
-                  Bridge ${X1_MIN}+ into X1 to get started
+                  No minimum to bridge into X1 (fee 0.5%, max $250)
                 </div>
               )}
               {(routeType === "x1_reverse" || routeType === "x1_onward") && (
                 <div style={{ fontSize: 11, color: "#5B9DFF", marginTop: 6, paddingLeft: 2 }}>
-                  Bridge ${X1_REVERSE_MIN}+ out of X1 to get started
+                  No minimum out of X1 (fee 0.5%, max $250)
                 </div>
               )}
             </div>
@@ -2133,14 +2122,17 @@ export default function Teleporter() {
             <RouteVisualizer hops={hops} active={active} progress={progress} />
           </div>
 
-          {/* quote panel */}
+          {/* quote panel — every fee line renders from computeFee (via
+              quote.feeLines), never a hardcoded fee string: the Teleporter fee,
+              the "Warp bridge fee" third-party line, and any future
+              THORChain/provider costs appear automatically once their
+              components land in src/lib/fees.ts. */}
           {quote && (
             <div style={S.quoteBox}>
               <Row k="You send" v={`${quote.amount} ${token} on ${CHAINS[from].name}`} />
-              <Row k={quote.feeUsd > 0 ? "Teleporter fee (1%)" : "Fee"} v={`$${(quote.feeUsd || 0).toFixed(2)}`} dim />
-              {quote.bridgeFee > 0 && (
-                <Row k="X1 bridge fee" v={`$${quote.bridgeFee.toFixed(2)}`} dim />
-              )}
+              {(quote.feeLines || []).map((l) => (
+                <Row key={l.id} k={l.label} v={`$${l.amountUsd.toFixed(2)}`} dim />
+              ))}
               <Row k="You receive" v={`≈ ${quote.net.toFixed(2)} ${quote.recvToken} on ${quote.recvChain}`} hi />
               {quote.note && <div style={{ fontSize: 11, color: "#7d8aa0", marginTop: 4 }}>{quote.note}</div>}
               {warpLimits?.ok && (warpLimits.sol.outflow > 0 || warpLimits.x1.outflow > 0) && (
@@ -2235,16 +2227,6 @@ export default function Teleporter() {
                  style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)", textDecoration: "none", display: "block", textAlign: "center" }}>
                 🌉 Open Warp Bridge to finish → X1
               </a>
-            ) : phase === "relay_ready" ? (
-              relayError ? (
-                <button style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)" }} onClick={executeRelay} disabled={relayLoading}>
-                  {relayLoading ? "Completing release…" : "↻ Retry release"}
-                </button>
-              ) : (
-                <button style={{ ...S.cta, background: "linear-gradient(90deg,#1B5FCC,#5B9DFF)", opacity: 0.7 }} disabled>
-                  Completing release…
-                </button>
-              )
             ) : phase === "done" ? (
               <button style={{ ...S.cta, background: "#16321f", color: "#5ee08a", borderColor: "#1f6b3a" }} onClick={reset}>
                 ✓ Complete — bridge again

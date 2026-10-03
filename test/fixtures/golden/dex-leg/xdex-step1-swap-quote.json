@@ -1,0 +1,22 @@
+{
+  "step": "xdex-step1-swap-quote",
+  "artifact": {
+    "pool": "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
+    "programId": "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN",
+    "inputMint": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
+    "outputMint": "So11111111111111111111111111111111111111112",
+    "amountInRaw": "5000000",
+    "slippageBps": 10000,
+    "tradeFeeRate": "2800",
+    "tradeFeeRaw": "14000",
+    "netInRaw": "4986000",
+    "outRaw": "12531771639",
+    "outHuman": 12.531771639,
+    "minOutRaw": "0",
+    "priceImpactBps": 43
+  },
+  "sha256": "5556ecca3de3e8cdc2708d9ebfd8fbcc446b41d89840198698467497fcfb855c",
+  "meta": {
+    "note": "The XDEX constant-product quote (CP curve — fee on input): tradeFee = ceil(in × 2800/1e6) from the LIVE AmmConfig decode, out = floor(Rout × net / (Rin + net)) on the LIVE vault raw balances. The sample = the LIVE ANCHOR swap (tx 65xjdHVd…, slot 76,014,947 — 5 USDC.x in): slippageBps 10000 reproduces the anchor's min_out = 0 byte-for-byte (a real flow passes the operator's slippage policy; leg default 100 bps). Deterministic FROM the frozen pool snapshot (refresh the snapshot on first live use)."
+  }
+}

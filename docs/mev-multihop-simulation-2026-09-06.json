@@ -1,0 +1,1543 @@
+{
+  "title": "MULTI-HOP route-choice capture SIMULATION — real per-hop venue quotes, zero trades (the framing correction)",
+  "date": "2026-09-06T23:21:20.759Z",
+  "gate": {
+    "MEV_CAPTURE_ENABLED": false,
+    "label": "gated OFF",
+    "note": "observation + report only — nothing executable; the live arm is Mr. Esters' alone (mirror of WARP_LIVE_SEND)"
+  },
+  "feePolicy": {
+    "note": "capture value here = ROUTE-CHOICE improvement (best venue per hop vs the routed venue), net of per-leg explicit cost deltas; pool/bridge fees are netted inside every quote (never double counted). fee-model-v2 (0.5% capped $250 once-per-journey, src/lib/fees.ts) applies to USER journeys regardless of venue choice and cancels out of every venue comparison; the Warp skim (0.5%) is invariant across venue choices. CAPTURE_FEE_POLICY_BPS default 0 — see src/lib/mev/gapDetector.js."
+  },
+  "method": {
+    "rounds": 3,
+    "routesPerRound": 7,
+    "sizes": "~$2,500 journeys (25 SOL / 1 WETH / 2,500 USDC) + one ~$10,000 size-effect route (98 SOL)",
+    "venues": {
+      "evm": "LiFi keyless quote API (aggregator) vs Uniswap v3 QuoterV2 eth_call f500 (direct) — WETH→USDC on Ethereum",
+      "bridge": "LiFi EVM→Solana USDC (keyless — one serving carrier observed this run; THORChain hosts egress-blocked, Rango mainnet server-keyed → native→SOL legs documented with the repo's REAL Rango capture 2026-09-05, not re-quoted)",
+      "sol": "Jupiter (aggregator, keyless) vs Orca whirlpool + Raydium CLMM pool-state walks (getAccountInfo + the legs' pure quote math) — SOL↔USDC",
+      "ape": "Jupiter vs Raydium CPMM direct (pool-state walk) — USDC→EXOTIC(sol) on a real low-liquidity token (DvjbE…/USDC)",
+      "x1": "XDEX (X1's only DEX) — the SOL/B69ch… pool: vault balances refreshed live this round (official SPL layout), static pool fields + fee config = the repo's frozen 2026-09-02 capture",
+      "warp": "the Warp hop (0.5% skim — documented invariant; not live-quoted)"
+    },
+    "usd": "real same-round rates only: stable pairs ≈ $1 by peg construction (~1e-3 tolerance); SOL via the round's real SOL→USDC venue rates; EXOTIC(sol) via the round's real Jupiter USDC→EXOTIC rate; EXOTIC(x1) via the XDEX pool's real reserves × the round's real SOL price. No synthetic prices. Reporting only — never on a money path.",
+    "honesty": [
+      "every leg's venues are quoted at the SAME amountIn (the size the CHOSEN path delivers); when the best venue differs, downstream legs would carry slightly more — per-leg deltas are measured at the leg's actual routed size (the analyzer flags rate-implied math per leg when sizes differ)",
+      "legs are quoted SEQUENTIALLY (read-only calls); markets move between reads — the recorded deltas are per-snapshot math, not a guaranteed same-instant execution",
+      "pool/bridge fees are netted inside the quotes (never double counted)",
+      "quotes are market data — they move; fixtures are dated 2026-09-06"
+    ]
+  },
+  "summary": {
+    "total": 21,
+    "wouldCapture": 15,
+    "economicallyCapturable": 11,
+    "singleVenue": 0,
+    "alreadyOptimal": 6,
+    "costNotCleared": 0,
+    "belowEconomicBar": 4,
+    "perLegGapBps": {
+      "min": 0,
+      "max": 16,
+      "avg": 5.454545454545454,
+      "distribution": [
+        {
+          "label": "0-1bps",
+          "count": 13
+        },
+        {
+          "label": "1-5bps",
+          "count": 8
+        },
+        {
+          "label": "5-20bps",
+          "count": 12
+        },
+        {
+          "label": "20-+bps",
+          "count": 0
+        }
+      ]
+    },
+    "routeNetUsd": {
+      "min": 0,
+      "max": 7.9477,
+      "avg": 2.819752380952381
+    },
+    "routeNetBps": {
+      "min": 0,
+      "max": 12.2145,
+      "avg": 4.092814285714286
+    },
+    "legsAnalyzed": 51,
+    "legsWithVenueChoice": 33
+  },
+  "routes": [
+    {
+      "round": 1,
+      "routeId": "sol-ape-2500-down",
+      "failed": null,
+      "legend": "SOL → USDC → EXOTIC(sol) @ ~$2,550 (25 SOL). Aggregator-DOWN routing: orca then the direct CPMM — the DEX_DIRECT_FALLBACKS scenario. Destination: a real low-liquidity Solana token (Raydium CPMM pool DvjbE…/USDC).",
+      "started": "2026-09-06T23:20:33.278Z"
+    },
+    {
+      "round": 1,
+      "routeId": "sol-ape-2500-up",
+      "failed": null,
+      "legend": "SOL → USDC → EXOTIC(sol) @ ~$2,550. Aggregator-UP routing (jupiter both legs — the DEX_DIRECT_FALLBACKS default). Contrast: when the aggregator is up AND best, route-choice value ≈ 0.",
+      "started": "2026-09-06T23:20:34.191Z"
+    },
+    {
+      "round": 1,
+      "routeId": "sol-ape-10000-down",
+      "failed": null,
+      "legend": "SOL → USDC → EXOTIC(sol) @ ~$10,000 (98 SOL). Aggregator-DOWN — the SIZE effect on the exotic leg's venue spread (the ape case at a bigger notional).",
+      "started": "2026-09-06T23:20:38.154Z"
+    },
+    {
+      "round": 1,
+      "routeId": "btc-ape-2500-down",
+      "failed": null,
+      "legend": "NATIVE-SOURCE ape (BTC → SOL → USDC → EXOTIC(sol), ~$2,550). The BTC→SOL leg is NOT re-quotable in this environment (Rango mainnet = server-keyed; THORChain hosts = egress-blocked; REAL Rango capture 2026-09-05 pinned in test/fixtures/golden/rango-leg/) — the measurable venue choice is the SOL-side journey the native rail lands into. Aggregator-DOWN routing on the Solana legs.",
+      "started": "2026-09-06T23:20:38.154Z"
+    },
+    {
+      "round": 1,
+      "routeId": "evm-ape-2500-down",
+      "failed": null,
+      "legend": "EVM ape (WETH → USDC on Ethereum → LiFi bridge → USDC on Solana → EXOTIC(sol)) @ ~$2,550. Leg 1 = the EVM aggregator-vs-direct venue choice (lifi vs uniswap v3 f500 — DEX_DIRECT_FALLBACKS.evm.eth). Leg 2 = the EVM→SOL bridge (one serving carrier today — single venue, contributes 0, honest). Leg 3 = the Solana ape leg. Aggregator-DOWN routing on legs 1 + 3.",
+      "started": "2026-09-06T23:20:41.341Z"
+    },
+    {
+      "round": 1,
+      "routeId": "evm-x1-stable-2500-down",
+      "failed": null,
+      "legend": "EVM stable → X1 (the bridge's REAL flow to a STABLE destination — USDC.x via the Warp hop; the 0.5% Warp skim is invariant across venue choices and documented, not quoted). Leg 1 = the EVM aggregator-vs-direct swap; leg 2 = the bridge. No exotic destination — the honest control: stable-heavy journeys carry only the liquid-pair venue deltas.",
+      "started": "2026-09-06T23:20:41.341Z"
+    },
+    {
+      "round": 1,
+      "routeId": "x1-exotic-2500-down",
+      "failed": null,
+      "legend": "EVM stable → X1 EXOTIC (USDC on Ethereum → LiFi → USDC on Solana → SOL on Solana → Warp → wSOL.X on X1 → XDEX → EXOTIC(x1) B69ch…, ~$2,550) — the full 'land as any token' flow to a fresh X1 token. Leg 2 = the Solana USDC→SOL venue choice (aggregator-DOWN: orca routed); legs 1/3/4 = single-venue rails (bridge / Warp / X1's only DEX — contribute 0, honest: X1 has ONE DEX, so route-choice value concentrates on the Solana-side legs). The Warp hop (0.5% skim) is documented, not quoted; the XDEX leg is quoted live (vault balances refreshed this round) at the journey size.",
+      "started": "2026-09-06T23:20:43.190Z"
+    },
+    {
+      "round": 2,
+      "routeId": "sol-ape-2500-down",
+      "failed": null,
+      "legend": "SOL → USDC → EXOTIC(sol) @ ~$2,550 (25 SOL). Aggregator-DOWN routing: orca then the direct CPMM — the DEX_DIRECT_FALLBACKS scenario. Destination: a real low-liquidity Solana token (Raydium CPMM pool DvjbE…/USDC).",
+      "started": "2026-09-06T23:20:51.512Z"
+    },
+    {
+      "round": 2,
+      "routeId": "sol-ape-2500-up",
+      "failed": null,
+      "legend": "SOL → USDC → EXOTIC(sol) @ ~$2,550. Aggregator-UP routing (jupiter both legs — the DEX_DIRECT_FALLBACKS default). Contrast: when the aggregator is up AND best, route-choice value ≈ 0.",
+      "started": "2026-09-06T23:20:52.425Z"
+    },
+    {
+      "round": 2,
+      "routeId": "sol-ape-10000-down",
+      "failed": null,
+      "legend": "SOL → USDC → EXOTIC(sol) @ ~$10,000 (98 SOL). Aggregator-DOWN — the SIZE effect on the exotic leg's venue spread (the ape case at a bigger notional).",
+      "started": "2026-09-06T23:20:56.392Z"
+    },
+    {
+      "round": 2,
+      "routeId": "btc-ape-2500-down",
+      "failed": null,
+      "legend": "NATIVE-SOURCE ape (BTC → SOL → USDC → EXOTIC(sol), ~$2,550). The BTC→SOL leg is NOT re-quotable in this environment (Rango mainnet = server-keyed; THORChain hosts = egress-blocked; REAL Rango capture 2026-09-05 pinned in test/fixtures/golden/rango-leg/) — the measurable venue choice is the SOL-side journey the native rail lands into. Aggregator-DOWN routing on the Solana legs.",
+      "started": "2026-09-06T23:20:56.392Z"
+    },
+    {
+      "round": 2,
+      "routeId": "evm-ape-2500-down",
+      "failed": null,
+      "legend": "EVM ape (WETH → USDC on Ethereum → LiFi bridge → USDC on Solana → EXOTIC(sol)) @ ~$2,550. Leg 1 = the EVM aggregator-vs-direct venue choice (lifi vs uniswap v3 f500 — DEX_DIRECT_FALLBACKS.evm.eth). Leg 2 = the EVM→SOL bridge (one serving carrier today — single venue, contributes 0, honest). Leg 3 = the Solana ape leg. Aggregator-DOWN routing on legs 1 + 3.",
+      "started": "2026-09-06T23:20:59.526Z"
+    },
+    {
+      "round": 2,
+      "routeId": "evm-x1-stable-2500-down",
+      "failed": null,
+      "legend": "EVM stable → X1 (the bridge's REAL flow to a STABLE destination — USDC.x via the Warp hop; the 0.5% Warp skim is invariant across venue choices and documented, not quoted). Leg 1 = the EVM aggregator-vs-direct swap; leg 2 = the bridge. No exotic destination — the honest control: stable-heavy journeys carry only the liquid-pair venue deltas.",
+      "started": "2026-09-06T23:20:59.526Z"
+    },
+    {
+      "round": 2,
+      "routeId": "x1-exotic-2500-down",
+      "failed": null,
+      "legend": "EVM stable → X1 EXOTIC (USDC on Ethereum → LiFi → USDC on Solana → SOL on Solana → Warp → wSOL.X on X1 → XDEX → EXOTIC(x1) B69ch…, ~$2,550) — the full 'land as any token' flow to a fresh X1 token. Leg 2 = the Solana USDC→SOL venue choice (aggregator-DOWN: orca routed); legs 1/3/4 = single-venue rails (bridge / Warp / X1's only DEX — contribute 0, honest: X1 has ONE DEX, so route-choice value concentrates on the Solana-side legs). The Warp hop (0.5% skim) is documented, not quoted; the XDEX leg is quoted live (vault balances refreshed this round) at the journey size.",
+      "started": "2026-09-06T23:21:02.997Z"
+    },
+    {
+      "round": 3,
+      "routeId": "sol-ape-2500-down",
+      "failed": null,
+      "legend": "SOL → USDC → EXOTIC(sol) @ ~$2,550 (25 SOL). Aggregator-DOWN routing: orca then the direct CPMM — the DEX_DIRECT_FALLBACKS scenario. Destination: a real low-liquidity Solana token (Raydium CPMM pool DvjbE…/USDC).",
+      "started": "2026-09-06T23:21:11.331Z"
+    },
+    {
+      "round": 3,
+      "routeId": "sol-ape-2500-up",
+      "failed": null,
+      "legend": "SOL → USDC → EXOTIC(sol) @ ~$2,550. Aggregator-UP routing (jupiter both legs — the DEX_DIRECT_FALLBACKS default). Contrast: when the aggregator is up AND best, route-choice value ≈ 0.",
+      "started": "2026-09-06T23:21:12.243Z"
+    },
+    {
+      "round": 3,
+      "routeId": "sol-ape-10000-down",
+      "failed": null,
+      "legend": "SOL → USDC → EXOTIC(sol) @ ~$10,000 (98 SOL). Aggregator-DOWN — the SIZE effect on the exotic leg's venue spread (the ape case at a bigger notional).",
+      "started": "2026-09-06T23:21:16.195Z"
+    },
+    {
+      "round": 3,
+      "routeId": "btc-ape-2500-down",
+      "failed": null,
+      "legend": "NATIVE-SOURCE ape (BTC → SOL → USDC → EXOTIC(sol), ~$2,550). The BTC→SOL leg is NOT re-quotable in this environment (Rango mainnet = server-keyed; THORChain hosts = egress-blocked; REAL Rango capture 2026-09-05 pinned in test/fixtures/golden/rango-leg/) — the measurable venue choice is the SOL-side journey the native rail lands into. Aggregator-DOWN routing on the Solana legs.",
+      "started": "2026-09-06T23:21:16.195Z"
+    },
+    {
+      "round": 3,
+      "routeId": "evm-ape-2500-down",
+      "failed": null,
+      "legend": "EVM ape (WETH → USDC on Ethereum → LiFi bridge → USDC on Solana → EXOTIC(sol)) @ ~$2,550. Leg 1 = the EVM aggregator-vs-direct venue choice (lifi vs uniswap v3 f500 — DEX_DIRECT_FALLBACKS.evm.eth). Leg 2 = the EVM→SOL bridge (one serving carrier today — single venue, contributes 0, honest). Leg 3 = the Solana ape leg. Aggregator-DOWN routing on legs 1 + 3.",
+      "started": "2026-09-06T23:21:19.033Z"
+    },
+    {
+      "round": 3,
+      "routeId": "evm-x1-stable-2500-down",
+      "failed": null,
+      "legend": "EVM stable → X1 (the bridge's REAL flow to a STABLE destination — USDC.x via the Warp hop; the 0.5% Warp skim is invariant across venue choices and documented, not quoted). Leg 1 = the EVM aggregator-vs-direct swap; leg 2 = the bridge. No exotic destination — the honest control: stable-heavy journeys carry only the liquid-pair venue deltas.",
+      "started": "2026-09-06T23:21:19.033Z"
+    },
+    {
+      "round": 3,
+      "routeId": "x1-exotic-2500-down",
+      "failed": null,
+      "legend": "EVM stable → X1 EXOTIC (USDC on Ethereum → LiFi → USDC on Solana → SOL on Solana → Warp → wSOL.X on X1 → XDEX → EXOTIC(x1) B69ch…, ~$2,550) — the full 'land as any token' flow to a fresh X1 token. Leg 2 = the Solana USDC→SOL venue choice (aggregator-DOWN: orca routed); legs 1/3/4 = single-venue rails (bridge / Warp / X1's only DEX — contribute 0, honest: X1 has ONE DEX, so route-choice value concentrates on the Solana-side legs). The Warp hop (0.5% skim) is documented, not quoted; the XDEX leg is quoted live (vault balances refreshed this round) at the journey size.",
+      "started": "2026-09-06T23:21:20.757Z"
+    }
+  ],
+  "detections": [
+    {
+      "round": 1,
+      "routeId": "sol-ape-2500-down",
+      "routeGapBps": 12.2145,
+      "routeNetBps": 12.2145,
+      "routeGapUsd": 6.4917,
+      "routeNetUsd": 6.4917,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 7,
+          "gapUsd": 2.1163,
+          "netUsd": 2.1163,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 16,
+          "gapUsd": 4.3754,
+          "netUsd": 4.3754,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "routeId": "sol-ape-2500-up",
+      "routeGapBps": 0,
+      "routeNetBps": 0,
+      "routeGapUsd": 0,
+      "routeNetUsd": 0,
+      "routeUsdPartial": false,
+      "wouldCapture": false,
+      "whyNot": "already-optimal: every multi-venue leg was already routed through its best venue — the engine left nothing on the table",
+      "economical": false,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "jupiter",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "jupiter",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "routeId": "sol-ape-10000-down",
+      "routeGapBps": 3.8901,
+      "routeNetBps": 3.8901,
+      "routeGapUsd": 7.9477,
+      "routeNetUsd": 7.9477,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "raydium-cpmm"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 7,
+          "gapUsd": 7.9477,
+          "netUsd": 7.9477,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "raydium-cpmm",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "routeId": "btc-ape-2500-down",
+      "routeGapBps": 12.2145,
+      "routeNetBps": 12.2145,
+      "routeGapUsd": 6.4917,
+      "routeNetUsd": 6.4917,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 7,
+          "gapUsd": 2.1163,
+          "netUsd": 2.1163,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 16,
+          "gapUsd": 4.3754,
+          "netUsd": 4.3754,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "routeId": "evm-ape-2500-down",
+      "routeGapBps": 5.268,
+      "routeNetBps": 5.268,
+      "routeGapUsd": 3.9604,
+      "routeNetUsd": 3.9604,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "uniswap"
+        },
+        {
+          "hop": 2,
+          "venue": "lifi"
+        },
+        {
+          "hop": 3,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "WETH",
+          "to": "USDC",
+          "chain": "eth",
+          "kind": "swap",
+          "venueChosen": "uniswap",
+          "venueBest": "uniswap",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "USDC",
+          "chain": "eth→sol",
+          "kind": "bridge",
+          "venueChosen": "lifi",
+          "venueBest": "lifi",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        },
+        {
+          "hop": 3,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 15,
+          "gapUsd": 3.9604,
+          "netUsd": 3.9604,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "routeId": "evm-x1-stable-2500-down",
+      "routeGapBps": 0,
+      "routeNetBps": 0,
+      "routeGapUsd": 0,
+      "routeNetUsd": 0,
+      "routeUsdPartial": false,
+      "wouldCapture": false,
+      "whyNot": "already-optimal: every multi-venue leg was already routed through its best venue — the engine left nothing on the table",
+      "economical": false,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "uniswap"
+        },
+        {
+          "hop": 2,
+          "venue": "lifi"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "WETH",
+          "to": "USDC",
+          "chain": "eth",
+          "kind": "swap",
+          "venueChosen": "uniswap",
+          "venueBest": "uniswap",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "USDC",
+          "chain": "eth→sol",
+          "kind": "bridge",
+          "venueChosen": "lifi",
+          "venueBest": "lifi",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 1,
+      "routeId": "x1-exotic-2500-down",
+      "routeGapBps": 0.064,
+      "routeNetBps": 0.064,
+      "routeGapUsd": 0.0636,
+      "routeNetUsd": 0.0636,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": false,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "lifi"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 3,
+          "venue": "warp"
+        },
+        {
+          "hop": 4,
+          "venue": "xdex"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "USDC",
+          "to": "USDC",
+          "chain": "eth→sol",
+          "kind": "bridge",
+          "venueChosen": "lifi",
+          "venueBest": "lifi",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "SOL",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0.0636,
+          "netUsd": 0.0636,
+          "exact": true
+        },
+        {
+          "hop": 3,
+          "from": "SOL",
+          "to": "wSOL.X",
+          "chain": "sol→x1",
+          "kind": "bridge",
+          "venueChosen": "warp",
+          "venueBest": "warp",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        },
+        {
+          "hop": 4,
+          "from": "wSOL.X",
+          "to": "EXOTIC(x1)",
+          "chain": "x1",
+          "kind": "swap",
+          "venueChosen": "xdex",
+          "venueBest": "xdex",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "routeId": "sol-ape-2500-down",
+      "routeGapBps": 8.8192,
+      "routeNetBps": 8.8192,
+      "routeGapUsd": 4.6882,
+      "routeNetUsd": 4.6882,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 1,
+          "gapUsd": 0.311,
+          "netUsd": 0.311,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 16,
+          "gapUsd": 4.3772,
+          "netUsd": 4.3772,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "routeId": "sol-ape-2500-up",
+      "routeGapBps": 0,
+      "routeNetBps": 0,
+      "routeGapUsd": 0,
+      "routeNetUsd": 0,
+      "routeUsdPartial": false,
+      "wouldCapture": false,
+      "whyNot": "already-optimal: every multi-venue leg was already routed through its best venue — the engine left nothing on the table",
+      "economical": false,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "jupiter",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "jupiter",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "routeId": "sol-ape-10000-down",
+      "routeGapBps": 0.5818,
+      "routeNetBps": 0.5818,
+      "routeGapUsd": 1.1888,
+      "routeNetUsd": 1.1888,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": false,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "raydium-cpmm"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 1,
+          "gapUsd": 1.1888,
+          "netUsd": 1.1888,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "raydium-cpmm",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "routeId": "btc-ape-2500-down",
+      "routeGapBps": 8.8192,
+      "routeNetBps": 8.8192,
+      "routeGapUsd": 4.6882,
+      "routeNetUsd": 4.6882,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 1,
+          "gapUsd": 0.311,
+          "netUsd": 0.311,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 16,
+          "gapUsd": 4.3772,
+          "netUsd": 4.3772,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "routeId": "evm-ape-2500-down",
+      "routeGapBps": 5.4079,
+      "routeNetBps": 5.4079,
+      "routeGapUsd": 4.0651,
+      "routeNetUsd": 4.0651,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "uniswap"
+        },
+        {
+          "hop": 2,
+          "venue": "lifi"
+        },
+        {
+          "hop": 3,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "WETH",
+          "to": "USDC",
+          "chain": "eth",
+          "kind": "swap",
+          "venueChosen": "uniswap",
+          "venueBest": "uniswap",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "USDC",
+          "chain": "eth→sol",
+          "kind": "bridge",
+          "venueChosen": "lifi",
+          "venueBest": "lifi",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        },
+        {
+          "hop": 3,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 16,
+          "gapUsd": 4.0651,
+          "netUsd": 4.0651,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "routeId": "evm-x1-stable-2500-down",
+      "routeGapBps": 0,
+      "routeNetBps": 0,
+      "routeGapUsd": 0,
+      "routeNetUsd": 0,
+      "routeUsdPartial": false,
+      "wouldCapture": false,
+      "whyNot": "already-optimal: every multi-venue leg was already routed through its best venue — the engine left nothing on the table",
+      "economical": false,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "uniswap"
+        },
+        {
+          "hop": 2,
+          "venue": "lifi"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "WETH",
+          "to": "USDC",
+          "chain": "eth",
+          "kind": "swap",
+          "venueChosen": "uniswap",
+          "venueBest": "uniswap",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "USDC",
+          "chain": "eth→sol",
+          "kind": "bridge",
+          "venueChosen": "lifi",
+          "venueBest": "lifi",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "routeId": "x1-exotic-2500-down",
+      "routeGapBps": 0.8602,
+      "routeNetBps": 0.8602,
+      "routeGapUsd": 0.8543,
+      "routeNetUsd": 0.8543,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": false,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "lifi"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 3,
+          "venue": "warp"
+        },
+        {
+          "hop": 4,
+          "venue": "xdex"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "USDC",
+          "to": "USDC",
+          "chain": "eth→sol",
+          "kind": "bridge",
+          "venueChosen": "lifi",
+          "venueBest": "lifi",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "SOL",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 3,
+          "gapUsd": 0.8543,
+          "netUsd": 0.8543,
+          "exact": true
+        },
+        {
+          "hop": 3,
+          "from": "SOL",
+          "to": "wSOL.X",
+          "chain": "sol→x1",
+          "kind": "bridge",
+          "venueChosen": "warp",
+          "venueBest": "warp",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        },
+        {
+          "hop": 4,
+          "from": "wSOL.X",
+          "to": "EXOTIC(x1)",
+          "chain": "x1",
+          "kind": "swap",
+          "venueChosen": "xdex",
+          "venueBest": "xdex",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "routeId": "sol-ape-2500-down",
+      "routeGapBps": 10.1211,
+      "routeNetBps": 10.1211,
+      "routeGapUsd": 5.3803,
+      "routeNetUsd": 5.3803,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 3,
+          "gapUsd": 0.9024,
+          "netUsd": 0.9024,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 16,
+          "gapUsd": 4.4779,
+          "netUsd": 4.4779,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "routeId": "sol-ape-2500-up",
+      "routeGapBps": 0,
+      "routeNetBps": 0,
+      "routeGapUsd": 0,
+      "routeNetUsd": 0,
+      "routeUsdPartial": false,
+      "wouldCapture": false,
+      "whyNot": "already-optimal: every multi-venue leg was already routed through its best venue — the engine left nothing on the table",
+      "economical": false,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "jupiter",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "jupiter",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "routeId": "sol-ape-10000-down",
+      "routeGapBps": 1.718,
+      "routeNetBps": 1.718,
+      "routeGapUsd": 3.5107,
+      "routeNetUsd": 3.5107,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "raydium-cpmm"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 3,
+          "gapUsd": 3.5107,
+          "netUsd": 3.5107,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "raydium-cpmm",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "routeId": "btc-ape-2500-down",
+      "routeGapBps": 10.1211,
+      "routeNetBps": 10.1211,
+      "routeGapUsd": 5.3803,
+      "routeNetUsd": 5.3803,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "SOL",
+          "to": "USDC",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 3,
+          "gapUsd": 0.9024,
+          "netUsd": 0.9024,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 16,
+          "gapUsd": 4.4779,
+          "netUsd": 4.4779,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "routeId": "evm-ape-2500-down",
+      "routeGapBps": 5.4079,
+      "routeNetBps": 5.4079,
+      "routeGapUsd": 4.0651,
+      "routeNetUsd": 4.0651,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": true,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "uniswap"
+        },
+        {
+          "hop": 2,
+          "venue": "lifi"
+        },
+        {
+          "hop": 3,
+          "venue": "jupiter"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "WETH",
+          "to": "USDC",
+          "chain": "eth",
+          "kind": "swap",
+          "venueChosen": "uniswap",
+          "venueBest": "uniswap",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "USDC",
+          "chain": "eth→sol",
+          "kind": "bridge",
+          "venueChosen": "lifi",
+          "venueBest": "lifi",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        },
+        {
+          "hop": 3,
+          "from": "USDC",
+          "to": "EXOTIC(sol)",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "raydium-cpmm",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 16,
+          "gapUsd": 4.0651,
+          "netUsd": 4.0651,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "routeId": "evm-x1-stable-2500-down",
+      "routeGapBps": 0,
+      "routeNetBps": 0,
+      "routeGapUsd": 0,
+      "routeNetUsd": 0,
+      "routeUsdPartial": false,
+      "wouldCapture": false,
+      "whyNot": "already-optimal: every multi-venue leg was already routed through its best venue — the engine left nothing on the table",
+      "economical": false,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "uniswap"
+        },
+        {
+          "hop": 2,
+          "venue": "lifi"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "WETH",
+          "to": "USDC",
+          "chain": "eth",
+          "kind": "swap",
+          "venueChosen": "uniswap",
+          "venueBest": "uniswap",
+          "singleVenue": false,
+          "gapBps": 0,
+          "gapUsd": 0,
+          "netUsd": 0,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "USDC",
+          "chain": "eth→sol",
+          "kind": "bridge",
+          "venueChosen": "lifi",
+          "venueBest": "lifi",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "routeId": "x1-exotic-2500-down",
+      "routeGapBps": 0.4416,
+      "routeNetBps": 0.4416,
+      "routeGapUsd": 0.4387,
+      "routeNetUsd": 0.4387,
+      "routeUsdPartial": false,
+      "wouldCapture": true,
+      "whyNot": null,
+      "economical": false,
+      "optimalRoute": [
+        {
+          "hop": 1,
+          "venue": "lifi"
+        },
+        {
+          "hop": 2,
+          "venue": "jupiter"
+        },
+        {
+          "hop": 3,
+          "venue": "warp"
+        },
+        {
+          "hop": 4,
+          "venue": "xdex"
+        }
+      ],
+      "legs": [
+        {
+          "hop": 1,
+          "from": "USDC",
+          "to": "USDC",
+          "chain": "eth→sol",
+          "kind": "bridge",
+          "venueChosen": "lifi",
+          "venueBest": "lifi",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        },
+        {
+          "hop": 2,
+          "from": "USDC",
+          "to": "SOL",
+          "chain": "sol",
+          "kind": "swap",
+          "venueChosen": "orca",
+          "venueBest": "jupiter",
+          "singleVenue": false,
+          "gapBps": 1,
+          "gapUsd": 0.4387,
+          "netUsd": 0.4387,
+          "exact": true
+        },
+        {
+          "hop": 3,
+          "from": "SOL",
+          "to": "wSOL.X",
+          "chain": "sol→x1",
+          "kind": "bridge",
+          "venueChosen": "warp",
+          "venueBest": "warp",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        },
+        {
+          "hop": 4,
+          "from": "wSOL.X",
+          "to": "EXOTIC(x1)",
+          "chain": "x1",
+          "kind": "swap",
+          "venueChosen": "xdex",
+          "venueBest": "xdex",
+          "singleVenue": true,
+          "gapBps": null,
+          "gapUsd": null,
+          "netUsd": null,
+          "exact": true
+        }
+      ]
+    }
+  ],
+  "stateNotes": [
+    {
+      "round": 1,
+      "note": "sol price ref $/SOL = 106.4329"
+    },
+    {
+      "round": 1,
+      "note": "orca pool Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE tick -22405"
+    },
+    {
+      "round": 1,
+      "note": "raydium clmm pool 3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv tick -22405"
+    },
+    {
+      "round": 1,
+      "note": "exotic cpmm vaultB(USDC) 267614471899 vaultA(exotic) 139997098757513680"
+    },
+    {
+      "round": 1,
+      "note": "xdex vault0(SOL) 9870626823389 vault1(exotic-x1) 3529770861"
+    },
+    {
+      "round": 2,
+      "note": "sol price ref $/SOL = 106.4123"
+    },
+    {
+      "round": 2,
+      "note": "orca pool Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE tick -22403"
+    },
+    {
+      "round": 2,
+      "note": "raydium clmm pool 3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv tick -22403"
+    },
+    {
+      "round": 2,
+      "note": "exotic cpmm vaultB(USDC) 267614471899 vaultA(exotic) 139997098757513680"
+    },
+    {
+      "round": 2,
+      "note": "xdex vault0(SOL) 9870626823389 vault1(exotic-x1) 3529770861"
+    },
+    {
+      "round": 3,
+      "note": "sol price ref $/SOL = 106.4460"
+    },
+    {
+      "round": 3,
+      "note": "orca pool Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE tick -22402"
+    },
+    {
+      "round": 3,
+      "note": "raydium clmm pool 3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv tick -22403"
+    },
+    {
+      "round": 3,
+      "note": "exotic cpmm vaultB(USDC) 267614471899 vaultA(exotic) 139997098757513680"
+    },
+    {
+      "round": 3,
+      "note": "xdex vault0(SOL) 9870626823389 vault1(exotic-x1) 3529770861"
+    }
+  ]
+}

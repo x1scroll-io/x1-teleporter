@@ -1,0 +1,378 @@
+/**
+ * Connect-modal data logic (Step 2.2) — PURE and browser-free.
+ *
+ * Implements the binding modal rules from docs/WALLET-REGISTRY.md:
+ *   1. Fixed order — families render in WALLET_FAMILIES order (families.js).
+ *   2. Starport pinned first — Starport occupies the top slot of every
+ *      family, always visible, always first.
+ *   3. Installed highlighted — discovered wallets are flagged `installed`.
+ *   4. Not-installed still shown — with their install link, never hidden.
+ *   5. Never hide a wallet — every registry entry is always present.
+ *
+ * Beyond the registry, every ANNOUNCED provider gets its own entry too
+ * (docs/BRIEF.md, wallet layer: "Every announced provider gets its own
+ * entry in the wallet modal"): discovered wallets that are not in the
+ * registry are appended after the registry rows as installed entries, so
+ * nothing a wallet injected is ever hidden. The only exclusion is wagmi's
+ * generic "injected" fallback connector — it is not an announced provider
+ * (see normalizeEvmDiscovered).
+ *
+ * This module has no React, no DOM, no discovery side effects — everything
+ * is a pure function of (family, discovered, registry), so node:test proves
+ * the ordering rules without a browser.
+ */
+
+import { WALLET_FAMILIES, FAMILY_LABELS } from "./families.js";
+import {
+  BITCOIN_WALLETS,
+  isDepositAddressEntry,
+  isHardwareEntry,
+} from "./bitcoinRegistry.js";
+import { LITECOIN_WALLETS } from "./litecoinRegistry.js";
+import { DOGECOIN_WALLETS } from "./dogecoinRegistry.js";
+import { XRP_WALLETS } from "./xrpRegistry.js";
+import { TRON_WALLETS } from "./tronRegistry.js";
+import { CARDANO_WALLETS } from "./cardanoRegistry.js";
+import { NEAR_WALLETS } from "./nearRegistry.js";
+import { TON_WALLETS } from "./tonRegistry.js";
+
+/** Stable id of the pinned Starport wallet in every family. */
+export const STARPORT_ID = "starport";
+
+/**
+ * Canonical ids the Starport wallet announces under, across BOTH discovery
+ * protocols (see the wallet's inpage.ts):
+ *   - "starport"                 — the stable registry id (STARPORT_ID)
+ *   - "Starport"                 — the Solana/X1 Wallet Standard adapter name
+ *   - "com.starportllc.starport" — the EIP-6963 rdns (EVM discovery)
+ * Kept as a constant so discovery (EIP-6963 rdns for EVM, Wallet Standard name
+ * for Solana) matches the pinned row in EVERY family. Missing the EVM rdns
+ * made an installed Starport show up as a pinned NOT-installed row PLUS a
+ * separate announced row (double entry) and left its Connect on the dev mock —
+ * both regressions pinned by modalLogic.test.js.
+ */
+export const STARPORT_NAMES = Object.freeze([
+  "starport",
+  "Starport",
+  "com.starportllc.starport",
+]);
+
+/**
+ * Small registry map: known wallets per family (id → metadata).
+ *
+ * `id` is the stable match key used by discovery:
+ *   - EVM: the wallet's EIP-6963 `rdns` (e.g. "io.metamask").
+ *   - Solana: the Wallet Standard adapter name (e.g. "Phantom").
+ *   - Starport: pinned row; no real adapter yet — matched only if a
+ *     discovered wallet's rdns/name is in STARPORT_NAMES.
+ *
+ * `reference: true` marks the family's reference wallet (docs/WALLET-
+ * REGISTRY.md, "Connect modal layout": MetaMask / Phantom / Xverse / Xaman /
+ * TronLink …) which renders second, right after Starport.
+ *
+ * `installUrl` is where a user gets the wallet if it is not installed.
+ * Starport has no public install link yet (null) — it stays pinned and
+ * connectable via the dev mock fallback until its real adapter is wired
+ * (later step).
+ *
+ * Phantom is MULTI-CHAIN: it may appear in the Solana list (Wallet
+ * Standard), the EVM list (EIP-6963, rdns "app.phantom"), and the Bitcoin
+ * list (multi-chain Wallet Standard). Each appearance is a SEPARATE entry
+ * and a separate session — per WalletContext isolation, one session per
+ * family, never merged across families.
+ *
+ * The Bitcoin family uses the FULL canonical table from the registry
+ * (bitcoinRegistry.js — Step 2.3): every registry row renders, hardware
+ * sorts after software, and the deposit-address row is always last.
+ *
+ * The Litecoin / Dogecoin / XRP / Tron families use their FULL canonical
+ * tables too (Step 2.4 — litecoinRegistry.js, dogecoinRegistry.js,
+ * xrpRegistry.js, tronRegistry.js): every registry row renders in the
+ * fixed modal order, ⚠️ rows keep their verify badge + TODO, ❌ rows
+ * (Crossmark / GemWallet) are badged unmaintained and ranked last, the
+ * WalletConnect row (Tron) sorts after hardware, and the deposit-address
+ * row is always final on BTC/LTC/DOGE/XRP (no deposit row for Tron).
+ *
+ * The NEAR / TON families (Step 2.5) use their FULL canonical tables too
+ * (nearRegistry.js — NEAR Wallet Selector modules; tonRegistry.js — TON
+ * Connect wallets): every registry row renders in the fixed modal order and
+ * a deposit-address row is always final (both are ChangeNOW deposit chains).
+ */
+export const WALLET_REGISTRY = Object.freeze({
+  evm: Object.freeze([
+    Object.freeze({ id: STARPORT_ID, name: "Starport", pinned: true, installUrl: null }),
+    Object.freeze({ id: "io.metamask", name: "MetaMask", reference: true, installUrl: "https://metamask.io/download/" }),
+    Object.freeze({ id: "com.coinbase.wallet", name: "Coinbase Wallet", installUrl: "https://www.coinbase.com/wallet/downloads" }),
+    Object.freeze({ id: "app.phantom", name: "Phantom", installUrl: "https://phantom.app/" }),
+    Object.freeze({ id: "io.rabby", name: "Rabby", installUrl: "https://rabby.io/" }),
+  ]),
+  solana: Object.freeze([
+    Object.freeze({ id: STARPORT_ID, name: "Starport", pinned: true, installUrl: null }),
+    Object.freeze({ id: "Phantom", name: "Phantom", reference: true, installUrl: "https://phantom.app/" }),
+    Object.freeze({ id: "Backpack", name: "Backpack", installUrl: "https://backpack.app/" }),
+    Object.freeze({ id: "Solflare", name: "Solflare", installUrl: "https://solflare.com/" }),
+  ]),
+  bitcoin: BITCOIN_WALLETS,
+  litecoin: LITECOIN_WALLETS,
+  dogecoin: DOGECOIN_WALLETS,
+  xrp: XRP_WALLETS,
+  tron: TRON_WALLETS,
+  cardano: CARDANO_WALLETS,
+  near: NEAR_WALLETS,
+  ton: TON_WALLETS,
+});
+
+/**
+ * Normalize discovered EVM providers (EIP-6963 entries) into the match
+ * shape modalLogic consumes: `{ key, name, icon, raw }`. `key` is the rdns
+ * (falling back to uuid for wallets that omit rdns).
+ *
+ * wagmi's generic "injected" fallback connector is filtered out here: it
+ * represents whatever owns the legacy injected global, not an announced
+ * EIP-6963 provider, and the brief forbids treating it as a wallet entry.
+ */
+export function normalizeEvmDiscovered(providers) {
+  return (providers ?? [])
+    .filter((p) => p.rdns !== "injected")
+    .map((p) => ({
+      key: p.rdns ?? p.uuid,
+      name: p.name,
+      icon: p.icon,
+      raw: p,
+    }));
+}
+
+/**
+ * Normalize discovered Solana adapters (Wallet Standard) into the match
+ * shape modalLogic consumes: `{ key, name, icon, raw }`. `key` is the
+ * adapter name.
+ */
+export function normalizeSolanaDiscovered(adapters) {
+  return (adapters ?? []).map((a) => ({
+    key: a.name,
+    name: a.name,
+    icon: a.icon,
+    raw: a,
+  }));
+}
+
+/** Does a discovered match key correspond to Starport? */
+export function isStarportKey(key) {
+  return STARPORT_NAMES.includes(key) || key === STARPORT_ID;
+}
+
+/**
+ * Normalize discovered Bitcoin wallets (bitcoinDiscovery.js) into the match
+ * shape modalLogic consumes: `{ key, name, raw }`. `key` is the registry id
+ * (e.g. "Xverse", "Unisat") or a `standard:<name>` extra.
+ */
+export function normalizeBitcoinDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered Litecoin wallets (litecoinDiscovery.js) into the
+ * match shape: `{ key, name, raw }`. `key` is the registry id.
+ */
+export function normalizeLitecoinDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered Dogecoin wallets (dogecoinDiscovery.js) into the
+ * match shape: `{ key, name, raw }`. `key` is the registry id.
+ */
+export function normalizeDogecoinDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered XRP wallets (xrpDiscovery.js) into the match shape:
+ * `{ key, name, raw }`. `key` is the registry id.
+ */
+export function normalizeXrpDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered Tron wallets (tronDiscovery.js) into the match
+ * shape: `{ key, name, raw }`. `key` is the registry id (adapter name).
+ */
+export function normalizeTronDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered NEAR wallets (nearDiscovery.js) into the match shape:
+ * `{ key, name, raw }`. `key` is the NEAR Wallet Selector module id.
+ */
+export function normalizeNearDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Normalize discovered TON wallets (tonDiscovery.js) into the match shape:
+ * `{ key, name, raw }`. `key` is the TON Connect `appName`.
+ */
+export function normalizeTonDiscovered(wallets) {
+  return (wallets ?? []).map((w) => ({
+    key: w.key,
+    name: w.name,
+    raw: w,
+  }));
+}
+
+/**
+ * Build the ordered wallet rows for one family.
+ *
+ * Order (binding, docs/WALLET-REGISTRY.md "Connect modal layout" — a
+ * fixed-order list, NOT detected-first sorting):
+ *   1. Pinned wallets first (Starport) — always visible, always first.
+ *   2. The family's reference wallet (MetaMask / Phantom / Xverse / Xaman /
+ *      TronLink …).
+ *   3. Every other SOFTWARE registry wallet, ALPHABETICAL — installed ones
+ *      highlighted IN PLACE, not-installed ones shown with an install link.
+ *      ⚠️ rows stay in this group (they are never hidden) and carry their
+ *      `status` through for the modal's verify badge. Deposit-only rows
+ *      (Tangem) stay here too — rendered non-connectable.
+ *   4. Hardware wallets (Ledger / Trezor), alphabetical — after software.
+ *   5. WalletConnect (mobile) — after hardware (Tron's WalletConnect row).
+ *   6. ❌ wallets, badged "unmaintained", ranked last (Crossmark /
+ *      GemWallet on XRP).
+ *   7. The deposit-address row — ALWAYS the final row (BTC/LTC/DOGE/XRP),
+ *      never removed, never connectable.
+ *   8. Announced providers outside the registry, appended (never hidden).
+ *
+ * Every registry entry for the family appears exactly once. Starport's
+ * pinned row is matched against discovery too: if a real Starport wallet
+ * ever announces (rdns/name in STARPORT_NAMES) it flips to installed while
+ * STAYING in the pinned first slot.
+ *
+ * @param {{family: string, discovered?: Array<{key: string}>, registry?: object}} params
+ * @returns {Array<{id, name, pinned, reference, installed, installUrl, discovered}>}
+ */
+export function buildFamilyWalletRows({ family, discovered = [], registry = WALLET_REGISTRY }) {
+  const entries = registry[family] ?? [];
+  const byKey = new Map();
+  for (const item of discovered) {
+    if (item?.key) byKey.set(item.key, item);
+  }
+
+  /** Find the discovered match for a registry entry (null if not installed). */
+  function findMatch(entry) {
+    if (entry.pinned && isStarportKey(entry.id)) {
+      // Starport matches by its own id OR any discovered wallet whose
+      // rdns/name is a known Starport name.
+      return (
+        byKey.get(entry.id) ??
+        [...byKey.values()].find((v) => STARPORT_NAMES.includes(v.key)) ??
+        null
+      );
+    }
+    return byKey.get(entry.id) ?? null;
+  }
+
+  function toRow(entry) {
+    const match = findMatch(entry);
+    return {
+      id: entry.id,
+      name: entry.name,
+      pinned: entry.pinned === true,
+      reference: entry.reference === true,
+      installed: match !== null,
+      installUrl: entry.installUrl ?? null,
+      discovered: match,
+      status: entry.status,
+      hardware: isHardwareEntry(entry),
+      walletConnect: entry.walletConnect === true,
+      unmaintained: entry.unmaintained === true,
+      depositAddress: isDepositAddressEntry(entry),
+      depositOnly: entry.depositOnly === true,
+      memoSupport: entry.memoSupport,
+      adapterName: entry.adapterName,
+      todo: entry.todo,
+      connectTodo: entry.connectTodo,
+    };
+  }
+
+  const pinned = entries.filter((e) => e.pinned).map(toRow);
+  const reference = entries.filter((e) => !e.pinned && e.reference).map(toRow);
+  const software = entries
+    .filter(
+      (e) =>
+        !e.pinned &&
+        !e.reference &&
+        !isHardwareEntry(e) &&
+        e.walletConnect !== true &&
+        e.unmaintained !== true &&
+        !isDepositAddressEntry(e),
+    )
+    .map(toRow)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const hardware = entries
+    .filter((e) => !e.pinned && !e.reference && isHardwareEntry(e))
+    .map(toRow)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const walletConnect = entries
+    .filter((e) => !e.pinned && !e.reference && e.walletConnect === true)
+    .map(toRow)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const unmaintained = entries
+    .filter((e) => !e.pinned && !e.reference && e.unmaintained === true)
+    .map(toRow)
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const depositAddress = entries.filter((e) => isDepositAddressEntry(e)).map(toRow);
+  const rest = [...software, ...hardware, ...walletConnect, ...unmaintained, ...depositAddress];
+
+  // Announced providers outside the registry get their own entry, appended
+  // after the fixed list — installed, never hidden (docs/BRIEF.md).
+  const registryKeys = new Set(entries.map((e) => e.id));
+  const extras = discovered.filter(
+    (d) => d.key && !registryKeys.has(d.key) && !isStarportKey(d.key),
+  );
+  const extraRows = extras.map((d) => ({
+    id: d.key,
+    name: d.name ?? d.key,
+    pinned: false,
+    reference: false,
+    installed: true,
+    installUrl: null,
+    discovered: d,
+    status: undefined,
+  }));
+
+  return [...pinned, ...reference, ...rest, ...extraRows];
+}
+
+/**
+ * Family rows for the modal's first step: fixed WALLET_FAMILIES order with
+ * labels. Pure convenience over families.js — kept here so the modal has a
+ * single data entry point.
+ */
+export function buildFamilyRows(families = WALLET_FAMILIES) {
+  return families.map((family) => ({ family, label: FAMILY_LABELS[family] }));
+}

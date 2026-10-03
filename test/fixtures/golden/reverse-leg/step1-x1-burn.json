@@ -1,0 +1,110 @@
+{
+  "step": "x1-reverse-burn",
+  "sampleInput": {
+    "from": "x1",
+    "to": "eth",
+    "token": "wSOL.X",
+    "toToken": "USDC",
+    "amountUser": 0.4,
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "feeWallet": "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu",
+    "evmDestination": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "seqSlot": 305000000
+  },
+  "artifact": {
+    "seq": "1152921809606846976",
+    "seqSlot": 305000000,
+    "token": "wSOL.X",
+    "decimals": 9,
+    "grossBase": "400000000",
+    "skimBase": "2000000",
+    "bridgeBase": "398000000",
+    "grossHuman": 0.4,
+    "amountHuman": 0.398,
+    "skimHuman": 0.002,
+    "outgoingMsgPda": "62CTLR9iHRjmJiZiFTMTSxm2EiVnJP3tkjPNmepEZVib",
+    "feeAtaCreated": false,
+    "feeAta": "8YxSUo3EjM14C3UnRw7kJqTcNwHnAtvW15vP9nCqCCmw",
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "instructionCount": 2,
+    "instructions": [
+      {
+        "programId": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "dataBase64": "A4CEHgAAAAAA"
+      },
+      {
+        "programId": "6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD",
+        "dataBase64": "G8I5d9el95YAqmoDRwAAEID/uBcAAAAA"
+      }
+    ],
+    "accountList": [
+      {
+        "pubkey": "48Po6qAHRJojbXH7KRqt6s5GfNfs9VEGccfqYEHmubEi",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "CbuhLQAYyGHPuhJzjkpT4uZMzuTKcJhEBFgHy5tL4bFN",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "62CTLR9iHRjmJiZiFTMTSxm2EiVnJP3tkjPNmepEZVib",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+        "isSigner": true,
+        "isWritable": true
+      },
+      {
+        "pubkey": "6vEo1dujk1XDoRUzT5QthuvuWv1mgPmoATZDZ8r29CHU",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "JDqX4vau2P5zJmLpuNitvR6vMURr9kYjex6oZQXz3Ja8",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "pubkey": "6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "pubkey": "7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2Jig7j",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "9Tdid7tM1bKv8hMyiTDLfB2LhfCGoaBv5GoezQzW2VP9",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "pubkey": "11111111111111111111111111111111",
+        "isSigner": false,
+        "isWritable": false
+      }
+    ],
+    "serializedBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAMMDemPkGJ7C08djOeZ2XzHRO9CYCPEyaz5lQkfwWtbo8gud+aQxO1PJ+NGzjacktUHSlJodu+IP/fpCfUvG1SBg0qY93Fh+z+iTb53I6ZSoNk4doNbQ42ojSLh67e9s/bMV+3QSpuS/sngWUkvDMdKVhSuxMeP1cPyu6msSSrz7fdiHFl8D/Rf7qfqJ/7Bx2OM00Y5vAZu0Fp6YBYooybAmnAxf70KzObNmz5xhLgPUSu8yKqO9gLXJrhXwzwvdgCSfbAc+yWa96FRUv8CU1T4h9ae4om848PhK98N8+eNncysYeL4WKVN3k4X7y5V8manNM3ysK/ymtXb/JFOuXzakf/ggeSr2TGQN5epp483KcIMOaDyQZBNkNpNCHClSYBFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABOzDCztbhcZdmmi8C+i6129W+sz4LwizDy67YtmPoOtAbd9uHudY/eGEJdvORszdq2GvxNg7kNJ/69+SjYoYv8BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcCCwMDBQAJA4CEHgAAAAAACgwBBwIAAwgKCgQGCwkYG8I5d9el95YAqmoDRwAAEID/uBcAAAAA"
+  },
+  "sha256": "ee92bbdecc951d45c2dedcd46f275ebce582634bc53c2a1c23b4ae25ed968ad7",
+  "bytesSha256": "bec5e47922942bcd0ad30a58804baf2b745314a0fa87b8282c3e59cbf5bf4864",
+  "meta": {
+    "note": "The X1 reverse burn tx: 1% skim Token-2022 transfer (user → fee wallet's wSOL.X ATA) + Warp BridgeOut(seq, bridgeBase) in ONE tx — built by buildReverseBurnWithSkim (runReverse's shared construction helper), serialized unsigned. Live ground truth: X1 burn 3q7H3kV4ZrrUPEbQ37DQv1cWRNmJ2V4pSMYZV3xCDYr8VrD58YZV9irDiveeCaYVmBqCxTu3cmxrXhepgJxegPe1 (skim 4,000,000 base + bridge_out 396,000,000 base, 12-account BridgeOut, slot 75951086)."
+  }
+}

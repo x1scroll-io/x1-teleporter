@@ -18,6 +18,10 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { PublicKey } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+// Mint constants may now be expressed as `new PublicKey(requireToken("SYM",
+// "chain").address)` — resolve those through the canonical registry so the
+// drift check still sees the ACTUAL value the module will use at runtime.
+import { requireToken } from "./src/lib/tokenResolver.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, "src", "warpBridge.js"), "utf8");
@@ -28,11 +32,16 @@ const USDCX = new PublicKey("B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq"); // 
 const enc = (s) => new TextEncoder().encode(s);
 const pda = (seeds) => PublicKey.findProgramAddressSync(seeds, PROG)[0].toBase58();
 
-// Pull `NAME: new PublicKey("...")` or `NAME = new PublicKey("...")` from source.
+// Pull `NAME: new PublicKey("...")` / `NAME = new PublicKey("...")` from
+// source, or the resolver form `NAME = new PublicKey(requireToken("SYM",
+// "chain").address)` (resolved through tokenResolver so the compared value is
+// the real runtime address).
 function actual(name) {
-  const m = src.match(new RegExp(name + "\\s*[:=]\\s*new PublicKey\\(\\s*\"([1-9A-HJ-NP-Za-km-z]{32,44})\""));
-  if (!m) throw new Error(`could not find constant "${name}" in src/warpBridge.js`);
-  return m[1];
+  const literal = src.match(new RegExp(name + "\\s*[:=]\\s*new PublicKey\\(\\s*\"([1-9A-HJ-NP-Za-km-z]{32,44})\""));
+  if (literal) return literal[1];
+  const viaResolver = src.match(new RegExp(name + "\\s*[:=]\\s*new PublicKey\\(\\s*requireToken\\(\"([^\"]+)\",\\s*\"([^\"]+)\"\\)\\.address\\)"));
+  if (viaResolver) return requireToken(viaResolver[1], viaResolver[2]).address;
+  throw new Error(`could not find constant "${name}" in src/warpBridge.js`);
 }
 
 // [ label, actual-from-source, expected, how-we-know ]

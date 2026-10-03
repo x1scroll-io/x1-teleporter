@@ -2,10 +2,11 @@
 // LiFi step (needed for Solana routes where /quote may return a step without
 // transactionRequest populated). POST the full step object; get it back with
 // transactionRequest filled in.
-import { LIFI, lifiHeaders, cors } from "../_lifi.js";
+import { LIFI, lifiHeaders } from "../_lifi.js";
+import { cors } from "../_cors.js";
 
 export default async function handler(req, res) {
-  cors(res);
+  if (!cors(req, res)) return;
   if (req.method === "OPTIONS") return res.status(200).end();
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   try {

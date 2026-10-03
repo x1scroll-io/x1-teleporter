@@ -1,0 +1,96 @@
+{
+  "tool": "golden-transaction fixtures — reverse leg X1→ETH (regression oracle, Phase 2)",
+  "capturedAt": "2026-09-02T23:15:26.068Z",
+  "groundTruth": {
+    "note": "captured from last night's WORKING reverse run (delivered USDC to Ethereum) + the live txs",
+    "x1BurnTx": "3q7H3kV4ZrrUPEbQ37DQv1cWRNmJ2V4pSMYZV3xCDYr8VrD58YZV9irDiveeCaYVmBqCxTu3cmxrXhepgJxegPe1",
+    "solanaReleaseTx": "v6etkXX21dQdfeZf6TabWMv16PEQoKBLhHPEQGnriSkcRRkUgfYkb5jAd2q8KCwuHxSwyYqGExb4PY4rHCGszbk",
+    "lifiTx": "25fvaCmtgb4EKhwETLgXG3npQqgHcJeGo6VyXxJXMMBtgrhv94ejs2jXSZt8L6NThzuQvBxi2Azt2fwwJhkRRd6q",
+    "ethReceivingLeg": "0xaf0f3546ec52b349dafb1e9de863e690689ba6562b074b63fb1dd94e07c85284"
+  },
+  "sampleInput": {
+    "from": "x1",
+    "to": "eth",
+    "token": "wSOL.X",
+    "toToken": "USDC",
+    "amountUser": 0.4,
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "feeWallet": "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu",
+    "evmDestination": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "seqSlot": 305000000
+  },
+  "derived": {
+    "rawAmountGrossBase": "400000000",
+    "skimBase": "2000000",
+    "bridgeBase": "398000000",
+    "warpFeeBase": "995000",
+    "releaseBase": "397005000",
+    "releaseHuman": 0.397005,
+    "seq": "1152921809606846976",
+    "seqSlot": 305000000
+  },
+  "quoteReference": {
+    "tool": "relaydepository",
+    "fromAmountRaw": "395010000",
+    "toAmountRaw": "39368794",
+    "fromTokenSymbol": "wSOL",
+    "fromToken": "So11111111111111111111111111111111111111112",
+    "fromTokenDecimals": 9,
+    "fromTokenChainId": 1151111081099710,
+    "toTokenSymbol": "USDC",
+    "toToken": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "toTokenChainId": 1,
+    "fromAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "toAddress": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+    "hasExecutablePayload": true,
+    "txPayloadSha256": "9c07270c1d9695032e9f2a529e7803e228d52d31584bbec26c7b2173c5fa6cb6"
+  },
+  "quoteBox": {
+    "youSend": "0.4 wSOL.X on X1",
+    "feeLines": [
+      {
+        "id": "warp-skim",
+        "label": "Teleporter fee (0.5%, max $250)",
+        "display": "$0.00"
+      },
+      {
+        "id": "warp-pct",
+        "label": "Warp bridge fee (0.25%)",
+        "display": "$0.00"
+      }
+    ],
+    "youReceive": "≈ 39.37 USDC on Ethereum",
+    "steps": [
+      "Warp Bridge · X1",
+      "Warp Bridge · Solana",
+      "LiFi · Ethereum"
+    ],
+    "solanaAmount": 0.397005,
+    "teleporterFeeUsd": 0.002,
+    "thirdPartyFeeUsd": 0.001,
+    "netUsd": 39.368794
+  },
+  "steps": {
+    "step1X1Burn": {
+      "file": "step1-x1-burn.json",
+      "sha256": "ee92bbdecc951d45c2dedcd46f275ebce582634bc53c2a1c23b4ae25ed968ad7",
+      "bytesSha256": "bec5e47922942bcd0ad30a58804baf2b745314a0fa87b8282c3e59cbf5bf4864",
+      "seq": "1152921809606846976",
+      "skimBase": "2000000",
+      "bridgeBase": "398000000"
+    },
+    "step2ReleaseShape": {
+      "file": "step2-release-shape.json",
+      "sha256": "08388c902300264d7c6975cfbff1c8681ce7ae7c212a801641e55e617c76da71",
+      "specSha256": "c261ba3ca9d8e10c9298026b36b38a35953b6967d53ee1cfdf4c99b8143cf1f6",
+      "releaseBase": "397005000"
+    },
+    "step3LifiOut": {
+      "file": "step3-lifi-out.json",
+      "sha256": "c8099258df19819cc5b05d749d3b0c00cec4583596ba7651d09c749d6282c3ed",
+      "toAddress": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239"
+    }
+  },
+  "verify": "test/goldenReverse.test.js rebuilds every step from the same inputs and asserts byte-identical + sha256 match + the pinned toAddress."
+}

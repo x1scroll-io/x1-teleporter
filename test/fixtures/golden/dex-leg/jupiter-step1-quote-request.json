@@ -1,0 +1,17 @@
+{
+  "step": "jupiter-step1-quote-request",
+  "artifact": {
+    "url": "https://api.jup.ag/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=500000000&slippageBps=50",
+    "params": {
+      "inputMint": "So11111111111111111111111111111111111111112",
+      "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amount": "500000000",
+      "slippageBps": "50"
+    }
+  },
+  "sha256": "83cd48e718eec77851736a47b3e80088d1ed5c021bb2b9b86a9b0cfb8817e04d",
+  "urlSha256": "916c9818b9b5918a621369da6b44630d7e0503f57aecb4beb76adc9ca8284b12",
+  "meta": {
+    "note": "The canonical Jupiter quote request (GET api.jup.ag/swap/v1/quote). Amount in RAW base units (never human units); slippage in bps; host = the current api.jup.ag/swap/v1 (the older quote-api.jup.ag/v6 host no longer resolves). urlSha256 pins the canonical serialized request."
+  }
+}

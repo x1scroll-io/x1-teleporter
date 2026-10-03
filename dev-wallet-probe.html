@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>wallet-standard probe (dev)</title></head>
+  <body style="background:#05070d;color:#e8ecf3;font:13px/1.5 monospace;padding:16px">
+    <h3>Wallet Standard registry probe (dev tool)</h3>
+    <pre id="out">…</pre>
+    <script type="module">
+      // DEV DIAGNOSTIC: read the Wallet Standard registry the same way the app does.
+      import { getWallets } from "@wallet-standard/app";
+      const out = document.getElementById("out");
+      const seen = [];
+      const snap = (label) => {
+        const ws = getWallets();
+        const list = ws.get().map((w) => ({ name: w.name, chains: w.chains, features: Object.keys(w.features || {}) }));
+        seen.push({ label, count: list.length, wallets: list });
+        out.textContent = JSON.stringify(seen, null, 1);
+      };
+      snap("initial");
+      window.addEventListener("wallet-standard:register-wallet", () => setTimeout(() => snap("after register-wallet event"), 250));
+      setTimeout(() => snap("t+1s"), 1000);
+      setTimeout(() => snap("t+3s"), 3000);
+      setTimeout(() => snap("t+6s"), 6000);
+      // also record whether our injected objects exist
+      window.addEventListener("load", () => {
+        const probe = { starport: typeof window.starport, solana: typeof window.solana, solanaName: window.solana?.name ?? null };
+        out.textContent += "\n\ninjected: " + JSON.stringify(probe);
+      });
+    </script>
+  </body>
+</html>

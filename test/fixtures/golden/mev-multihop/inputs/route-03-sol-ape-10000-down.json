@@ -1,0 +1,162 @@
+{
+  "capturedAt": "2026-09-06T23:21:16.195Z",
+  "round": 3,
+  "routeId": "sol-ape-10000-down",
+  "legend": "SOL → USDC → EXOTIC(sol) @ ~$10,000 (98 SOL). Aggregator-DOWN — the SIZE effect on the exotic leg's venue spread (the ape case at a bigger notional).",
+  "legs": [
+    {
+      "hop": 1,
+      "from": "SOL",
+      "to": "USDC",
+      "chain": "sol",
+      "kind": "swap",
+      "venueChosen": "orca",
+      "usdPerOutUnit": 0.000001,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "jupiter",
+          "pool": "jupiter-SOL-USDC",
+          "amountIn": "98000000000",
+          "amountOut": "10431176522",
+          "feeBps": null,
+          "source": "REAL-live-jupiter-quote",
+          "capturedAt": "2026-09-06T23:21:13.160Z",
+          "context": null,
+          "state": null
+        },
+        {
+          "venue": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+          "amountIn": "98000000000",
+          "amountOut": "10427665824",
+          "feeBps": 4,
+          "source": "REAL-live-whirlpool-state-walk",
+          "capturedAt": "2026-09-06T23:21:13.161Z",
+          "context": null,
+          "state": {
+            "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+            "programId": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+            "tickCurrent": -22402
+          }
+        },
+        {
+          "venue": "raydium",
+          "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+          "amountIn": "98000000000",
+          "amountOut": "10425725346",
+          "feeBps": 4,
+          "source": "REAL-live-raydium-clmm-state-walk",
+          "capturedAt": "2026-09-06T23:21:13.161Z",
+          "context": null,
+          "state": {
+            "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+            "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+            "tickCurrent": -22403
+          }
+        }
+      ]
+    },
+    {
+      "hop": 2,
+      "from": "USDC",
+      "to": "EXOTIC(sol)",
+      "chain": "sol",
+      "kind": "swap",
+      "venueChosen": "raydium-cpmm",
+      "usdPerOutUnit": 1.911571555940098e-12,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "raydium-cpmm",
+          "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+          "amountIn": "10427665824",
+          "amountOut": "5235183943063541",
+          "feeBps": 25,
+          "source": "REAL-live-raydium-cpmm-state-walk",
+          "capturedAt": "2026-09-06T23:21:16.194Z",
+          "context": null,
+          "state": {
+            "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+            "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+            "vaultBUsdc": "267614471899",
+            "vaultAExotic": "139997098757513680"
+          }
+        }
+      ]
+    }
+  ],
+  "routeUsd": {
+    "journeyUnit": "SOL",
+    "journeyAmountRaw": "98000000000",
+    "notes": "SOL → USDC → EXOTIC(sol) @ ~$10,000 (98 SOL). Aggregator-DOWN — the SIZE effect on the exotic leg's venue spread (the ape case at a bigger notional)."
+  },
+  "analysis": {
+    "kind": "route-capture-analysis",
+    "routeId": "sol-ape-10000-down",
+    "legs": [
+      {
+        "hop": 1,
+        "from": "SOL",
+        "to": "USDC",
+        "chain": "sol",
+        "kind": "swap",
+        "venueChosen": "orca",
+        "venueBest": "jupiter",
+        "routeChosen": "orca:Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+        "routeBest": "jupiter:jupiter-SOL-USDC",
+        "singleVenue": false,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": 3,
+        "deltaOutRaw": "3510698",
+        "gapUsd": 3.5107,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": 3.5107,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      },
+      {
+        "hop": 2,
+        "from": "USDC",
+        "to": "EXOTIC(sol)",
+        "chain": "sol",
+        "kind": "swap",
+        "venueChosen": "raydium-cpmm",
+        "venueBest": "raydium-cpmm",
+        "routeChosen": "raydium-cpmm:5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+        "routeBest": "raydium-cpmm:5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+        "singleVenue": true,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": null,
+        "deltaOutRaw": "0",
+        "gapUsd": null,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": null,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      }
+    ],
+    "routeGapBps": 1.718,
+    "routeNetBps": 1.718,
+    "routeGapUsd": 3.5107,
+    "routeNetUsd": 3.5107,
+    "routeUsdPartial": false,
+    "wouldCapture": true,
+    "whyNot": null,
+    "economical": true,
+    "optimalRoute": [
+      {
+        "hop": 1,
+        "venue": "jupiter"
+      },
+      {
+        "hop": 2,
+        "venue": "raydium-cpmm"
+      }
+    ]
+  }
+}

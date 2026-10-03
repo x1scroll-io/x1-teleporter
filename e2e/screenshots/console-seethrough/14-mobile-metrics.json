@@ -1,0 +1,18 @@
+{
+  "tag": "14-mobile",
+  "clip": {
+    "width": 350,
+    "height": 627
+  },
+  "glassPixelsSampled": 13382,
+  "luminanceDelta": {
+    "median": 4.787,
+    "p95": 24.265,
+    "mean": 7.975,
+    "shareLt24": 0.9439
+  },
+  "sharpness": {
+    "glassOverRawEdgeEnergy": 0.948,
+    "note": "Σ|∇glass| / Σ|∇raw| on pure-glass pixels where ∇raw > 8; ~1 = sharp, →0 = frosted"
+  }
+}

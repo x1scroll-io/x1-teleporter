@@ -1,0 +1,48 @@
+{
+  "step": "raydium-clmm-step1-quote",
+  "artifact": {
+    "pool": {
+      "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+      "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+      "configId": "3h2e43PunVA5K34vwKCLHWhZF4aZpyaC9RmxvshGAQpL",
+      "creator": "CJKrW95iMGECdjWtdDnWDAx2cBH7pFE9VywnULfwMapf",
+      "mintA": "So11111111111111111111111111111111111111112",
+      "mintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "vaultA": "4ct7br2vTPzfdmY3S5HLtTxcGSBfn6pnw98hsS6v359A",
+      "vaultB": "5it83u57VRrVgc51oNV19TTmAJuffPx5GtGwQr7gQNUo",
+      "observationId": "3Y695CuQ8AP4anbwAqiEBeQF9KxqHFr8piEwvw3UePnQ",
+      "mintDecimalsA": 9,
+      "mintDecimalsB": 6,
+      "tickSpacing": 1,
+      "liquidity": "172616118390528",
+      "sqrtPriceX64": "5928013888900299069",
+      "tickCurrent": -22706,
+      "status": 0,
+      "feeOn": 0
+    },
+    "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+    "inputMint": "So11111111111111111111111111111111111111112",
+    "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "quote": {
+      "amountInRaw": "100000000",
+      "amountOutRaw": "10322981",
+      "amountOutMinRaw": "10271366",
+      "feeAmount": "40000",
+      "appliedFeeRate": 400,
+      "endTick": -22706,
+      "allTrade": true,
+      "outHuman": 10.322981,
+      "tickArrays": [
+        "9KnMQWpQ8bA7fydP4jsZN6s4waqA7GtA3Wt36zJuozav",
+        "FVGpZaheYCfMD17pAsMzWX5uVuDzbkmMLtTHmzz2ykgi",
+        "7i3tVrschaU3vghoATjkEiRFjT4HrUzmoTgNzroSvFvt",
+        "7KGRHr8gSwVqmJVv3sdnUEmKM3jRC551SMCt9ZxmCXsb"
+      ]
+    },
+    "capturedAt": "2026-09-05T20:38:52.319Z"
+  },
+  "sha256": "20ac2718fbf7daaa93cddd7eb1333f5418035e4a7e1a43ee47843d34af3ab251",
+  "meta": {
+    "note": "The Raydium CLMM DEX-direct quote from the FROZEN live pool state (pool + config + 4 tick arrays — 2026-09-05 capture) — numerically identical to raydium-sdk-v2 swapInternal on the same state (see the summary). quote-level REAL — swap-execution pending Mr. Esters' live anchor."
+  }
+}

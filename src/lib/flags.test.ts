@@ -1,0 +1,136 @@
+/**
+ * Placeholder test for the v2 feature flags — runs under Node's built-in test
+ * runner (node --test, type stripping handles the .ts). No framework needed.
+ *
+ * Asserts the documented defaults: both flags are false when no env vars are
+ * set, and that the NEXT_PUBLIC_ name wins over the VITE_ fallback name.
+ */
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { resolveFlags, resolveMockFallback, THORCHAIN, ANYSWAP, REVERSE_ENABLED, LEGACY_UI, MOCK_WALLETS, selectRootCard } from "./flags.ts";
+
+test("flags default to false when no env vars are set (REVERSE_ENABLED is the exception — default ON)", () => {
+  // Singleton values (resolved from the real environment at module load —
+  // which has no flags set under node --test, so this exercises the default).
+  assert.equal(THORCHAIN, false);
+  assert.equal(ANYSWAP, false);
+  // The X1 → EVM off-ramp ships ENABLED (kill-switch model — see flags.ts).
+  assert.equal(REVERSE_ENABLED, true);
+
+  // Explicit empty env: same result via the pure resolver.
+  const flags = resolveFlags({});
+  assert.equal(flags.THORCHAIN, false);
+  assert.equal(flags.ANYSWAP, false);
+  assert.equal(flags.REVERSE_ENABLED, true);
+});
+
+test("REVERSE_ENABLED: default ON; env is a KILL SWITCH (false/0 disables, true/1 keeps on)", () => {
+  // Unset → enabled (the off-ramp ships on).
+  assert.equal(resolveFlags({}).REVERSE_ENABLED, true);
+  assert.equal(resolveFlags({}).REVERSE_ENABLED, true, "unset defaults ON");
+  // Explicit disable via either name.
+  assert.equal(resolveFlags({ VITE_FLAG_REVERSE_ENABLED: "false" }).REVERSE_ENABLED, false);
+  assert.equal(resolveFlags({ VITE_FLAG_REVERSE_ENABLED: "0" }).REVERSE_ENABLED, false);
+  assert.equal(resolveFlags({ NEXT_PUBLIC_FLAG_REVERSE_ENABLED: "false" }).REVERSE_ENABLED, false);
+  // Explicit enable stays on.
+  assert.equal(resolveFlags({ VITE_FLAG_REVERSE_ENABLED: "true" }).REVERSE_ENABLED, true);
+  assert.equal(resolveFlags({ VITE_FLAG_REVERSE_ENABLED: "1" }).REVERSE_ENABLED, true);
+  // NEXT_PUBLIC_ wins over VITE_ (same precedence as every other flag).
+  assert.equal(
+    resolveFlags({ NEXT_PUBLIC_FLAG_REVERSE_ENABLED: "false", VITE_FLAG_REVERSE_ENABLED: "true" }).REVERSE_ENABLED,
+    false,
+  );
+});
+
+test("NEXT_PUBLIC_ flag name takes precedence over VITE_ name", () => {
+  const flags = resolveFlags({
+    NEXT_PUBLIC_FLAG_THORCHAIN: "true",
+    VITE_FLAG_THORCHAIN: "false",
+  });
+  assert.equal(flags.THORCHAIN, true);
+});
+
+test("falls back to the VITE_ flag name when NEXT_PUBLIC_ is unset", () => {
+  const flags = resolveFlags({ VITE_FLAG_THORCHAIN: "1" });
+  assert.equal(flags.THORCHAIN, true);
+});
+
+test("ANYSWAP is independent of THORCHAIN", () => {
+  const flags = resolveFlags({ VITE_FLAG_ANYSWAP: "true" });
+  assert.equal(flags.ANYSWAP, true);
+  assert.equal(flags.THORCHAIN, false);
+});
+
+test("LEGACY_UI defaults to false — the v2 card is the default mount", () => {
+  assert.equal(LEGACY_UI, false);
+  const flags = resolveFlags({});
+  assert.equal(flags.LEGACY_UI, false);
+});
+
+test("LEGACY_UI resolves from both the VITE_ and NEXT_PUBLIC_ names", () => {
+  assert.equal(resolveFlags({ VITE_FLAG_LEGACY_UI: "true" }).LEGACY_UI, true);
+  assert.equal(resolveFlags({ NEXT_PUBLIC_FLAG_LEGACY_UI: "1" }).LEGACY_UI, true);
+});
+
+test("LEGACY_UI: NEXT_PUBLIC_ name takes precedence over VITE_ name", () => {
+  const flags = resolveFlags({
+    NEXT_PUBLIC_FLAG_LEGACY_UI: "true",
+    VITE_FLAG_LEGACY_UI: "false",
+  });
+  assert.equal(flags.LEGACY_UI, true);
+});
+
+test("selectRootCard defaults to v2 (BridgeCard) when the legacy flag is off", () => {
+  assert.equal(selectRootCard({ LEGACY_UI: false }), "v2");
+  // Missing / undefined flag behaves like off — default is v2.
+  assert.equal(selectRootCard({}), "v2");
+});
+
+test("selectRootCard returns legacy (Teleporter) when the legacy flag is set", () => {
+  assert.equal(selectRootCard({ LEGACY_UI: true }), "legacy");
+  // And it flows through resolveFlags end-to-end.
+  assert.equal(selectRootCard(resolveFlags({ NEXT_PUBLIC_FLAG_LEGACY_UI: "true" })), "legacy");
+});
+
+test("WARP_LIVE_SEND false => send gate closed (allowLive resolves false)", () => {
+  const flags = resolveFlags({});
+  assert.equal(flags.WARP_LIVE_SEND, false);
+})
+
+test("WARP_LIVE_SEND true via VITE_WARP_LIVE_SEND => send gate armed (allowLive resolves true)", () => {
+  const flags = resolveFlags({ VITE_WARP_LIVE_SEND: "true" });
+  assert.equal(flags.WARP_LIVE_SEND, true);
+})
+
+test("VITE_WARP_LIVE_SEND accepts '1' as true", () => {
+  const flags = resolveFlags({ VITE_WARP_LIVE_SEND: "1" });
+  assert.equal(flags.WARP_LIVE_SEND, true);
+})
+
+test("NEXT_PUBLIC_FLAG_WARP_LIVE_SEND takes precedence over VITE_WARP_LIVE_SEND", () => {
+  const flags = resolveFlags({
+    NEXT_PUBLIC_FLAG_WARP_LIVE_SEND: "true",
+    VITE_WARP_LIVE_SEND: "false",
+  });
+  assert.equal(flags.WARP_LIVE_SEND, true);
+})
+
+test("MOCK_WALLETS defaults OFF — a real user is never handed a mock wallet", () => {
+  // The safety default: unset env → off (both in the pure resolver and the
+  // module singleton resolved under node --test).
+  assert.equal(resolveFlags({}).MOCK_WALLETS, false);
+  assert.equal(resolveMockFallback({}), false);
+  assert.equal(MOCK_WALLETS, false);
+});
+
+test("MOCK_WALLETS — explicit opt-in only (VITE_ or NEXT_PUBLIC_, true/1); precedence NEXT_PUBLIC_ first", () => {
+  assert.equal(resolveMockFallback({ VITE_FLAG_MOCK_WALLETS: "true" }), true);
+  assert.equal(resolveMockFallback({ NEXT_PUBLIC_FLAG_MOCK_WALLETS: "1" }), true);
+  assert.equal(resolveMockFallback({ VITE_FLAG_MOCK_WALLETS: "false" }), false);
+  assert.equal(resolveMockFallback({ VITE_FLAG_MOCK_WALLETS: "0" }), false);
+  assert.equal(
+    resolveMockFallback({ NEXT_PUBLIC_FLAG_MOCK_WALLETS: "false", VITE_FLAG_MOCK_WALLETS: "true" }),
+    false,
+    "NEXT_PUBLIC_ name wins",
+  );
+});

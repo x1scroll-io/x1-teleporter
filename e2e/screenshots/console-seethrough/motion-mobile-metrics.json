@@ -1,0 +1,6 @@
+{
+  "mediaClockAdvancedSeconds": 1.929807,
+  "paintedMotionShareWholeFrame": 0.3319,
+  "paintedMotionShareThroughCard": 0.4007,
+  "note": "shares = fraction of pixels whose luminance moved >10/255 between the two captures"
+}

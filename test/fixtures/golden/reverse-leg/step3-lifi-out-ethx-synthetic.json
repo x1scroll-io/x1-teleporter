@@ -1,0 +1,56 @@
+{
+  "step": "lifi-out",
+  "sampleInput": {
+    "from": "x1",
+    "to": "eth",
+    "token": "ETH.X",
+    "toToken": "USDC",
+    "amountUser": 0.4,
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "feeWallet": "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu",
+    "evmDestination": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "seqSlot": 305000000
+  },
+  "artifact": {
+    "to": "eth",
+    "toTokenSymbol": "USDC",
+    "token": "ETH.X",
+    "fromSymbol": "ETH",
+    "decimals": 8,
+    "toDecimals": 6,
+    "fromDecimals": 8,
+    "netOnSolana": 0.397005,
+    "fromAmountRaw": "39700500",
+    "fromChain": "SOL",
+    "toChain": "eth",
+    "fromToken": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+    "toToken": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "fromAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "toAddress": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+    "slippage": "0.005",
+    "integrator": "x1-teleporter-labs",
+    "order": "CHEAPEST",
+    "allowSwitchChain": "false",
+    "x1Class": "1",
+    "hasFeeParam": false,
+    "qsParams": {
+      "allowSwitchChain": "false",
+      "fromAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+      "fromAmount": "39700500",
+      "fromChain": "SOL",
+      "fromToken": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+      "integrator": "x1-teleporter-labs",
+      "order": "CHEAPEST",
+      "slippage": "0.005",
+      "toAddress": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+      "toChain": "eth",
+      "toToken": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "x1Class": "1"
+    }
+  },
+  "sha256": "86a87d39fcf4021dde1098bdeb2b897464063867349f75c1107c601e02ba32c7",
+  "meta": {
+    "note": "The deterministic Solana→EVM LiFi query (buildReverseLifiQuoteParams): WSOL (9-dec, released by the Warp burn) → the user-selected stable on the destination EVM chain, with toAddress PINNED to the EVM destination 0x1870aFAfA… — the #44 display value. x1-class: no fee param (absent means absent). The executable tx bytes are LI.Fi's — frozen as the quote input fixture; the oracle pins the QUERY + the recipient."
+  }
+}

@@ -13,7 +13,20 @@
       html, body, #root { margin: 0; padding: 0; min-height: 100%; background: #05070d; }
       * { box-sizing: border-box; }
     </style>
-  </head>
+      <!-- DEV SHIM: browser deps reference Node's `process` (process.env/nextTick).
+         Vite build replaces those refs, but `npm run dev` leaves them live and the
+         app dies with "process is not defined" before React mounts. Dev-only:
+         production bundles never evaluate this. -->
+    <script>
+      window.process = window.process || {
+        env: {}, browser: true, version: "", platform: "browser",
+        nextTick: function (fn) {
+          var a = Array.prototype.slice.call(arguments, 1);
+          setTimeout(function () { fn.apply(null, a); }, 0);
+        },
+      };
+    </script>
+</head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>

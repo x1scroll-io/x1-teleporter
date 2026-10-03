@@ -1,0 +1,335 @@
+{
+  "tool": "golden-transaction fixtures — the DEX-DIRECT fallback legs (regression oracle, Phase 6)",
+  "capturedAt": "2026-09-05T20:42:21.672Z",
+  "liveStatus": {
+    "note": "All input fixtures are LIVE READ-ONLY captures (2026-09-05): EVM quoter eth_calls; Solana on-chain pool/tick-array/vault state + read-only mainnet SIMULATIONS of the constructed swap txs (sigVerify:false — sandboxed, nothing broadcast). Every Solana quote cross-checked against the protocol official SDK on identical state. swap-EXECUTION is GUARDED on every leg (DexDirectLiveTestGateError) — READY FOR LIVE ANCHOR: the first live swap per DEX is Mr. Esters call."
+  },
+  "samples": {
+    "evm": {
+      "chains": [
+        "eth",
+        "arb",
+        "opt",
+        "pol",
+        "bsc"
+      ],
+      "pair": "USDC→USDT",
+      "amount": {
+        "eth/arb/opt/pol": "10 USDC raw 6dp",
+        "bsc": "10 USDC raw 18dp"
+      },
+      "recipient": "EVM_ADDRESS (repo test wallet)"
+    },
+    "orca": {
+      "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+      "pair": "SOL→USDC",
+      "amount": "0.1 SOL raw",
+      "user": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV"
+    },
+    "raydiumClmm": {
+      "pool": {
+        "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+        "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+        "configId": "3h2e43PunVA5K34vwKCLHWhZF4aZpyaC9RmxvshGAQpL",
+        "creator": "CJKrW95iMGECdjWtdDnWDAx2cBH7pFE9VywnULfwMapf",
+        "mintA": "So11111111111111111111111111111111111111112",
+        "mintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "vaultA": "4ct7br2vTPzfdmY3S5HLtTxcGSBfn6pnw98hsS6v359A",
+        "vaultB": "5it83u57VRrVgc51oNV19TTmAJuffPx5GtGwQr7gQNUo",
+        "observationId": "3Y695CuQ8AP4anbwAqiEBeQF9KxqHFr8piEwvw3UePnQ",
+        "mintDecimalsA": 9,
+        "mintDecimalsB": 6,
+        "tickSpacing": 1,
+        "liquidity": "172616118390528",
+        "sqrtPriceX64": "5928013888900299069",
+        "tickCurrent": -22706,
+        "status": 0,
+        "feeOn": 0
+      },
+      "pair": "SOL→USDC",
+      "amount": "0.1 SOL raw"
+    },
+    "raydiumCpmm": {
+      "pool": {
+        "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+        "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+        "configId": "D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2",
+        "poolCreator": "GccTQTfZtvQC4vamMdTdhMtgETiATFKtbZz3dZMNheHy",
+        "vaultA": "7jzdRNd8rutdT38CKGkSeuaBmQDyucFJfbh6WEfwnDss",
+        "vaultB": "AQrpuddRvJeVvbBbtQrUdV8YFeh3om9eyBQX2h5ojKh2",
+        "mintLp": "7J7QMtPvgrQVA5qomGBVwTgBuPySFf7uozy2Sy7qJWyk",
+        "mintA": "DvjbEsdca43oQcw2h3HW1CT7N3x5vRcr3QrvTUHnXvgV",
+        "mintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "mintProgramA": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "mintProgramB": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "observationId": "31mbs1syFfZioCsu3pQGpsWAQwNGSWgsnYtnrFbwtBBT",
+        "bump": 253,
+        "status": 0,
+        "lpDecimals": 9,
+        "mintDecimalA": 9,
+        "mintDecimalB": 6,
+        "lpAmount": "140995696975410",
+        "openTime": "1746795666",
+        "feeOn": 0,
+        "enableCreatorFee": false
+      },
+      "pair": "mintA?→USDC",
+      "input": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amount": "100 USDC raw"
+    }
+  },
+  "evidence": {
+    "evmQuotes": {
+      "pcs-bsc-USDC-USDT-f100": {
+        "amountOut": "9997508901233776997",
+        "sha256": "d1493782ba14b2dc5e02a1a714fe74bf9362ff4ab57555126cfa06cd05a16282"
+      },
+      "pcs-bsc-USDC-USDT-f500": {
+        "amountOut": "9995615641297798929",
+        "sha256": "d6ec9eafd3b533b72c0549449646f31c8e113e93127f1e77b0bfe90e388ea8e5"
+      },
+      "uni-arb-USDC-USDT-f100": {
+        "amountOut": "9996831",
+        "sha256": "3964edd3df4afcf0aa6f795620013a13dc66a210243f837877ae367156f89cc1"
+      },
+      "uni-eth-USDC-USDT-f100": {
+        "amountOut": "9997027",
+        "sha256": "e640ea7b1f83e41c1438067b9e44528e22c60b951cf8b620449874f41b763846"
+      },
+      "uni-opt-USDC-USDT-f500": {
+        "amountOut": "9993074",
+        "sha256": "9b5b5de970266b9085a05bd52826ca62c449e473711200dd1b610a2adf9627ae"
+      },
+      "uni-pol-USDC-USDT-f500": {
+        "amountOut": "9990028",
+        "sha256": "47371db1cddce9749e9725e999fcc6eb922d42e95f0ed32c307440b0ee60a20e"
+      }
+    },
+    "orca": {
+      "file": "orca-sol-usdc-whirlpool-snapshot.json",
+      "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+      "quote": {
+        "aToB": true,
+        "amountSpecifiedIsInput": true,
+        "amountIn": "100000000",
+        "amountOut": "10322982",
+        "feeAmount": "40000",
+        "allTrade": true,
+        "endSqrtPrice": "5928013436506882346",
+        "endTickIndex": -22706,
+        "appliedFeeRate": 400,
+        "sqrtPriceLimit": "4295048017"
+      },
+      "sdkCrossCheck": {
+        "note": "repo whirlpoolQuote == @orca-so/whirlpools-sdk computeSwap on identical state (0.5 SOL sample: amountOut 51614524 == 51614524; fee 200000; endTick -22706)",
+        "runAt": "2026-09-05"
+      },
+      "sim": {
+        "err": {
+          "InstructionError": [
+            0,
+            {
+              "Custom": 3012
+            }
+          ]
+        },
+        "logs": [
+          "Program log: Instruction: SwapV2",
+          "Program log: AnchorError caused by account: token_owner_account_a. Error Code: AccountNotInitialized. Error Number: 3012. Error Message: The program expected this account to be already initialized.",
+          "Program whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc consumed 6566 of 200000 compute units",
+          "Program whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc failed: custom program error: 0xbc4"
+        ],
+        "note": "simulateTransaction with sigVerify:false — read-only sandbox; nothing broadcast."
+      }
+    },
+    "raydiumClmm": {
+      "file": "raydium-clmm-sol-usdc-snapshot.json",
+      "pool": {
+        "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+        "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+        "configId": "3h2e43PunVA5K34vwKCLHWhZF4aZpyaC9RmxvshGAQpL",
+        "creator": "CJKrW95iMGECdjWtdDnWDAx2cBH7pFE9VywnULfwMapf",
+        "mintA": "So11111111111111111111111111111111111111112",
+        "mintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "vaultA": "4ct7br2vTPzfdmY3S5HLtTxcGSBfn6pnw98hsS6v359A",
+        "vaultB": "5it83u57VRrVgc51oNV19TTmAJuffPx5GtGwQr7gQNUo",
+        "observationId": "3Y695CuQ8AP4anbwAqiEBeQF9KxqHFr8piEwvw3UePnQ",
+        "mintDecimalsA": 9,
+        "mintDecimalsB": 6,
+        "tickSpacing": 1,
+        "liquidity": "172616118390528",
+        "sqrtPriceX64": "5928013888900299069",
+        "tickCurrent": -22706,
+        "status": 0,
+        "feeOn": 0
+      },
+      "quote": {
+        "amountInRaw": "100000000",
+        "amountOutRaw": "10322981",
+        "amountOutMinRaw": "10271366",
+        "feeAmount": "40000",
+        "appliedFeeRate": 400,
+        "endTick": -22706,
+        "allTrade": true,
+        "outHuman": 10.322981,
+        "tickArrays": [
+          "9KnMQWpQ8bA7fydP4jsZN6s4waqA7GtA3Wt36zJuozav",
+          "FVGpZaheYCfMD17pAsMzWX5uVuDzbkmMLtTHmzz2ykgi",
+          "7i3tVrschaU3vghoATjkEiRFjT4HrUzmoTgNzroSvFvt",
+          "7KGRHr8gSwVqmJVv3sdnUEmKM3jRC551SMCt9ZxmCXsb"
+        ]
+      },
+      "sdkCrossCheck": {
+        "note": "raydiumClmmQuote == raydium-sdk-v2 swapInternal (amountOut 10320856 == 10320856; fee 40000; endTick -22708); pool/config decodes byte-identical to SDK layouts",
+        "runAt": "2026-09-05"
+      },
+      "sim": {
+        "err": {
+          "InstructionError": [
+            0,
+            {
+              "Custom": 3012
+            }
+          ]
+        },
+        "logs": [
+          "Program log: Instruction: SwapV2",
+          "Program log: AnchorError caused by account: input_token_account. Error Code: AccountNotInitialized. Error Number: 3012. Error Message: The program expected this account to be already initialized.",
+          "Program CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK consumed 7482 of 200000 compute units",
+          "Program CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK failed: custom program error: 0xbc4"
+        ],
+        "note": "simulateTransaction with sigVerify:false — read-only sandbox; nothing broadcast."
+      }
+    },
+    "raydiumCpmm": {
+      "file": "raydium-cpmm-token-usdc-snapshot.json",
+      "pool": {
+        "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+        "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+        "configId": "D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2",
+        "poolCreator": "GccTQTfZtvQC4vamMdTdhMtgETiATFKtbZz3dZMNheHy",
+        "vaultA": "7jzdRNd8rutdT38CKGkSeuaBmQDyucFJfbh6WEfwnDss",
+        "vaultB": "AQrpuddRvJeVvbBbtQrUdV8YFeh3om9eyBQX2h5ojKh2",
+        "mintLp": "7J7QMtPvgrQVA5qomGBVwTgBuPySFf7uozy2Sy7qJWyk",
+        "mintA": "DvjbEsdca43oQcw2h3HW1CT7N3x5vRcr3QrvTUHnXvgV",
+        "mintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        "mintProgramA": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "mintProgramB": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+        "observationId": "31mbs1syFfZioCsu3pQGpsWAQwNGSWgsnYtnrFbwtBBT",
+        "bump": 253,
+        "status": 0,
+        "lpDecimals": 9,
+        "mintDecimalA": 9,
+        "mintDecimalB": 6,
+        "lpAmount": "140995696975410",
+        "openTime": "1746795666",
+        "feeOn": 0,
+        "enableCreatorFee": false
+      },
+      "quote": {
+        "amountInRaw": "100000000",
+        "tradeFeeRaw": "250000",
+        "outRaw": "68530663519451",
+        "amountOutMinRaw": "68188010201853",
+        "slippageBps": 50,
+        "outHuman": 68530.663519451
+      },
+      "sdkCrossCheck": {
+        "note": "raydiumCpmmQuote == raydium-sdk-v2 CurveCalculator.swapBaseInput (output 68530663519451 == 68530663519451; fee 250000)",
+        "runAt": "2026-09-05"
+      },
+      "sim": {
+        "err": {
+          "InstructionError": [
+            0,
+            {
+              "Custom": 3012
+            }
+          ]
+        },
+        "logs": [
+          "Program log: Instruction: SwapBaseInput",
+          "Program log: AnchorError caused by account: output_token_account. Error Code: AccountNotInitialized. Error Number: 3012. Error Message: The program expected this account to be already initialized.",
+          "Program CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C consumed 6597 of 200000 compute units",
+          "Program CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C failed: custom program error: 0xbc4"
+        ],
+        "note": "simulateTransaction with sigVerify:false — read-only sandbox; nothing broadcast."
+      }
+    }
+  },
+  "steps": {
+    "orca-step1-quote": {
+      "sha256": "fb236ba7b42256c611ea401e1d92c01110064e1a72b08c35261caf21a5f8a6c5",
+      "artifactSha256": "36466fe09006d4d2214771422fc6cb41d9e5957a93309c497d3eb9b13053b937"
+    },
+    "orca-step2-swap-ix": {
+      "sha256": "5643ea1258754e130710a07bc05affe9f8c7d4e0ec715046c835667b87fd827b",
+      "artifactSha256": "d1f2fc60af95aa58869f9798d56f4995ff55aca6949403decc63f8427943eb09"
+    },
+    "pancakeswap-bsc-f100-step1-quote": {
+      "sha256": "af15dd46b03aae8e5936dddcb9de0b867ba779a0492ad5f54622ad563228ed02",
+      "artifactSha256": "9898fc2e8e18c24b2b2eb47ccbe5c6039a587bb37038e97bb1d0ea95494b92fe"
+    },
+    "pancakeswap-bsc-f100-step2-swap-request": {
+      "sha256": "c83d8a1d9097a22156417258b448e7bbf3cc4446512852d151eeaa955ebedfc6",
+      "artifactSha256": "48f3b317c25f851aca2304451f9ca2d397a996bec209e0549948236e59cee6e7"
+    },
+    "pancakeswap-bsc-f500-step1-quote": {
+      "sha256": "d1fdcb6dbafbb420509be32891812584caf483b37bd77d5d9f2426acae4fd220",
+      "artifactSha256": "321995d1f6af03d8f3be47c425136f76c4314b084ac64e24392d76210590cce0"
+    },
+    "pancakeswap-bsc-f500-step2-swap-request": {
+      "sha256": "d0e0bbded18097cd93e1ed869635f3021d7e8d5c35c760c7bbbbf79817696a09",
+      "artifactSha256": "2dded78dda8e5a27e858b9c9a0417970e32c5594e6863d4b5ca415ff8d91427c"
+    },
+    "raydium-clmm-step1-quote": {
+      "sha256": "9e1d6b3d9224fbb870b183632479c5f40786dce740cf3c7b5515003a3a5a17aa",
+      "artifactSha256": "20ac2718fbf7daaa93cddd7eb1333f5418035e4a7e1a43ee47843d34af3ab251"
+    },
+    "raydium-clmm-step2-swap-ix": {
+      "sha256": "1e86a5fe21d4e715d7ce5f89ca677eed8d7d93b79321259d22dd4ea3e57172bc",
+      "artifactSha256": "501719f581163f4a50b64cdbb0135351b1066754e9fb0bfe84d5f299842b3912"
+    },
+    "raydium-cpmm-step1-quote": {
+      "sha256": "0cb0c9a1f640a85fff12ba5f0369164b1400f54a9aa5e58b33ad895307002d99",
+      "artifactSha256": "bbd9bc54f64f8e18afbccb8dd574a4e229e71589b5acc39b89e6211fa2d533b1"
+    },
+    "raydium-cpmm-step2-swap-ix": {
+      "sha256": "4da7cb6fdb06e271f1d8d12c2d07a6491739fb7c99754958f53bcab791691635",
+      "artifactSha256": "7c404894d3c891ff41a46634a91429e0a9d5bbb02abc0d056db84a4ce0bf6eea"
+    },
+    "uniswap-arb-f100-step1-quote": {
+      "sha256": "35646ea10bbf58f07a6d567e7b0668c1c0ba8b9b45649c90cdd27426e344b08d",
+      "artifactSha256": "bfe1b5db652fc2a53ac73ea9d2101ae3e6e3cd9c1eedae7845446ff8e064ee17"
+    },
+    "uniswap-arb-f100-step2-swap-request": {
+      "sha256": "5d6c85cf0ba9785503b993d0097e485e759018aadf08832140aab0c8d403853e",
+      "artifactSha256": "3ced6a82ee931fd71899fa1091e205c493fb7a81419e20bd2f94ad89aeee43e7"
+    },
+    "uniswap-eth-f100-step1-quote": {
+      "sha256": "1eb35efb292a1d3884e073a8eaf3565edafca3b95bae238cf58b1e647651ec49",
+      "artifactSha256": "6343fa75bfab6715c279c6b778112dc26a1fbd45c9c5869a502d102d574a7889"
+    },
+    "uniswap-eth-f100-step2-swap-request": {
+      "sha256": "d5ccd24e0c266f6af2e315e8ceb3596bf7827fa37ff47e26183c1ddd382cfe60",
+      "artifactSha256": "e035744362e67703722ad61778a99b9bdd79dd46590480ba03ecb1d8dc012634"
+    },
+    "uniswap-opt-f500-step1-quote": {
+      "sha256": "f00c68bd14e59b378bb6fbefcd31d4ca401c42094a1f8f8a683cbc5046f01231",
+      "artifactSha256": "1eda27b826a90bd8c5803f3b7043c67f7dbe9bf0fe9a2be3d38f12a8c8de4b8a"
+    },
+    "uniswap-opt-f500-step2-swap-request": {
+      "sha256": "53c1ffe8de098934ec75b00f02fce9339c03e956f604b1ff7a0a27364f6126c7",
+      "artifactSha256": "90b3be1aa960670aaa467ececf16ffeb5148138f3a96c786f844806e102534f2"
+    },
+    "uniswap-pol-f500-step1-quote": {
+      "sha256": "e64be2ead9c3c628476cf8423bb804807dbbc608de25714cd7d5d9a557a1ca0c",
+      "artifactSha256": "8df843ae223eeb622212e77b97a85ccfe24f2cf6b30a328527b1bca43569d0fe"
+    },
+    "uniswap-pol-f500-step2-swap-request": {
+      "sha256": "6e9ad11569fac256e2fbf32317e945ce0c6ae889bf1cf4697925a991c24a4974",
+      "artifactSha256": "2908f03fcad4af804d088f056cc68605330e230139c90e8b2a830fdac1552f01"
+    }
+  },
+  "verify": "test/goldenDexDirect.test.js rebuilds every step from the same inputs and asserts byte-identical + sha256 match. The engine must make it pass UNCHANGED."
+}

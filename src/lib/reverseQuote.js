@@ -1,0 +1,358 @@
+/**
+ * reverseQuote.js — pure quote-building for the v2 REVERSE leg (X1 → EVM).
+ * Mirrors teleportQuote.js (the forward EVM → X1 hop), reversed.
+ *
+ * THE REVERSE JOURNEY (X1 USDC.x/wSOL.X → Solana → EVM stable):
+ *   Stage 1 — X1 → Solana: the Warp `bridge_out` BURN of the X1 token
+ *     (Token-2022: USDC.x or wSOL.X). No LiFi. Fees come from quoteFees
+ *     (x1_onward class): our 0.5% warp-skim (collector fee-wallet-x1,
+ *     capped at $250, computed on the SOURCE amount) + the Warp program's
+ *     own fee (third-party, deducted on-chain inside bridge_out on X1
+ *     mainnet). Both are the exact components the burn tx charges:
+ *     runReverse prepends the 0.5% skim transfer to the fee wallet and
+ *     bridge_out burns the remainder.
+ *     TOKEN-AWARE Warp fee (live Warp config + on-chain logs, VERIFIED
+ *     2026-09-02 — the rumored USDC flat→0.25% change did NOT happen):
+ *       - USDC.x: flat $1 (1.0 USDC.x) carved out of the bridge gross
+ *       - wSOL.X: 25 bps (0.25%) of the bridge gross, flat 0
+ *       - ETH.X / cbBTC.X: 25 bps (live config, 8 dec — same pct rail)
+ *       - ANY OTHER / future token: 25 bps pct — the lookup DEFAULT is pct,
+ *         never the flat $1 (Mr. Esters, verified live 2026-09-02: flat $1
+ *         applies ONLY to USDC.x/USDC)
+ *   Stage 2 — Solana → EVM: a LiFi leg on the net that actually LANDED on
+ *     Solana (X − 0.5% − Warp fee — deterministic, the burn amount is
+ *     explicit in the tx). The LiFi query is SOL → the destination EVM chain
+ *     for the USER-SELECTED stable (USDC / USDT / DAI — whatever TOKENS[to]
+ *     defines; the destination token symbol flows through
+ *     buildReverseLifiQuoteParams and deriveReverseQuote), marked x1Class=1
+ *     so the server omits the LiFi integrator fee entirely (policy: the
+ *     0.5% warp-skim is the ONLY Teleporter fee on x1-class routes;
+ *     api/lifi/quote.js validates the marker against Solana on one end of
+ *     the leg). The Solana-side FROM token is token-aware too:
+ *       - USDC.x burn → USDC (6 dec) on Solana → LiFi fromToken = USDC
+ *       - wSOL.X burn → WSOL (9 dec) on Solana → LiFi fromToken = WSOL
+ *       - ETH.X burn → ETH (8 dec) on Solana → LiFi fromToken = ETH
+ *       - cbBTC.X burn → cbBTC (8 dec) on Solana → LiFi fromToken = cbBTC
+ *     LiFi quotes WSOL (So111…) → EVM stables DIRECTLY (verified live,
+ *     Sep 2026 — relaydepository wSOL→USDC routes) — NO Jupiter swap needed.
+ *     NO PLACEHOLDERS: fromAddress/toAddress are the real connected wallet
+ *     addresses.
+ *
+ * Fee math is computed from fees.ts (FEE_RATES + quoteFees — the single
+ * source of truth), never hardcoded. The routeType is passed EXPLICITLY
+ * (x1_onward) so the fee class is correct regardless of the REVERSE_ENABLED
+ * route-builder flag — this module is the v2 reverse path, which does not go
+ * through determineRoute (see TeleportForm.jsx).
+ */
+
+import { CHAINS, TOKENS, X1_REVERSE_MIN } from "./teleportConstants.js";
+import { quoteFees, FEE_RATES, LIFI_INTEGRATOR_ACCOUNT } from "./fees.ts";
+// The LiFi network-gas reader (shared with the forward leg) — display-only.
+import { deriveGasUsd } from "./teleportQuote.js";
+// Token identity (decimals) + the Warp-twin relation read from the canonical
+// registry — see docs/TOKEN-RESOLVER.md.
+import { requireToken, resolveTwin } from "./tokenResolver.js";
+
+const USDC_DECIMALS = requireToken("USDC", "sol").decimals; // 6 — canonical fallback (tokenResolver); WSOL_DECIMALS was dead code (dropped)
+
+/** Warp's per-token fee on the X1 side (bridge_out burn) — the mirror of
+ *  warpBridge.js X1_WARP_FEES (single source of truth for the quote math;
+ *  the on-chain constants live there, the USD display math here). FLAT $1
+ *  applies ONLY to USDC.x (VERIFIED on-chain 2026-09-02 + Mr. Esters' live
+ *  Warp-UI check: USDC→USDC.x = flat $1; ETH/BTC/SOL/OTHER = 0.25%).
+ *  wSOL.X: 25 bps (verified on-chain). ETH.X + cbBTC.X: 25 bps, 8 decimals
+ *  (live config api.bridge.mainnet.x1.xyz/config, fetched 2026-09-03). */
+const X1_WARP_FEES = {
+  "USDC.x": { kind: "flat", amountUsd: 1, decimals: requireToken("USDC.x", "x1").decimals },
+  "wSOL.X": { kind: "pct", bps: 25, decimals: requireToken("wSOL.X", "x1").decimals },
+  "ETH.X": { kind: "pct", bps: 25, decimals: requireToken("ETH.X", "x1").decimals },
+  "cbBTC.X": { kind: "pct", bps: 25, decimals: requireToken("cbBTC.X", "x1").decimals },
+  // Stock rails — 25 bps pct, 8 dec (live Warp config; flat $1 is USDC.x-ONLY).
+  "SPCXx": { kind: "pct", bps: 25, decimals: 8 },
+  "METAx": { kind: "pct", bps: 25, decimals: 8 },
+  "TSLAx": { kind: "pct", bps: 25, decimals: 8 },
+  "COINx": { kind: "pct", bps: 25, decimals: 8 },
+  "PLTRx": { kind: "pct", bps: 25, decimals: 8 },
+  "NVDAx": { kind: "pct", bps: 25, decimals: 8 },
+  "AMDx": { kind: "pct", bps: 25, decimals: 8 },
+  "SPYx": { kind: "pct", bps: 25, decimals: 8 },
+  "GOOGLx": { kind: "pct", bps: 25, decimals: 8 },
+};
+
+/** The DEFAULT Warp fee shape for an UNKNOWN X1 token: 25 bps pct — flat $1
+ *  applies ONLY to USDC.x (Mr. Esters' verified per-asset structure). This is
+ *  the lookup's fallback so ETH.X/cbBTC.X/any FUTURE Warp token is quoted at
+ *  0.25%, never the flat $1. Exported so tests can assert the default itself
+ *  is pct (no code path may default an unknown token to flat). */
+export const X1_WARP_FEE_PCT_DEFAULT = { kind: "pct", bps: 25, decimals: 9 };
+
+/** Resolve the Warp fee shape for an X1 source token — the ONE lookup the
+ *  quote math uses. Unknown tokens fall back to X1_WARP_FEE_PCT_DEFAULT
+ *  (0.25% pct). */
+export function x1WarpFeeShape(token) {
+  return X1_WARP_FEES[token] || X1_WARP_FEE_PCT_DEFAULT;
+}
+
+/** Resolve the Solana-side FROM token for the stage-2 LiFi leg from the X1
+ *  source token (the twin the Warp burn releases on Solana): USDC.x releases
+ *  USDC (6 dec); wSOL.X releases WSOL (9 dec); ETH.X releases ETH (8 dec);
+ *  cbBTC.X releases cbBTC (8 dec) — twins per the canonical warp-twin
+ *  relation (tokenResolver.resolveTwin). Unknown tokens fall back to USDC
+ *  (back-compat: the only legacy callers predate the ETH/cbBTC rails; no
+ *  unknown-token reverse leg is executable today). */
+export function reverseSolanaToken(token) {
+  return resolveTwin(token) || "USDC";
+}
+
+/**
+ * The deterministic Stage-1 math for the reverse journey, from fees.ts
+ * (single source — if the rate ever changes there, this follows) + the live
+ * Warp token registry (per-token fee shape):
+ *   skim        = 0.5% of the source amount (our Teleporter fee, capped at
+ *                 $250 in USD accounting — in TOKEN units the pure rate
+ *                 applies; the cap cannot bind on executable reverse
+ *                 journeys because Warp's own per-tx maxAmount caps them far
+ *                 below a $50k route total — USDC.x 5,000 / wSOL.X 50, live
+ *                 config 2026-09-02). In the SOURCE token — USDC.x or
+ *                 wSOL.X, transferred to FEE_WALLETS.X1 as a pre-bridge SPL
+ *                 transfer)
+ *   burnAmount  = source − skim (what bridge_out burns on X1; alias
+ *                 warpGross — the amount the Warp program debits)
+ *   warpFee     = the Warp program's OWN fee, carved out of the burn gross
+ *                 INSIDE bridge_out on X1 mainnet (third-party pass-through,
+ *                 PER-ASSET — Mr. Esters' verified structure 2026-09-02):
+ *                 USDC.x → flat $1 (VERIFIED on-chain); wSOL.X/ETH.X/
+ *                 cbBTC.X/UNKNOWN → 25 bps of the gross (wSOL.X verified
+ *                 on-chain; ETH.X/cbBTC.X per the live config — flat $1 is
+ *                 USDC.x-ONLY)
+ *   netOnSolana = burnAmount − warpFee (what the guardians release on Solana:
+ *                 USDC 6-dec for a USDC.x burn, WSOL 9-dec for a wSOL.X burn,
+ *                 ETH 8-dec for an ETH.X burn, cbBTC 8-dec for a cbBTC.X burn)
+ * The LiFi leg (stage 2) bridges netOnSolana — the exact token that lands.
+ *
+ * @param {{amount: number, token?: string}} args source amount in human units
+ *   (USDC.x / wSOL.X / ETH.X / cbBTC.X — token drives the Warp fee shape)
+ * @returns {{skim: number, burnAmount: number, warpFee: number,
+ *            netOnSolana: number, feeQuote: FeeQuote}}
+ */
+export function computeReverseLegs({ amount, token = "USDC.x" }) {
+  const skim = amount * FEE_RATES.X1_HOP_SKIM;
+  const burnAmount = amount - skim; // the bridge_out gross
+  // PER-ASSET Warp fee (Mr. Esters' verified structure, 2026-09-02): flat $1
+  // ONLY for USDC.x; every other asset (wSOL.X/ETH.X/cbBTC.X + UNKNOWN) is
+  // 0.25% pct of the bridge gross — the lookup's default is pct, never flat.
+  const fee = x1WarpFeeShape(token);
+  const warpFee = fee.kind === "flat"
+    ? fee.amountUsd
+    : burnAmount * (fee.bps / 10_000);
+  const netOnSolana = Math.max(0, burnAmount - warpFee);
+  const feeQuote = quoteFees(
+    { from: "x1", to: "eth", routeType: "x1_onward", warpFeeBps: fee.kind === "pct" ? fee.bps : undefined },
+    amount,
+  );
+  return { skim, burnAmount, warpFee, netOnSolana, feeQuote };
+}
+
+/** Coingecko simple-price ids for the reverse SOURCE tokens (the Solana-side
+ *  landing token of the X1 burn — USDC, WSOL, ETH or cbBTC). Derived from the
+ *  canonical rows' coingeckoId (tokenResolver) — never written by hand.
+ *  Fallback ONLY: the LiFi quote's fromToken.priceUSD is the primary price
+ *  source. */
+const COINGECKO_IDS = Object.fromEntries(
+  ["USDC", "WSOL", "ETH", "cbBTC"]
+    .map((s) => [s, requireToken(s, "sol").coingeckoId])
+    .filter(([, id]) => id != null),
+);
+
+/**
+ * Resolve the LIVE USD price for the reverse SOURCE token — never hardcoded
+ * (the codebase's XNT-price rule: ALWAYS pull live).
+ *
+ * Primary: the LiFi quote's fromToken.priceUSD — the SOL→EVM leg's fromToken
+ * is exactly the token the Warp burn releases on Solana (USDC for a USDC.x
+ * burn, WSOL for a wSOL.X burn), 1:1 with the X1-side source (USDC.x / wSOL.X
+ * are Warp-wrapped twins of the Solana tokens). No extra request, no race.
+ *
+ * Fallback: Coingecko simple price for the Solana-side token (the app has no
+ * price util of its own — the LiFi price is the primary and Coingecko covers
+ * the gap when the quote is missing/erroring).
+ *
+ * @param {{token?: string, lifiData?: ?object, fetchPrice?: (id: string) =>
+ *          Promise<?number>}} args token = the X1 source ("USDC.x" |
+ *   "wSOL.X"); lifiData = the /api/lifi/quote response (may be null when the
+ *   leg couldn't be quoted); fetchPrice = DI'd live-price fetcher (tests
+ *   inject a fake; default: Coingecko).
+ * @returns {Promise<?number>} the source token's USD price, or null when BOTH
+ *   sources fail — the caller then FAILS OPEN on the min gate.
+ */
+export async function resolveReversePriceUSD({ token = "USDC.x", lifiData, fetchPrice = defaultPriceFetch }) {
+  const lifiPrice = lifiData?.action?.fromToken?.priceUSD;
+  if (lifiPrice != null && Number(lifiPrice) > 0) return Number(lifiPrice);
+  const id = COINGECKO_IDS[reverseSolanaToken(token)];
+  if (!id) return null;
+  try {
+    return await fetchPrice(id);
+  } catch {
+    return null; // a failed price lookup must never block a valid user
+  }
+}
+
+/** The default live-price fetch: Coingecko simple price (`{id: {usd: N}}`).
+ *  Returns null on any non-parseable response — resolveReversePriceUSD turns
+ *  that into the fail-open path. */
+export async function defaultPriceFetch(coingeckoId) {
+  const resp = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd`);
+  if (!resp.ok) return null;
+  const d = await resp.json();
+  const price = d?.[coingeckoId]?.usd;
+  return price != null && Number(price) > 0 ? Number(price) : null;
+}
+
+/**
+ * The USD-AWARE reverse minimum gate (the live-bug fix from PR #38 — the old
+ * check compared the RAW TOKEN COUNT to the $25 floor, so 0.3 wSOL.X ≈ $30
+ * was blocked because 0.3 < 25).
+ *
+ * FLOOR REMOVED 2026-09-02 (fee-model v2): the $25 minimum is GONE — the
+ * 0.5%-capped Teleporter fee makes small reverse bridges viable. The default
+ * minUsd is now X1_REVERSE_MIN = 0, so this gate can never block; the
+ * function stays exported for DI/tests and its fail-open semantics are
+ * unchanged (a missing price never blocks). The burn preflight (balance) is
+ * a DIFFERENT guard and still runs.
+ *
+ * @param {{amount: number, token?: string, lifiData?: ?object, minUsd?:
+ *          number, fetchPrice?: (id: string) => Promise<?number>}} args
+ * @returns {Promise<{blocked: boolean, usdValue: ?number, priceUSD: ?number}>}
+ *   blocked = usdValue < minUsd (false always while minUsd is 0);
+ *   usdValue/priceUSD are null on the fail-open path (no price resolvable).
+ */
+export async function checkReverseMin({ amount, token = "USDC.x", lifiData, minUsd = X1_REVERSE_MIN, fetchPrice = defaultPriceFetch }) {
+  const priceUSD = await resolveReversePriceUSD({ token, lifiData, fetchPrice });
+  if (priceUSD == null) return { blocked: false, usdValue: null, priceUSD: null }; // fail-open
+  const usdValue = amount * priceUSD;
+  return { blocked: usdValue < minUsd, usdValue, priceUSD };
+}
+
+/**
+ * Build the LiFi quote query params for the REVERSE Stage-2 leg: Solana
+ * (USDC or WSOL) → destination EVM chain stable. Mirrors
+ * buildLifiQuoteParams (forward) with the ends reversed — Solana is the
+ * SOURCE, the EVM chain is the DESTINATION.
+ *
+ * @param {{to: string, netOnSolana: number, fromAddress: ?string,
+ *          toAddress: ?string, slippage?: number, token?: string,
+ *          toTokenSymbol?: string}} args
+ *   fromAddress = the connected Solana/X1 session's address (the token that
+ *                 lands on Solana from the Warp release is in THIS wallet).
+ *   toAddress   = the connected EVM session's address (the destination).
+ *   token       = the X1 source token ("USDC.x" default | "wSOL.X") — drives
+ *                 the Solana-side fromToken (USDC | WSOL) + fromAmount
+ *                 decimals (6 | 9).
+ *   toTokenSymbol = the user-selected DESTINATION stable on the EVM chain
+ *                 (USDC/USDT/DAI — whatever TOKENS[to] defines; defaults to
+ *                 USDC; the #36 dest-choice selector passes USDT/DAI here).
+ * @returns {{qs: URLSearchParams, decimals: number, toDecimals: number,
+ *            feeUsed: null} | null}
+ *   null when the chain is unknown or a needed wallet address is missing
+ *   (no placeholders — the caller surfaces the connect prompt).
+ */
+export function buildReverseLifiQuoteParams({ to, toTokenSymbol = "USDC", netOnSolana, fromAddress, toAddress, slippage = 0.5, token = "USDC.x" }) {
+  const toChain = CHAINS[to]?.lifiKey;
+  // The DESTINATION stable is the user's choice (USDC / USDT / DAI — whatever
+  // TOKENS[to] defines). The SOURCE side is the token the Warp burn released
+  // on Solana: USDC (6 dec) for a USDC.x burn, WSOL (9 dec) for a wSOL.X burn.
+  const toTokenInfo = TOKENS[to]?.[toTokenSymbol];
+  const toToken = toTokenInfo?.address;
+  if (!toChain || !toToken) return null;
+  if (!fromAddress || !toAddress) return null; // NO PLACEHOLDERS — real connected wallets only
+
+  const fromSymbol = reverseSolanaToken(token); // "USDC" | "WSOL"
+  const fromTokenAddr = TOKENS.sol[fromSymbol]?.address;
+  const fromDecimals = TOKENS.sol[fromSymbol]?.decimals ?? USDC_DECIMALS;
+  if (!fromTokenAddr) return null;
+
+  const rawAmount = BigInt(Math.floor(netOnSolana * 10 ** fromDecimals)).toString();
+  const qs = new URLSearchParams({
+    fromChain: CHAINS.sol.lifiKey,        // Solana → EVM (leg 2 of the reverse hop)
+    toChain,
+    fromToken: fromTokenAddr,             // the USDC (6-dec) or WSOL (9-dec) released by the Warp burn
+    toToken,                              // lands as the SELECTED stable on the destination EVM chain
+    fromAmount: rawAmount,
+    fromAddress,
+    toAddress,                            // explicit — required for cross-VM routes
+    slippage: String(slippage / 100),
+    integrator: LIFI_INTEGRATOR_ACCOUNT,
+    order: "CHEAPEST",
+    // Cross-VM: prevent a fragile multi-hop that detours through a THIRD
+    // chain (mirrors the forward leg's allowSwitchChain=false).
+    allowSwitchChain: "false",
+    // x1-class marker — the server validates it (the leg must touch Solana)
+    // and strips it before forwarding. NO fee param on x1-class (policy —
+    // the 1% warp-skim is the only Teleporter fee on the journey).
+    x1Class: "1",
+  });
+  // decimals = the SOURCE-side amount scale (what fromAmount is denominated
+  // in — the mirror of the forward builder: 6 for USDC, 9 for WSOL).
+  // toDecimals = the DESTINATION stable's decimals (what the LiFi leg
+  // delivers — USDT is 6, DAI is 18). Both from TOKENS, never hardcoded.
+  return { qs, decimals: fromDecimals, toDecimals: toTokenInfo?.decimals ?? USDC_DECIMALS, feeUsed: null };
+}
+
+/**
+ * Derive the full reverse quote-box picture.
+ *
+ * @param {{data: ?object, to: string, amount: number, token?: string,
+ *          toToken?: string}} args
+ *   data = the /api/lifi/quote response for the SOL→EVM leg (may be null/absent
+ *   when no route could be quoted — the honest-handoff case: stage 1 (the X1
+ *   burn) is still fully quoted and buildable; funds would rest on Solana and
+ *   the Solana→EVM hop is surfaced as the next stage instead).
+ *   token = the X1 SOURCE token ("USDC.x" default | "wSOL.X") — drives the
+ *   stage-1 Warp fee shape + the Solana-side landing token (USDC | WSOL).
+ *   toToken = the user-selected DESTINATION stable symbol (USDC/USDT/DAI —
+ *   the LiFi leg's toToken; defaults to USDC). Its decimals (6 or 18) convert
+ *   the LiFi toAmount into human units.
+ * @returns {{out: number, feeLines: FeeLine[], teleporterFeeUsd: number,
+ *            thirdPartyFeeUsd: number, net: number, recvToken: string,
+ *            recvChain: string, solanaAmount: number, lifiQuoted: boolean,
+ *            steps: Array}}
+ */
+export function deriveReverseQuote({ data, to, amount, token = "USDC.x", toToken = "USDC" }) {
+  const legs = computeReverseLegs({ amount, token });
+  const destName = CHAINS[to]?.name || to;
+  const lifiQuoted = Boolean(data?.estimate?.toAmount);
+  const recvDecimals = TOKENS[to]?.[toToken]?.decimals ?? USDC_DECIMALS;
+  let out;
+  if (lifiQuoted) {
+    // LiFi delivers the SELECTED stable on the destination EVM chain — its
+    // decimals come from TOKENS (USDC/USDT are 6, DAI is 18), never hardcoded.
+    out = parseFloat(data.estimate.toAmount) / 10 ** recvDecimals;
+  } else {
+    // Honest handoff: the LiFi leg could not be quoted (or wasn't requested).
+    // The quote still shows the full Stage-1 picture; "you receive" is the
+    // token that actually lands on Solana, with the hop to {dest} as the next
+    // stage. Never invent a number for the unquoted leg.
+    out = legs.netOnSolana;
+  }
+  const solanaSymbol = reverseSolanaToken(token); // USDC or WSOL
+  return {
+    out,
+    feeLines: legs.feeQuote.feeLines,
+    teleporterFeeUsd: legs.feeQuote.teleporterFeeUsd,
+    thirdPartyFeeUsd: legs.feeQuote.thirdPartyFeeUsd,
+    // Network gas (the Solana → EVM leg's source tx cost), display-only; null
+    // when LiFi reports no usable gasCosts (console renders "—" + itemized total).
+    gasUsd: deriveGasUsd(data),
+    net: out,
+    recvToken: lifiQuoted ? toToken : solanaSymbol, // the SELECTED destination stable when quoted; the Solana landing token in the handoff
+    recvChain: lifiQuoted ? destName : "Solana",
+    solanaAmount: legs.netOnSolana, // stage 2 (LiFi) bridges THIS, not the original input
+    lifiQuoted,
+    legs, // the stage-1 math (skim/burnAmount/warpFee/netOnSolana) for the send path
+    steps: [
+      { name: "X1", tool: "Warp Bridge" },
+      { name: "Solana", tool: "Warp Bridge" },
+      { name: destName, tool: "LiFi" },
+    ],
+  };
+}
