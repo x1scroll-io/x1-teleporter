@@ -21,6 +21,7 @@
 
 import { useMemo } from "react";
 import { buildJourney } from "../lib/journeyReadout.js";
+import { CURSOR_CSS, Typed, TYPE_SPEED_MS } from "./useTypewriter.jsx";
 
 /** Hop-kind → accent colour (bridge cyan / swap amber / release green). */
 const KIND_COLOR = {
@@ -75,7 +76,67 @@ const S = {
   empty: { color: "#5a6b80", fontSize: 11, marginTop: 6 },
 };
 
-function Station({ station, testid, label }) {
+/**
+ * The typed text SEGMENTS of a coordinate station, in print order. Kept as a
+ * pure list so the PARENT can measure its length (to schedule the next line a
+ * line's-length later) while the Station renders the very same segments — one
+ * source of truth, no drift between the two.
+ */
+function stationSegments(station, label) {
+  if (!station) return [];
+  const segs = [
+    { k: "coord", s: S.coord, t: `${label} ${station.coord}` },
+    { k: "name", s: S.stationName, t: ` ${station.name}` },
+  ];
+  if (station.token) segs.push({ k: "token", s: S.stationToken, t: ` · ${station.token}` });
+  if (station.blocked) segs.push({ k: "blocked", s: S.blocked, t: " ⛔ BLOCKED" });
+  return segs;
+}
+
+/** The typed text SEGMENTS of a hop's top line (same one-source-of-truth
+ *  contract as stationSegments). */
+function hopTopSegments(hop) {
+  const color = KIND_COLOR[hop.kind] || "#9aa6bb";
+  const segs = [
+    { k: "fromName", s: S.stationName, t: hop.from.name },
+    { k: "fromTok", s: S.stationToken, t: ` · ${hop.from.token}` },
+    { k: "arrow1", s: S.arrow, t: " → " },
+    { k: "action", s: { ...S.via, color }, t: hop.action },
+    { k: "chip", s: S.chip, t: ` ${hop.tool} ` },
+    { k: "arrow2", s: S.arrow, t: " → " },
+    { k: "toName", s: S.stationName, t: hop.to.name },
+    { k: "toTok", s: S.stationToken, t: ` · ${hop.to.token}` },
+  ];
+  if (hop.blocked) segs.push({ k: "blocked", s: S.blocked, t: " ⛔ BLOCKED", id: "journey-hop-blocked" });
+  return segs;
+}
+
+/** Total characters in a segment list — how far the print head advances. */
+const segLen = (segs) => segs.reduce((a, seg) => a + seg.t.length, 0);
+
+/** Render a segment list as sequenced <Typed> spans, each starting exactly
+ *  when the previous one finishes (cumulative char count × speed). */
+function TypedSegments({ segs, startDelayMs, speedMs, enabled, restartKey }) {
+  let at = startDelayMs;
+  return segs.map((seg, i) => {
+    const el = (
+      <Typed
+        key={`${seg.k}${i}`}
+        data-testid={seg.id}
+        text={seg.t}
+        style={seg.s}
+        speedMs={speedMs}
+        startDelayMs={at}
+        enabled={enabled}
+        restartKey={restartKey}
+      />
+    );
+    at += seg.t.length * speedMs;
+    return el;
+  });
+}
+
+function Station({ station, testid, label, startDelayMs = 0, speedMs = TYPE_SPEED_MS, enabled = true, restartKey }) {
   if (!station) return null;
   return (
     <div
@@ -85,16 +146,20 @@ function Station({ station, testid, label }) {
       data-blocked={station.blocked ? "true" : "false"}
       style={station.blocked ? { ...S.station, ...S.stationBlocked } : S.station}
     >
-      <span style={S.coord}>{label} {station.coord}</span>
-      <span style={S.stationName}>{station.name}</span>
-      {station.token && <span style={S.stationToken}>· {station.token}</span>}
-      {station.blocked && <span style={S.blocked}>⛔ BLOCKED</span>}
+      <TypedSegments
+        segs={stationSegments(station, label)}
+        startDelayMs={startDelayMs}
+        speedMs={speedMs}
+        enabled={enabled}
+        restartKey={restartKey}
+      />
     </div>
   );
 }
 
-function Hop({ hop }) {
-  const color = KIND_COLOR[hop.kind] || "#9aa6bb";
+function Hop({ hop, startDelayMs = 0, speedMs = TYPE_SPEED_MS, enabled = true, restartKey }) {
+  const segs = hopTopSegments(hop);
+  const lineMs = segLen(segs) * speedMs; // when this hop's top line lands
   return (
     <div
       data-testid="journey-hop"
@@ -106,18 +171,24 @@ function Hop({ hop }) {
       style={hop.blocked ? { ...S.hop, ...S.hopBlocked } : S.hop}
     >
       <div style={S.hopTop}>
-        <span style={S.stationName}>{hop.from.name}</span>
-        <span style={S.stationToken}>· {hop.from.token}</span>
-        <span style={S.arrow}>→</span>
-        <span style={{ ...S.via, color }}>{hop.action}</span>
-        <span style={S.chip}>{hop.tool}</span>
-        <span style={S.arrow}>→</span>
-        <span style={S.stationName}>{hop.to.name}</span>
-        <span style={S.stationToken}>· {hop.to.token}</span>
-        {hop.blocked && <span data-testid="journey-hop-blocked" style={S.blocked}>⛔ BLOCKED</span>}
+        <TypedSegments
+          segs={segs}
+          startDelayMs={startDelayMs}
+          speedMs={speedMs}
+          enabled={enabled}
+          restartKey={restartKey}
+        />
       </div>
       {hop.blocked && hop.blockedReason && (
-        <div data-testid="journey-hop-blocked-reason" style={S.blocked}>{hop.blockedReason}</div>
+        <div data-testid="journey-hop-blocked-reason" style={S.blocked}>
+          <Typed
+            text={hop.blockedReason}
+            speedMs={speedMs}
+            startDelayMs={startDelayMs + lineMs}
+            enabled={enabled}
+            restartKey={restartKey}
+          />
+        </div>
       )}
       {hop.fees && hop.fees.length > 0 && (
         <div style={S.feeRow}>
@@ -159,24 +230,48 @@ export default function JourneyReadout({
   const status = journey.blocked ? "LEG BLOCKED" : hasAmount ? "ROUTE LOCKED" : "STANDING BY";
   const statusStyle = journey.blocked ? { ...S.status, ...S.statusBlocked } : hasAmount ? S.status : { ...S.status, ...S.statusIdle };
 
+  // ── The console "print" plan ────────────────────────────────────────────
+  // The itinerary is written top-to-bottom in the travel order (itinerary
+  // header → FROM → each hop → TO → the status pill LAST, so the route lands
+  // before the console declares it LOCKED). Each unit starts one unit's worth
+  // of characters after the previous one ends — a single continuous print.
+  const speedMs = TYPE_SPEED_MS;
+  const restartKey = `${journey.direction}|${from}|${to}|${token}|${reverseToken}|${destToken}|${amount}`;
+  const subText =
+    `TELEPORT ITINERARY · ${journey.source.name} → ${journey.dest.name}` +
+    (hasAmount ? ` · ${journey.amount} ${journey.source.token}` : "");
+  const srcSegs = stationSegments(journey.source, "FROM");
+  const dstSegs = stationSegments(journey.dest, "TO  ");
+  const hopSegs = journey.hops.map((hop) => hopTopSegments(hop));
+
+  let head = 0;
+  const claim = (chars) => { const at = head; head += chars * speedMs; return at; };
+  const subDelay = claim(subText.length);
+  const srcDelay = claim(segLen(srcSegs));
+  const hopDelays = hopSegs.map((segs) => claim(segLen(segs)));
+  const dstDelay = claim(segLen(dstSegs));
+  const statusDelay = claim(status.length);
+
   return (
     <section data-testid="journey-readout" data-direction={journey.direction} style={{ ...S.panel, ...(style || {}) }}>
+      <style>{CURSOR_CSS}</style>
       <div style={S.head}>
         <span style={S.title}>Journey Readout</span>
-        <span data-testid="journey-status" style={statusStyle}>{status}</span>
+        <span data-testid="journey-status" style={statusStyle}>
+          <Typed text={status} speedMs={speedMs} startDelayMs={statusDelay} restartKey={restartKey} />
+        </span>
       </div>
       <div style={S.sub}>
-        TELEPORT ITINERARY · {journey.source.name} → {journey.dest.name}
-        {hasAmount ? ` · ${journey.amount} ${journey.source.token}` : ""}
+        <Typed text={subText} speedMs={speedMs} startDelayMs={subDelay} restartKey={restartKey} />
       </div>
 
-      <Station station={journey.source} testid="journey-coords-source" label="FROM" />
+      <Station station={journey.source} testid="journey-coords-source" label="FROM" startDelayMs={srcDelay} speedMs={speedMs} restartKey={restartKey} />
 
-      {journey.hops.map((hop) => (
-        <Hop key={hop.seq} hop={hop} />
+      {journey.hops.map((hop, i) => (
+        <Hop key={hop.seq} hop={hop} startDelayMs={hopDelays[i]} speedMs={speedMs} restartKey={restartKey} />
       ))}
 
-      <Station station={journey.dest} testid="journey-coords-dest" label="TO  " />
+      <Station station={journey.dest} testid="journey-coords-dest" label="TO  " startDelayMs={dstDelay} speedMs={speedMs} restartKey={restartKey} />
 
       {!hasAmount && (
         <div data-testid="journey-empty" style={S.empty}>
