@@ -81,6 +81,7 @@ import {
 } from "../warpBridge.js";
 import BalancesLine from "./BalancesLine.jsx";
 import TokenSelect from "./TokenSelect.jsx";
+import JourneyReadout from "./JourneyReadout.jsx";
 import { getPricesUSD } from "../lib/prices.js";
 import {
   fetchEvmTokenBalance,
@@ -310,6 +311,12 @@ const S = {
     background: "rgba(63,211,232,.12)", border: "1px solid #3fd3e8", color: "#3fd3e8",
     borderRadius: 6, padding: "6px 12px", fontSize: 13, cursor: "pointer", fontWeight: 700,
   },
+  // The swap card + journey readout layout. The card is ~480px wide, so the
+  // readout wraps BELOW the form on the classic card (responsive) and sits
+  // BESIDE it whenever there is room (flex-wrap, no fixed breakpoints).
+  grid: { display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-start" },
+  mainCol: { flex: "1 1 320px", minWidth: 0 },
+  readout: { flex: "1 1 260px", minWidth: 0 },
 };
 
 const PLACEHOLDER_EVM = "0xd8da6bf26964af9d7eed9e03e53415d37aa96045";
@@ -1303,26 +1310,46 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
 
   return (
     <div className="teleport-form" data-testid="teleport-form" style={S.form}>
-      {/* direction toggle — ETH→X1 (on-ramp) / X1→ETH (off-ramp). The forward
-          flow is unchanged; the reverse path is the new direction. */}
-      <div style={S.row} data-testid="direction-toggle">
-        <span style={S.rowCol}>
-          <span style={S.label}>Direction</span>
-          <span style={{ display: "flex", gap: 8, marginTop: 4 }}>
-            <button type="button" data-testid="dir-forward" onClick={() => changeDirection("forward")} style={direction === "forward" ? S.dirActive : S.dirBtn}>
-              ETH → X1
-            </button>
-            <button type="button" data-testid="dir-reverse" onClick={() => changeDirection("reverse")} style={direction === "reverse" ? S.dirActive : S.dirBtn}>
-              X1 → ETH
-            </button>
-          </span>
-        </span>
+      <div className="teleport-form__grid" style={S.grid}>
+        <div className="teleport-form__main" style={S.mainCol}>
+          {/* direction toggle — ETH→X1 (on-ramp) / X1→ETH (off-ramp). The forward
+              flow is unchanged; the reverse path is the new direction. */}
+          <div style={S.row} data-testid="direction-toggle">
+            <span style={S.rowCol}>
+              <span style={S.label}>Direction</span>
+              <span style={{ display: "flex", gap: 8, marginTop: 4 }}>
+                <button type="button" data-testid="dir-forward" onClick={() => changeDirection("forward")} style={direction === "forward" ? S.dirActive : S.dirBtn}>
+                  ETH → X1
+                </button>
+                <button type="button" data-testid="dir-reverse" onClick={() => changeDirection("reverse")} style={direction === "reverse" ? S.dirActive : S.dirBtn}>
+                  X1 → ETH
+                </button>
+              </span>
+            </span>
+          </div>
+          {direction === "reverse" ? renderReverse() : renderForward()}
+          {status && phase === "quoted" && <div data-testid="form-status" style={S.status}>{status}</div>}
+          {error && (
+            <div data-testid="form-error" style={S.error}>⚠️ {error}</div>
+          )}
+        </div>
+        {/* JOURNEY READOUT — the teleport-console itinerary of the exact path
+            the engine builds for the current selection (live-rebuilds on any
+            token/chain/amount change). Reuses the engine route/leg contract +
+            the form's own quote fee lines + the liquidity-gate verdict. */}
+        <JourneyReadout
+          direction={direction}
+          from={from}
+          to={to}
+          token={token}
+          reverseToken={reverseToken}
+          destToken={destToken}
+          amount={amount}
+          quote={quote}
+          liquidity={liquidityVerdict}
+          style={S.readout}
+        />
       </div>
-      {direction === "reverse" ? renderReverse() : renderForward()}
-      {status && phase === "quoted" && <div data-testid="form-status" style={S.status}>{status}</div>}
-      {error && (
-        <div data-testid="form-error" style={S.error}>⚠️ {error}</div>
-      )}
     </div>
   );
 }
