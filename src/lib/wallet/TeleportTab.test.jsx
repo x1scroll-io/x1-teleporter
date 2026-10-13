@@ -334,6 +334,70 @@ test("quote flow: small amounts quote — the $25 floor is GONE (fee-model v2)",
   }
 });
 
+// ── HARD LIQUIDITY GATE: a thin token is REFUSED before any quote ──────────
+// The v1 path only WARNED about thin-liquidity combos; this proves the v2 form
+// HARD-refuses one — up-front banner + no quote request + an actionable message.
+
+test("liquidity gate: a thin source token is REFUSED — banner, no quote call, actionable message", async () => {
+  const qf = mockQuoteFetch();
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    // Forward source → Sonic, then USDT (a non-hub stable on a thin chain).
+    const fromSelect = container.querySelector('[data-testid="from-chain"]');
+    act(() => {
+      fromSelect.value = "sonic";
+      fromSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    const tokenSelect = container.querySelector('[data-testid="token"]');
+    act(() => {
+      tokenSelect.value = "USDT";
+      tokenSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    // The refusal banner appears up front (before any click).
+    const banner = container.querySelector('[data-testid="liquidity-refusal"]');
+    assert.ok(
+      banner && /USDT on SONIC has insufficient liquidity/.test(banner.textContent),
+      `up-front refusal banner, got: ${banner?.textContent}`,
+    );
+
+    setInput(container.querySelector('[data-testid="amount"]'), "100");
+    click(container.querySelector('[data-testid="get-quote"]'));
+    await flush();
+    assert.equal(qf.calls.length, 0, "the thin route is refused HARD — no quote request is made");
+    const err = container.querySelector('[data-testid="form-error"]');
+    assert.ok(
+      err && /has insufficient liquidity to bridge — use USDC/.test(err.textContent),
+      `hard refusal message, got: ${err?.textContent}`,
+    );
+    assert.ok(container.querySelector('[data-testid="get-quote"]'), "still on the form (never reached a quote)");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
+test("liquidity gate: USDC (the hub) is NEVER blocked — it resolves to a normal quote", async () => {
+  const qf = mockQuoteFetch();
+  const { container, unmount } = renderForm(FORM_PROPS());
+  try {
+    const fromSelect = container.querySelector('[data-testid="from-chain"]');
+    act(() => {
+      fromSelect.value = "sonic";
+      fromSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    // Sonic's default token is USDC (a hub token) → no refusal banner.
+    assert.equal(container.querySelector('[data-testid="liquidity-refusal"]'), null, "no refusal for USDC (hub)");
+    setInput(container.querySelector('[data-testid="amount"]'), "100");
+    click(container.querySelector('[data-testid="get-quote"]'));
+    await flush();
+    assert.equal(qf.calls.length, 1, "USDC routes normally — the hub is never gated");
+    assert.ok(container.querySelector('[data-testid="quote-box"]'), "quote box renders");
+  } finally {
+    qf.restore();
+    unmount();
+  }
+});
+
 // ── HONEST DEAD-ENDS: missing wallets surface, never silent ────────────────
 
 test("honest dead-ends: missing Solana wallet → explicit connect prompt, no quote call", async () => {

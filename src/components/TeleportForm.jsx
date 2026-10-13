@@ -46,12 +46,13 @@
  * reason + Retry.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CHAINS, EVM_CHAINS, WARP_BRIDGE_URL, SOLANA_RPC, X1_RPC,
   TOKENS, tokensFor,
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
+import { checkRouteLiquidity } from "../lib/liquidityGate.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
 import { solanaSessionCanSign, resolveEvmProvider } from "../lib/wallet/sessionProviders.js";
 import {
@@ -451,6 +452,19 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
   const lanePaused = warpRailHealth().chainPaused === true;
   void railVersion;
 
+  // HARD DEX-liquidity gate verdict for the CURRENT token selection (forward:
+  // the source EVM token; reverse: the EVM destination token the LiFi leg must
+  // DEX-swap into). Recomputed when the selection changes so a thin token shows
+  // the refusal BEFORE Get quote — and getQuote/getReverseQuote re-check + block.
+  // USDC/USDC.x are never gated.
+  const liquidityVerdict = useMemo(
+    () =>
+      direction === "forward"
+        ? checkRouteLiquidity({ from, to: "x1", srcToken: token, dstToken: destToken })
+        : checkRouteLiquidity({ from: "x1", to, srcToken: reverseToken, dstToken: token }),
+    [direction, from, to, token, destToken, reverseToken],
+  );
+
   const evmReady = Boolean(evmSession?.address);
   const solReady = Boolean(solSession?.address);
 
@@ -509,6 +523,10 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     // surfaced by the stage-2 preflight/sim, never as a UI gate here.
     if (!evmReady) { setError("Connect your EVM wallet to get a quote"); return; }
     if (!solReady) { setError("Connect your Solana/X1 wallet to get a quote"); return; }
+    // HARD liquidity gate — refuse a thin-liquidity SOURCE token BEFORE quoting
+    // (the v1 advisory only warned; this blocks). USDC/USDC.x are never gated.
+    const liq = checkRouteLiquidity({ from, to: "x1", srcToken: token, dstToken: destToken });
+    if (!liq.ok) { setError(`${liq.message}${liq.suggestion ? " " + liq.suggestion.note : ""}`); return; }
     const built = buildLifiQuoteParams({
       from, token, amount: amt,
       fromAddress: evmSession.address,
@@ -633,6 +651,10 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     if (!amount || !(amt > 0)) { setError("Enter an amount"); return; }
     if (!solReady) { setError("Connect your Solana/X1 wallet to get a quote"); return; }
     if (!evmReady) { setError("Connect your EVM wallet to get a quote"); return; }
+    // HARD liquidity gate — refuse a thin-liquidity DESTINATION token (the LiFi
+    // Solana→EVM leg must DEX-swap into it). USDC/USDC.x are never gated.
+    const liq = checkRouteLiquidity({ from: "x1", to, srcToken: reverseToken, dstToken: token });
+    if (!liq.ok) { setError(`${liq.message}${liq.suggestion ? " " + liq.suggestion.note : ""}`); return; }
     setPhase("quoting");
     try {
       // The stage-1 math is deterministic (0.5% skim + the Warp fee — the
@@ -945,6 +967,12 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         </WarnTag>
       )}
 
+      {/* HARD liquidity gate — a thin source token shows the refusal up front
+          (and getQuote re-checks + blocks). Suggestion only; never auto-switched. */}
+      {!liquidityVerdict.ok && (
+        <div data-testid="liquidity-refusal" style={S.error}>⚠️ {liquidityVerdict.message}</div>
+      )}
+
       {/* quote + send */}
       {phase === "idle" || phase === "quoting" ? (
         <button data-testid="get-quote" style={phase === "quoting" ? { ...S.cta, ...S.ctaDisabled } : S.cta} onClick={getQuote} disabled={phase === "quoting"}>
@@ -1146,6 +1174,12 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
         <WarnTag {...warnProps("warn-evm")}>
           Connect your EVM wallet (Rabby / MetaMask) to receive {token} on {CHAINS[to].name}.
         </WarnTag>
+      )}
+
+      {/* HARD liquidity gate — a thin destination token shows the refusal up
+          front (and getReverseQuote re-checks + blocks). Suggestion only. */}
+      {!liquidityVerdict.ok && (
+        <div data-testid="liquidity-refusal" style={S.error}>⚠️ {liquidityVerdict.message}</div>
       )}
 
       {/* quote + send */}

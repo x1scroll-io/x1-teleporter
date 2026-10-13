@@ -3,6 +3,7 @@ import { validateLiFiApproval, buildApprovalData, LiFiApprovalValidationError } 
 import { guardedSendEvmTx, SimulationError } from "./lib/simulateTx.js";
 import { REVERSE_ENABLED, WARP_LIVE_SEND } from "./lib/flags.ts";
 import { determineRoute } from "./lib/routes.ts";
+import { checkRouteLiquidity } from "./lib/liquidityGate.js";
 import { computeFee, quoteFees, lifiIntegratorFeeFor, FEE_RATES, FEE_WALLETS } from "./lib/fees.ts"; // Step 1.3C+D
 import { executeLiFiSolanaTx as executeLiFiSolanaTxShared } from "./lib/lifiSolanaTx.js"; // Step 3.1 — shared SOL→USDC executor (THORChain hop reuse)
 
@@ -781,6 +782,14 @@ export default function Teleporter() {
     [from, to, token, toToken]
   );
 
+  // HARD liquidity gate — the v1 advisory only WARNS; this refuses. A thin
+  // source/dest token (non-USDC on a thin chain, or below the USD floor) blocks
+  // the route before it can be priced. USDC/USDC.x are never gated.
+  const liquidityVerdict = useMemo(
+    () => checkRouteLiquidity({ from, to, srcToken: token, dstToken: toToken }),
+    [from, to, token, toToken]
+  );
+
   // keep token valid when chain changes
   useEffect(() => {
     const t = tokensFor(from);
@@ -1269,6 +1278,12 @@ export default function Teleporter() {
     // Reverse (X1→Sol) and onward (X1→other): floor removed 2026-09-02 (fee-model v2).
     if ((routeType === "x1_reverse" || routeType === "x1_onward") && amt < X1_REVERSE_MIN) {
       return flash(`Bridge $${X1_REVERSE_MIN}+ out of X1 to get started`, "err");
+    }
+
+    // HARD DEX-liquidity gate — refuse a thin-liquidity leg BEFORE quoting
+    // (the advisory above only warns; this blocks). USDC/USDC.x never blocked.
+    if (!liquidityVerdict.ok) {
+      return flash(`${liquidityVerdict.message}${liquidityVerdict.suggestion ? " " + liquidityVerdict.suggestion.note : ""}`, "err");
     }
 
     setPhase("quoting");
@@ -2203,6 +2218,18 @@ export default function Teleporter() {
             }}>
               <span style={{ flexShrink: 0 }}>⚠️</span>
               <span>{advisory}</span>
+            </div>
+          )}
+          {/* HARD liquidity gate — a thin source/dest token is REFUSED, not
+              merely warned. The refusal message + USDC suggestion render here. */}
+          {!liquidityVerdict.ok && (phase === "idle" || phase === "quoting") && (
+            <div style={{
+              marginTop: 14, padding: "10px 12px", borderRadius: 10,
+              background: "rgba(232,65,66,.08)", border: "1px solid rgba(232,65,66,.32)",
+              color: "#F08A8A", fontSize: 12, lineHeight: 1.5, display: "flex", gap: 8, alignItems: "flex-start",
+            }}>
+              <span style={{ flexShrink: 0 }}>⛔</span>
+              <span>{liquidityVerdict.message}</span>
             </div>
           )}
           <div style={{ marginTop: 18 }}>
