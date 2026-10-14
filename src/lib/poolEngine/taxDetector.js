@@ -19,6 +19,8 @@
  *   taxNotice.js and consume this profile.
  */
 import { Interface } from "ethers";
+// Fail-closed network bound for the GoPlus pre-flag fetch (audit 2026-10-14).
+import { fetchWithTimeout, DEFAULT_FETCH_TIMEOUT_MS } from "../net/fetchWithTimeout.js";
 
 export const GOPLUS_BASE = "https://api.gopluslabs.io/api/v1/token_security";
 
@@ -50,7 +52,7 @@ export async function fetchGoPlusProfile(chain, token) {
   const gpChain = goPlusChainId(chain);
   if (!gpChain) return null;
   try {
-    const r = await fetch(`${GOPLUS_BASE}/${gpChain}?contract_addresses=${token}`);
+    const r = await fetchWithTimeout(`${GOPLUS_BASE}/${gpChain}?contract_addresses=${token}`, {}, DEFAULT_FETCH_TIMEOUT_MS);
     const d = await r.json();
     const row = Object.values(d?.result ?? {})[0];
     if (!row) return null;

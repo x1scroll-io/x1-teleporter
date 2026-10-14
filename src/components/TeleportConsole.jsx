@@ -93,6 +93,10 @@ import {
   formatBalance,
 } from "../lib/balances.js";
 import { getPricesUSD, usdValue } from "../lib/prices.js";
+// Fail-closed network bound — a stalled quote proxy must reject with
+// "request timed out" and reset the spinner, never hang on "CALCULATING…"
+// (audit 2026-10-14).
+import { fetchWithTimeout, isTimeoutError, QUOTE_TIMEOUT_MS } from "../lib/net/fetchWithTimeout.js";
 import ConnectModal from "./ConnectModal.jsx";
 import TokenSelect from "./TokenSelect.jsx";
 import THORChainDeposit from "./THORChainDeposit.jsx";
@@ -854,7 +858,7 @@ export default function TeleportConsole({
       const seq = ++quoteSeq.current;
       setPhase("quoting"); setError(null); setStatus(null);
       try {
-        const resp = await fetch(`/api/lifi/quote?${built.qs}`);
+        const resp = await fetchWithTimeout(`/api/lifi/quote?${built.qs}`, {}, QUOTE_TIMEOUT_MS);
         const d = await resp.json();
         if (seq !== quoteSeq.current) return;
         if (d?.error || d?.message) { setError(d.message || d.error); setPhase("idle"); return; }
@@ -873,6 +877,9 @@ export default function TeleportConsole({
       } catch (e) {
         console.error("[Teleport Console] quote failed:", e);
         if (seq !== quoteSeq.current) return;
+        // Fail-closed on a stall: clear the spinner to a retryable state, never
+        // leave "CALCULATING ROUTE…" stuck.
+        if (isTimeoutError(e)) { setError("Quote timed out — tap to try again"); setPhase("idle"); return; }
         setError("Quote request failed"); setPhase("idle");
       }
     } else {
@@ -900,7 +907,7 @@ export default function TeleportConsole({
       try {
         let lifiData = null;
         if (built) {
-          const resp = await fetch(`/api/lifi/quote?${built.qs}`);
+          const resp = await fetchWithTimeout(`/api/lifi/quote?${built.qs}`, {}, QUOTE_TIMEOUT_MS);
           const d = await resp.json();
           if (seq !== quoteSeq.current) return;
           if (!(d?.error || d?.message) && d?.estimate?.toAmount) lifiData = d;
@@ -920,6 +927,7 @@ export default function TeleportConsole({
       } catch (e) {
         console.error("[Teleport Console] reverse quote failed:", e);
         if (seq !== quoteSeq.current) return;
+        if (isTimeoutError(e)) { setError("Quote timed out — tap to try again"); setPhase("idle"); return; }
         setError("Quote request failed"); setPhase("idle");
       }
     }

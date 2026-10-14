@@ -81,6 +81,7 @@ export function createReleaseWaitLeg() {
           onUpdate: ctx.onUpdate || (() => {}),
           maxMs: ctx.maxMs ?? 300_000,
           intervalMs: ctx.intervalMs ?? 4_000,
+          timeoutMs: ctx.timeoutMs ?? undefined,
         });
       },
     },

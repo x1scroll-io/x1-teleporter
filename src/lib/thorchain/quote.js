@@ -55,6 +55,9 @@ import {
   THORCHAIN_MAX_SWAP_BTC_EQUIVALENT,
   THORCHAIN_BTC_EQUIVALENT_RATES,
 } from "./config.js";
+// Fail-closed network bound for the default fetch seam (audit 2026-10-14);
+// tests still inject their own `fetchImpl`.
+import { fetchWithTimeout, QUOTE_TIMEOUT_MS } from "../net/fetchWithTimeout.js";
 
 /** Our serverless quote proxy (same-origin — API_BASE is "" in production).
  *  Server-side implementation: api/thorchain/quote.js. */
@@ -197,7 +200,7 @@ export function parseQuoteResponse(json, meta = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 /** Default timer/fetch seams — the browser fetch (tests inject mocks). */
 function defaultFetch(url, init) {
-  return fetch(url, init);
+  return fetchWithTimeout(url, init, QUOTE_TIMEOUT_MS);
 }
 
 /**

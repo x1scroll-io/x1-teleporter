@@ -6,6 +6,14 @@ import { determineRoute } from "./lib/routes.ts";
 import { checkRouteLiquidity } from "./lib/liquidityGate.js";
 import { computeFee, quoteFees, lifiIntegratorFeeFor, FEE_RATES, FEE_WALLETS } from "./lib/fees.ts"; // Step 1.3C+D
 import { executeLiFiSolanaTx as executeLiFiSolanaTxShared } from "./lib/lifiSolanaTx.js"; // Step 3.1 — shared SOL→USDC executor (THORChain hop reuse)
+// Fail-closed network bound — a stalled quote/tools/status/RPC fetch must
+// reject with "request timed out", never hang the swap UI (audit 2026-10-14).
+import {
+  fetchWithTimeout,
+  QUOTE_TIMEOUT_MS,
+  RPC_TIMEOUT_MS,
+  DEFAULT_FETCH_TIMEOUT_MS,
+} from "./lib/net/fetchWithTimeout.js";
 
 /**
  * TELEPORTER — any-chain → any-chain stablecoin aggregator + X1 on-ramp
@@ -916,7 +924,7 @@ export default function Teleporter() {
         try {
           const cidNum = Number(chainId);
           const cidParam = Number.isFinite(cidNum) ? String(cidNum) : String(chainId);
-          const toolsRes = await fetch(`${API_BASE}/api/lifi/tools?chains=${encodeURIComponent(cidParam)}`);
+          const toolsRes = await fetchWithTimeout(`${API_BASE}/api/lifi/tools?chains=${encodeURIComponent(cidParam)}`, {}, DEFAULT_FETCH_TIMEOUT_MS);
           if (toolsRes.ok) toolsData = await toolsRes.json();
         } catch (e) { console.error("[LiFi] tools fetch failed:", e); }
         const { spender, amount } = validateLiFiApproval({ step, toolsData });
@@ -1022,7 +1030,7 @@ export default function Teleporter() {
         });
         for (const rpc of rpcs) {
           try {
-            const r = await fetch(rpc, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+            const r = await fetchWithTimeout(rpc, { method: "POST", headers: { "Content-Type": "application/json" }, body }, RPC_TIMEOUT_MS);
             if (!r.ok) continue; // try next RPC on 403/429/etc
             const j = await r.json();
             if (j.error) continue;
@@ -1119,7 +1127,7 @@ export default function Teleporter() {
     trackTimer.current = setInterval(async () => {
       try {
         const qs = new URLSearchParams({ txHash, fromChain: fromKey, toChain: toKey });
-        const r = await fetch(`${API_BASE}/api/lifi/status?${qs}`);
+        const r = await fetchWithTimeout(`${API_BASE}/api/lifi/status?${qs}`, {}, DEFAULT_FETCH_TIMEOUT_MS);
         const j = await r.json();
         const state = j.status || j.state;
         if (state === "DONE") {
@@ -1405,7 +1413,7 @@ export default function Teleporter() {
           else if (!DEMO_MODE && needEvm && !evmWallet?.addr) msg = "Connect your EVM wallet to get a quote";
           flash(msg, "err"); setPhase("idle"); return;
         }
-        const resp = await fetch(`${API_BASE}/api/lifi/quote?${built.qs}`);
+        const resp = await fetchWithTimeout(`${API_BASE}/api/lifi/quote?${built.qs}`, {}, QUOTE_TIMEOUT_MS);
         const d = await resp.json();
         const errMsg = (d.error || d.message || "").toString().toLowerCase();
         if (!d.error && !d.message) { data = d; usedFee = f; break; }
@@ -1611,7 +1619,7 @@ export default function Teleporter() {
       if (!built) { flash("Couldn't build the onward route — is your EVM wallet connected?", "err"); setPhase("step2"); return; }
       const quoteUrl = `${API_BASE}/api/lifi/quote?${built.qs}`;
       console.log("[Onward leg2] LiFi quote URL:", quoteUrl);
-      const resp = await fetch(quoteUrl);
+      const resp = await fetchWithTimeout(quoteUrl, {}, QUOTE_TIMEOUT_MS);
       const d = await resp.json().catch(() => ({}));
       console.log("[Onward leg2] LiFi response:", d);
       if (d.error || d.message) {

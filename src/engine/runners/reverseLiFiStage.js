@@ -31,6 +31,8 @@
  */
 import { legById } from "../routePlanner.js";
 import { buildReverseLifiQuoteParams } from "../../lib/reverseQuote.js";
+// Fail-closed network bound for the onward LiFi quote (audit 2026-10-14).
+import { fetchWithTimeout, QUOTE_TIMEOUT_MS } from "../../lib/net/fetchWithTimeout.js";
 
 /**
  * Run the reverse route's LiFi stage (Solana → EVM).
@@ -78,7 +80,7 @@ export async function runReverseLiFiStage({
   // 2 — the FRESH quote for the net that actually landed on Solana (the
   //     reference runner's fail-closed fetch — never guess the leg).
   onStatus("Quoting the Solana → " + to + " leg…");
-  const resp = await fetch(`${apiBase}/api/lifi/quote?${artifact.qsParams ? new URLSearchParams(artifact.qsParams) : ""}`);
+  const resp = await fetchWithTimeout(`${apiBase}/api/lifi/quote?${artifact.qsParams ? new URLSearchParams(artifact.qsParams) : ""}`, {}, QUOTE_TIMEOUT_MS);
   const d = await resp.json();
   if (d?.error || d?.message) throw new Error(d.message || d.error);
   onStatus("Sending the Solana → " + to + " leg…");

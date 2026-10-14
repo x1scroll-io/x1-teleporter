@@ -21,7 +21,7 @@
  *     BelowMinimum revert) — never wait on it
  *   { ok: false, timedOut: true, sawSigs }        — still awaiting (funds safe)
  *
- * ctx: { route, sig, onUpdate?, maxMs?, api? }
+ * ctx: { route, sig, onUpdate?, maxMs?, intervalMs?, timeoutMs?, api? }
  */
 import { legById } from "../routePlanner.js";
 
@@ -29,7 +29,8 @@ import { legById } from "../routePlanner.js";
  * Run the reverse route's release-wait (poll the Warp release to Solana).
  *
  * @param {{route: object, sig: string, onUpdate?: (stage, detail) => void,
- *          maxMs?: number, api?: string}} args
+ *          maxMs?: number, intervalMs?: number, timeoutMs?: number,
+ *          api?: string}} args
  * @returns {Promise<object>} the pollWarpStatus/releasePoller result (see header)
  */
 export async function runReleaseWait({
@@ -37,6 +38,8 @@ export async function runReleaseWait({
   sig,
   onUpdate = () => {},
   maxMs = 300_000,
+  intervalMs = 4_000,
+  timeoutMs = undefined,
   api = "",
 }) {
   const releaseLeg = legById(route, "warp-release-wait");
@@ -44,5 +47,5 @@ export async function runReleaseWait({
     throw new Error("reverseReleaseStage: route has no warp-release-wait leg (planner broken)");
   }
   const build = await releaseLeg.phases.build({ sourceSig: sig, from: "x1", api });
-  return releaseLeg.phases.confirm({ onUpdate, maxMs }, { build });
+  return releaseLeg.phases.confirm({ onUpdate, maxMs, intervalMs, timeoutMs }, { build });
 }

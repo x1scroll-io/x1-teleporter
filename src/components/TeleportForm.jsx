@@ -52,6 +52,9 @@ import {
   TOKENS, tokensFor,
 } from "../lib/teleportConstants.js";
 import { buildLifiQuoteParams, deriveQuoteFromLifi } from "../lib/teleportQuote.js";
+// Fail-closed network bound — a stalled quote proxy rejects with "request
+// timed out" instead of hanging the form (audit 2026-10-14).
+import { fetchWithTimeout, isTimeoutError, QUOTE_TIMEOUT_MS } from "../lib/net/fetchWithTimeout.js";
 import { checkRouteLiquidity } from "../lib/liquidityGate.js";
 import { buildReverseLifiQuoteParams, deriveReverseQuote, computeReverseLegs } from "../lib/reverseQuote.js";
 import { solanaSessionCanSign, resolveEvmProvider } from "../lib/wallet/sessionProviders.js";
@@ -543,7 +546,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
     if (!built) { setError("No route for the selected chain/token"); return; }
     setPhase("quoting");
     try {
-      const resp = await fetch(`/api/lifi/quote?${built.qs}`);
+      const resp = await fetchWithTimeout(`/api/lifi/quote?${built.qs}`, {}, QUOTE_TIMEOUT_MS);
       const d = await resp.json();
       if (d?.error || d?.message) { setError(d.message || d.error); setPhase("idle"); return; }
       const derived = deriveQuoteFromLifi({ data: d, from, token, amount: amt, destToken });
@@ -551,6 +554,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       setPhase("quoted");
     } catch (e) {
       console.error("[Teleport v2] quote failed:", e);
+      if (isTimeoutError(e)) { setError("Quote timed out — tap to try again"); setPhase("idle"); return; }
       setError("Quote request failed"); setPhase("idle");
     }
   }
@@ -684,7 +688,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       });
       let lifiData = null;
       if (built) {
-        const resp = await fetch(`/api/lifi/quote?${built.qs}`);
+        const resp = await fetchWithTimeout(`/api/lifi/quote?${built.qs}`, {}, QUOTE_TIMEOUT_MS);
         const d = await resp.json();
         if (!(d?.error || d?.message) && d?.estimate?.toAmount) lifiData = d;
       }
@@ -698,6 +702,7 @@ export default function TeleportForm({ evmSession, solSession, stage2Runner = de
       setPhase("quoted");
     } catch (e) {
       console.error("[Teleport v2] reverse quote failed:", e);
+      if (isTimeoutError(e)) { setError("Quote timed out — tap to try again"); setPhase("idle"); return; }
       setError("Quote request failed"); setPhase("idle");
     }
   }

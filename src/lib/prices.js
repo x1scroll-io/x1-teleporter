@@ -19,6 +19,7 @@
  *   - Fail-soft: any fetch/parse error → null → the UI shows the balance
  *     without a USD value instead of blocking the form or throwing.
  */
+import { fetchWithTimeout, DEFAULT_FETCH_TIMEOUT_MS } from "./net/fetchWithTimeout.js";
 
 /** symbol → Coingecko simple-price id (the id the /simple/price API returns). */
 export const COINGECKO_IDS = Object.freeze({
@@ -62,8 +63,9 @@ export function resetPriceCache() {
 export async function defaultPriceFetch(ids) {
   let resp;
   try {
-    resp = await fetch(
+    resp = await fetchWithTimeout(
       `https://api.coingecko.com/api/v3/simple/price?ids=${ids.join(",")}&vs_currencies=usd`,
+      {}, DEFAULT_FETCH_TIMEOUT_MS,
     );
   } catch {
     return null; // network failure — fail-soft

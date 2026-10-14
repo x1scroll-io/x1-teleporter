@@ -33,6 +33,8 @@
 
 import { simulateSolanaTx, SimulationError } from "./simulateTx.js";
 import { resolveSolanaAdapter } from "./wallet/sessionProviders.js";
+// Fail-closed network bound (audit 2026-10-14).
+import { fetchWithTimeout, QUOTE_TIMEOUT_MS } from "./net/fetchWithTimeout.js";
 
 const canSignSolana = (x) =>
   Boolean(
@@ -128,11 +130,11 @@ export async function materializeLiFiSolanaTx({ lifiData, apiBase = "" }) {
     const step = lifiData?.includedSteps?.[0] || lifiData?.steps?.[0] || lifiData;
     console.log("[Onward leg2] no tx in quote — calling stepTransaction with step:", step?.id || "(quote)");
     try {
-      const r = await fetch(`${apiBase}/api/lifi/stepTransaction`, {
+      const r = await fetchWithTimeout(`${apiBase}/api/lifi/stepTransaction`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(step),
-      });
+      }, QUOTE_TIMEOUT_MS);
       const stepData = await r.json();
       console.log("[Onward leg2] stepTransaction response keys:", Object.keys(stepData || {}));
       const txReq = stepData?.transactionRequest || stepData?.steps?.[0]?.transactionRequest;

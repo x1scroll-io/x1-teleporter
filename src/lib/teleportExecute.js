@@ -26,6 +26,9 @@
 import { validateLiFiApproval, buildApprovalData, buildAllowanceData, LiFiApprovalValidationError } from "./lifiApproval.js";
 import { guardedSendEvmTx, SimulationError } from "./simulateTx.js";
 import { CHAINS } from "./teleportConstants.js";
+// Fail-closed network bound (audit 2026-10-14): a stalled tools fetch rejects
+// with "request timed out" — the fail-closed approval gate then aborts.
+import { fetchWithTimeout, DEFAULT_FETCH_TIMEOUT_MS } from "./net/fetchWithTimeout.js";
 
 /**
  * Execute the LiFi EVM transaction from a quote (the EVM→Solana leg of the
@@ -90,7 +93,7 @@ export async function executeLiFiEvmTx({ lifiData, provider, address, onStatus =
       try {
         const cidNum = Number(chainId);
         const cidParam = Number.isFinite(cidNum) ? String(cidNum) : String(chainId);
-        const toolsRes = await fetch(`/api/lifi/tools?chains=${encodeURIComponent(cidParam)}`);
+        const toolsRes = await fetchWithTimeout(`/api/lifi/tools?chains=${encodeURIComponent(cidParam)}`, {}, DEFAULT_FETCH_TIMEOUT_MS);
         if (toolsRes.ok) toolsData = await toolsRes.json();
       } catch (e) {
         console.error("[Teleport v2] tools fetch failed:", e);

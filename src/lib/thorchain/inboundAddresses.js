@@ -40,6 +40,9 @@
  */
 
 import { THORCHAIN_STATUS_BASE_URL } from "./statusEndpoint.js";
+// Fail-closed network bound for the default fetch seam (audit 2026-10-14);
+// tests still inject their own `fetchImpl`.
+import { fetchWithTimeout, DEFAULT_FETCH_TIMEOUT_MS } from "../net/fetchWithTimeout.js";
 
 /** Refresh cadence per the brief: on mount and every 60s. */
 export const DEFAULT_INBOUND_REFRESH_MS = 60_000;
@@ -58,7 +61,7 @@ function defaultSchedule(fn, ms) {
 
 /** Default fetch seam — the browser fetch, bound (tests inject a mock). */
 function defaultFetch(url) {
-  return fetch(url);
+  return fetchWithTimeout(url, {}, DEFAULT_FETCH_TIMEOUT_MS);
 }
 
 /**

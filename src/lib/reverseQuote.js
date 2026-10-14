@@ -49,6 +49,8 @@ import { CHAINS, TOKENS, X1_REVERSE_MIN } from "./teleportConstants.js";
 import { quoteFees, FEE_RATES, LIFI_INTEGRATOR_ACCOUNT } from "./fees.ts";
 // The LiFi network-gas reader (shared with the forward leg) — display-only.
 import { deriveGasUsd } from "./teleportQuote.js";
+// Fail-closed network bound for the Coingecko price probe (audit 2026-10-14).
+import { fetchWithTimeout, DEFAULT_FETCH_TIMEOUT_MS } from "./net/fetchWithTimeout.js";
 // Token identity (decimals) + the Warp-twin relation read from the canonical
 // registry — see docs/TOKEN-RESOLVER.md.
 import { requireToken, resolveTwin } from "./tokenResolver.js";
@@ -201,7 +203,7 @@ export async function resolveReversePriceUSD({ token = "USDC.x", lifiData, fetch
  *  Returns null on any non-parseable response — resolveReversePriceUSD turns
  *  that into the fail-open path. */
 export async function defaultPriceFetch(coingeckoId) {
-  const resp = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd`);
+  const resp = await fetchWithTimeout(`https://api.coingecko.com/api/v3/simple/price?ids=${coingeckoId}&vs_currencies=usd`, {}, DEFAULT_FETCH_TIMEOUT_MS);
   if (!resp.ok) return null;
   const d = await resp.json();
   const price = d?.[coingeckoId]?.usd;

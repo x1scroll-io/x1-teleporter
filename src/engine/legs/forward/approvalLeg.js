@@ -38,6 +38,8 @@ import { createLeg } from "../../legContract.js";
 import { buildApprovalData, buildAllowanceData, validateLiFiApproval, normalizeEvmAddress } from "../../../lib/lifiApproval.js";
 import { simulateEvmTx } from "../../../lib/simulateTx.js";
 import { waitForReceipt } from "../../../lib/teleportExecute.js";
+// Fail-closed network bound for the tools fetch (audit 2026-10-14).
+import { fetchWithTimeout, DEFAULT_FETCH_TIMEOUT_MS } from "../../../lib/net/fetchWithTimeout.js";
 
 /** True for native-token steps (no ERC-20 approval exists to sign). */
 function isNativeStep(action) {
@@ -163,7 +165,7 @@ export function createApprovalLeg() {
         try {
           const cidNum = Number(chainId);
           const cidParam = Number.isFinite(cidNum) ? String(cidNum) : String(chainId);
-          const toolsRes = await fetch(`/api/lifi/tools?chains=${encodeURIComponent(cidParam)}`);
+          const toolsRes = await fetchWithTimeout(`/api/lifi/tools?chains=${encodeURIComponent(cidParam)}`, {}, DEFAULT_FETCH_TIMEOUT_MS);
           if (toolsRes.ok) toolsData = await toolsRes.json();
         } catch (e) {
           console.error("[engine] tools fetch failed:", e);

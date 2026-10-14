@@ -36,6 +36,15 @@ import {
 } from "@solana/spl-token";
 import { simulateSolanaTx, guardedSendSolanaTx } from "./lib/simulateTx.js";
 import { FEE_RATES } from "./lib/fees.ts";
+// Fail-closed network bound — every raw fetch in this file goes through this
+// helper so a stalled RPC/proxy rejects with a clear "request timed out"
+// instead of hanging the bridge (audit 2026-10-14).
+import {
+  fetchWithTimeout,
+  RPC_TIMEOUT_MS,
+  POLL_TIMEOUT_MS,
+  DEFAULT_FETCH_TIMEOUT_MS,
+} from "./lib/net/fetchWithTimeout.js";
 // Signer resolution — the Warp leg signs through the wallet the user ACTUALLY
 // connected via discovery, resolved from the WalletContext session layer (the
 // same resolvers the React path uses). This replaces the old hardcoded
@@ -258,7 +267,7 @@ async function getConfigAccountData(primaryRpcUrl) {
   for (const url of urls) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const resp = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+        const resp = await fetchWithTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }, RPC_TIMEOUT_MS);
         if (!resp.ok) { errors.push(`${shortRpc(url)}:HTTP${resp.status}`); break; }
         const j = await resp.json();
         if (j.error) { errors.push(`${shortRpc(url)}:${j.error.message || j.error.code}`); break; }
@@ -316,7 +325,7 @@ async function getSlotFallback() {
   const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getSlot", params: [{ commitment: "confirmed" }] });
   for (const url of FALLBACK_RPCS) {
     try {
-      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      const r = await fetchWithTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body }, RPC_TIMEOUT_MS);
       if (!r.ok) continue;
       const j = await r.json();
       if (typeof j.result === "number") return j.result;
@@ -1806,7 +1815,7 @@ export const WARP_API = {
 // Fetch daily inflow/outflow limits from Warp config (Sol/X1 caps per 24h)
 export async function fetchWarpLimits(api = WARP_API.mainnet) {
   try {
-    const resp = await fetch(`${api}/config`);
+    const resp = await fetchWithTimeout(`${api}/config`, {}, DEFAULT_FETCH_TIMEOUT_MS);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const config = await resp.json();
     // Expected: { chains: { sol: { dailyInflow, dailyOutflow, ... }, x1: { ... } } }
@@ -1846,14 +1855,25 @@ export async function fetchWarpLimits(api = WARP_API.mainnet) {
 // distinguish a PERMANENT failure (a terminal status, or an explicit error in
 // the payload — e.g. the release's `BelowMinimum(6000)` revert) from a release
 // that is merely still PENDING (the timedOut return, funds safe).
-export async function pollWarpStatus(sourceSig, { api = "", from = "sol", onUpdate = () => {}, maxMs = 180000, intervalMs = 4000 } = {}) {
+// WALL-CLOCK BOUND (audit 2026-10-14): `maxMs` is now a REAL deadline, not an
+// iteration count. Previously each pass slept a full `intervalMs` AND each
+// raw `fetch` could hang forever, so a stalled proxy overshot `maxMs` by an
+// unbounded amount. Now: every poll request goes through fetchWithTimeout
+// (bounded by the smaller of `timeoutMs` and the time still left), and the
+// inter-pass sleep is capped to the remaining time — so the TOTAL wait can
+// never exceed `maxMs` (plus the in-flight request, itself bounded).
+export async function pollWarpStatus(sourceSig, { api = "", from = "sol", onUpdate = () => {}, maxMs = 180000, intervalMs = 4000, timeoutMs = POLL_TIMEOUT_MS } = {}) {
   const start = Date.now();
+  const deadline = start + maxMs;
+  const remainingMs = () => Math.max(0, deadline - Date.now());
+  // Per-request timeout: never let one request run past the poll deadline.
+  const perRequestTimeout = () => Math.max(1, Math.min(timeoutMs, remainingMs()));
   let sawSigs = false;
   const enc = (v) => encodeURIComponent(String(v));
-  while (Date.now() - start < maxMs) {
+  while (Date.now() < deadline) {
     // 1) signatures endpoint — tells us guardian quorum progress
     try {
-      const sresp = await fetch(`${api}/api/warp/signatures?sig=${enc(sourceSig)}&from=${enc(from)}`);
+      const sresp = await fetchWithTimeout(`${api}/api/warp/signatures?sig=${enc(sourceSig)}&from=${enc(from)}`, {}, perRequestTimeout());
       if (sresp.ok) {
         const sj = await sresp.json();
         const sigs = Array.isArray(sj) ? sj : (sj.signatures || []);
@@ -1865,7 +1885,7 @@ export async function pollWarpStatus(sourceSig, { api = "", from = "sol", onUpda
 
     // 2) status endpoint — detection, submitter status, destination tx, final
     try {
-      const tresp = await fetch(`${api}/api/warp/status?sig=${enc(sourceSig)}&from=${enc(from)}`);
+      const tresp = await fetchWithTimeout(`${api}/api/warp/status?sig=${enc(sourceSig)}&from=${enc(from)}`, {}, perRequestTimeout());
       if (tresp.ok) {
         const tj = await tresp.json();
         onUpdate("status", tj);
@@ -1909,7 +1929,10 @@ export async function pollWarpStatus(sourceSig, { api = "", from = "sol", onUpda
       }
     } catch (e) { onUpdate("poll_error", { where: "status", msg: e.message }); }
 
-    await new Promise((r) => setTimeout(r, intervalMs));
+    // Sleep only up to the deadline — the total wait is wall-clock-bounded.
+    const remaining = remainingMs();
+    if (remaining <= 0) break;
+    await new Promise((r) => setTimeout(r, Math.min(intervalMs, remaining)));
   }
   return { ok: false, timedOut: true, sawSigs };
 }
