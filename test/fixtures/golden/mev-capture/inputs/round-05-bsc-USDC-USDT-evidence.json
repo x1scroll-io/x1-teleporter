@@ -1,0 +1,149 @@
+{
+  "chain": "bsc",
+  "pair": {
+    "from": "USDC",
+    "to": "USDT"
+  },
+  "decimals": 18,
+  "amountIn": "2500000000000000000000",
+  "amountInHuman": "2500",
+  "buy": [
+    {
+      "ok": true,
+      "dex": "pancakeswap",
+      "pool": "pancakeswap-bsc-USDC-USDT-f100",
+      "chain": "bsc",
+      "from": "USDC",
+      "to": "USDT",
+      "amountIn": "2500000000000000000000",
+      "amountOut": "2499605817976293117975",
+      "fee": 100,
+      "feeBps": 1,
+      "gasEstimate": "99379",
+      "sqrtPriceX96After": "79230450829299869884373951423",
+      "quoteRequest": {
+        "to": "0xb048bbc1ee6b733fffcfb9e9cef7375518e25997",
+        "data": "0xc6a5026a0000000000000000000000008ac76a51cc950d9822d68b83fe1ad97b32cd580d00000000000000000000000055d398326f99059ff775485246999027b31979550000000000000000000000000000000000000000000000878678326eac90000000000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x00000000000000000000000000000000000000000000008780ffc7f860ab501700000000000000000000000000000000000000010001e491ce8023f2d30663bf00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000018433",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:03:22.593Z",
+      "rpc": "https://bsc-rpc.publicnode.com"
+    },
+    {
+      "ok": true,
+      "dex": "pancakeswap",
+      "pool": "pancakeswap-bsc-USDC-USDT-f500",
+      "chain": "bsc",
+      "from": "USDC",
+      "to": "USDT",
+      "amountIn": "2500000000000000000000",
+      "amountOut": "2498949937259718188084",
+      "fee": 500,
+      "feeBps": 5,
+      "gasEstimate": "93964",
+      "sqrtPriceX96After": "79225019185660770228510590115",
+      "quoteRequest": {
+        "to": "0xb048bbc1ee6b733fffcfb9e9cef7375518e25997",
+        "data": "0xc6a5026a0000000000000000000000008ac76a51cc950d9822d68b83fe1ad97b32cd580d00000000000000000000000055d398326f99059ff775485246999027b31979550000000000000000000000000000000000000000000000878678326eac90000000000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x00000000000000000000000000000000000000000000008777e59feefa311c340000000000000000000000000000000000000000fffd665fd0a1242f32ab04a300000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000016f0c",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:03:22.622Z",
+      "rpc": "https://bsc-rpc.publicnode.com"
+    },
+    {
+      "ok": true,
+      "dex": "lifi",
+      "pool": "lifi-bsc-USDC-USDT",
+      "chain": "bsc",
+      "from": "USDC",
+      "to": "USDT",
+      "amountIn": "2500000000000000000000",
+      "amountOut": "2494044872904537210693",
+      "fee": 0,
+      "feeBps": 0,
+      "source": "REAL-live-lifi-quote(fee=0)",
+      "capturedAt": "2026-09-06T17:03:23.077Z",
+      "tool": "nordstern",
+      "steps": null
+    }
+  ],
+  "sell": [
+    {
+      "ok": true,
+      "dex": "pancakeswap",
+      "pool": "pancakeswap-bsc-USDT-USDC-f100",
+      "chain": "bsc",
+      "from": "USDT",
+      "to": "USDC",
+      "amountIn": "2499605817976293117975",
+      "amountOut": "2499499604516943474737",
+      "fee": 100,
+      "feeBps": 1,
+      "gasEstimate": "100062",
+      "sqrtPriceX96After": "79230437500609411248163785743",
+      "quoteRequest": {
+        "to": "0xb048bbc1ee6b733fffcfb9e9cef7375518e25997",
+        "data": "0xc6a5026a00000000000000000000000055d398326f99059ff775485246999027b31979550000000000000000000000008ac76a51cc950d9822d68b83fe1ad97b32cd580d00000000000000000000000000000000000000000000008780ffc7f860ab501700000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x0000000000000000000000000000000000000000000000877f866f6445c4b03100000000000000000000000000000000000000010001e1bf41c33a3f5d5e0c0f000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000186de",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:03:23.103Z",
+      "rpc": "https://bsc-rpc.publicnode.com"
+    },
+    {
+      "ok": true,
+      "dex": "pancakeswap",
+      "pool": "pancakeswap-bsc-USDT-USDC-f500",
+      "chain": "bsc",
+      "from": "USDT",
+      "to": "USDC",
+      "amountIn": "2499605817976293117975",
+      "amountOut": "2498152821327831108978",
+      "fee": 500,
+      "feeBps": 5,
+      "gasEstimate": "94834",
+      "sqrtPriceX96After": "79224914404639025963202445402",
+      "quoteRequest": {
+        "to": "0xb048bbc1ee6b733fffcfb9e9cef7375518e25997",
+        "data": "0xc6a5026a00000000000000000000000055d398326f99059ff775485246999027b31979550000000000000000000000008ac76a51cc950d9822d68b83fe1ad97b32cd580d00000000000000000000000000000000000000000000008780ffc7f860ab501700000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x0000000000000000000000000000000000000000000000876cd5b3377d420d720000000000000000000000000000000000000000fffd502f9fd7e96bcbff005a00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000017272",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:03:23.220Z",
+      "rpc": "https://bsc-rpc.publicnode.com"
+    },
+    {
+      "ok": true,
+      "dex": "lifi",
+      "pool": "lifi-bsc-USDT-USDC",
+      "chain": "bsc",
+      "from": "USDT",
+      "to": "USDC",
+      "amountIn": "2499605817976293117975",
+      "amountOut": "2493715988143745117518",
+      "fee": 0,
+      "feeBps": 0,
+      "source": "REAL-live-lifi-quote(fee=0)",
+      "capturedAt": "2026-09-06T17:03:23.752Z",
+      "tool": "nordstern",
+      "steps": null
+    }
+  ],
+  "capturedAt": "2026-09-06T17:03:23.752Z",
+  "round": 5,
+  "detection": {
+    "wouldCapture": false,
+    "gapBps": 2,
+    "grossRoundTripBps": -2,
+    "netRoundTripBps": -2,
+    "netValueAfterCostsRaw": "-507818042662855186",
+    "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+    "route": [
+      "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+      "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)"
+    ],
+    "exact": true
+  }
+}

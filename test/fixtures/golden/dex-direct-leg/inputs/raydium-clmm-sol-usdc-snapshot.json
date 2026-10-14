@@ -1,0 +1,2037 @@
+{
+  "pool": {
+    "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+    "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+    "configId": "3h2e43PunVA5K34vwKCLHWhZF4aZpyaC9RmxvshGAQpL",
+    "creator": "CJKrW95iMGECdjWtdDnWDAx2cBH7pFE9VywnULfwMapf",
+    "mintA": "So11111111111111111111111111111111111111112",
+    "mintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "vaultA": "4ct7br2vTPzfdmY3S5HLtTxcGSBfn6pnw98hsS6v359A",
+    "vaultB": "5it83u57VRrVgc51oNV19TTmAJuffPx5GtGwQr7gQNUo",
+    "observationId": "3Y695CuQ8AP4anbwAqiEBeQF9KxqHFr8piEwvw3UePnQ",
+    "mintDecimalsA": 9,
+    "mintDecimalsB": 6,
+    "tickSpacing": 1,
+    "liquidity": "172616118390528",
+    "sqrtPriceX64": "5928013888900299069",
+    "tickCurrent": -22706,
+    "status": 0,
+    "feeOn": 0
+  },
+  "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+  "capturedAt": "2026-09-05T20:38:52.319Z",
+  "poolAccountLen": 1544,
+  "config": {
+    "bump": 251,
+    "index": 8,
+    "owner": "projjosVCPQH49d5em7VYS7fJZzaqKixqKtus7yk416",
+    "protocolFeeRate": "120000",
+    "tradeFeeRate": "400",
+    "tickSpacing": 1,
+    "fundFeeRate": "40000",
+    "fundOwner": "FundHfY8oo8J9KYGyfXFFuQCHe7Z1VBNmsj84eMcdYs4"
+  },
+  "pdas": {
+    "observation": "3Y695CuQ8AP4anbwAqiEBeQF9KxqHFr8piEwvw3UePnQ",
+    "bitmapExtension": "4NFvUKqknMpoe6CWTzK758B8ojVLzURL5pC6MtiaJ8TQ"
+  },
+  "tickArrays": [
+    {
+      "startTickIndex": -22740,
+      "poolId": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+      "tickCount": 60,
+      "ticks": [
+        {
+          "tickIndex": -22740,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22739,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22738,
+          "liquidityNet": "429448210250",
+          "liquidityGross": "429448210250",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22737,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22736,
+          "liquidityNet": "757808431741",
+          "liquidityGross": "757808431741",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22735,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22734,
+          "liquidityNet": "-2167996140",
+          "liquidityGross": "2167996140",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22733,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22732,
+          "liquidityNet": "-59265036250",
+          "liquidityGross": "354465728332",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22731,
+          "liquidityNet": "15121845450",
+          "liquidityGross": "30428014104",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22730,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22729,
+          "liquidityNet": "-36685372506",
+          "liquidityGross": "36685372506",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22728,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22727,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22726,
+          "liquidityNet": "22817476084374",
+          "liquidityGross": "28112511069460",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22725,
+          "liquidityNet": "-872374166",
+          "liquidityGross": "872374166",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22724,
+          "liquidityNet": "1000512",
+          "liquidityGross": "1000512",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22723,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22722,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22721,
+          "liquidityNet": "-328465667279",
+          "liquidityGross": "328465667279",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22720,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22719,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22718,
+          "liquidityNet": "11523102212824",
+          "liquidityGross": "11523102212824",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22717,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22716,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22715,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22714,
+          "liquidityNet": "2522939762941",
+          "liquidityGross": "2522939762941",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22713,
+          "liquidityNet": "-3877408295",
+          "liquidityGross": "4829694101647",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22712,
+          "liquidityNet": "1515917183525",
+          "liquidityGross": "2762994175089",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22711,
+          "liquidityNet": "8050340595369",
+          "liquidityGross": "9358928812893",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22710,
+          "liquidityNet": "-265534354363",
+          "liquidityGross": "265534354363",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22709,
+          "liquidityNet": "33644783533",
+          "liquidityGross": "33644783533",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22708,
+          "liquidityNet": "-156110395330",
+          "liquidityGross": "199068607194",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22707,
+          "liquidityNet": "131926046872",
+          "liquidityGross": "131926046872",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22706,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22705,
+          "liquidityNet": "371929786",
+          "liquidityGross": "371929786",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22704,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22703,
+          "liquidityNet": "-1774218462",
+          "liquidityGross": "2501273650",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22702,
+          "liquidityNet": "-757808431741",
+          "liquidityGross": "757808431741",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22701,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22700,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22699,
+          "liquidityNet": "-310794029",
+          "liquidityGross": "310794029",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22698,
+          "liquidityNet": "335341",
+          "liquidityGross": "335341",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22697,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22696,
+          "liquidityNet": "812956224",
+          "liquidityGross": "812956224",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22695,
+          "liquidityNet": "5945009668800",
+          "liquidityGross": "5945009668800",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22694,
+          "liquidityNet": "-777516",
+          "liquidityGross": "31102193892",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22693,
+          "liquidityNet": "-777477",
+          "liquidityGross": "31100638899",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22692,
+          "liquidityNet": "-777438",
+          "liquidityGross": "31099083984",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22691,
+          "liquidityNet": "-11593169697",
+          "liquidityGross": "42689921445",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22690,
+          "liquidityNet": "413791611242",
+          "liquidityGross": "3682408954084",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22689,
+          "liquidityNet": "-22726466315",
+          "liquidityGross": "53820108699",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22688,
+          "liquidityNet": "-777283",
+          "liquidityGross": "31092865101",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22687,
+          "liquidityNet": "2332836120619",
+          "liquidityGross": "2363928208437",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22686,
+          "liquidityNet": "15545821787",
+          "liquidityGross": "15545821787",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22685,
+          "liquidityNet": "-2109493",
+          "liquidityGross": "31089534081",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22684,
+          "liquidityNet": "-777128",
+          "liquidityGross": "31086647460",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22683,
+          "liquidityNet": "4645423427",
+          "liquidityGross": "118489292739",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22682,
+          "liquidityNet": "-6027044100",
+          "liquidityGross": "37109806156",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22681,
+          "liquidityNet": "-15541381028",
+          "liquidityGross": "15541381028",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        }
+      ],
+      "address": "9KnMQWpQ8bA7fydP4jsZN6s4waqA7GtA3Wt36zJuozav",
+      "capturedLen": 10240
+    },
+    {
+      "startTickIndex": -22800,
+      "poolId": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+      "tickCount": 60,
+      "ticks": [
+        {
+          "tickIndex": -22800,
+          "liquidityNet": "841912",
+          "liquidityGross": "33678166722",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22799,
+          "liquidityNet": "-669036842725",
+          "liquidityGross": "702624604535",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22798,
+          "liquidityNet": "2093654",
+          "liquidityGross": "33589855464",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22797,
+          "liquidityNet": "-1344962953",
+          "liquidityGross": "34926511855",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22796,
+          "liquidityNet": "-1642525",
+          "liquidityGross": "33579906377",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22795,
+          "liquidityNet": "826638",
+          "liquidityGross": "33579089336",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22794,
+          "liquidityNet": "-29796363155",
+          "liquidityGross": "3651645291081",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22793,
+          "liquidityNet": "-530039",
+          "liquidityGross": "33578159677",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22792,
+          "liquidityNet": "-1425686809",
+          "liquidityGross": "34997750731",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22791,
+          "liquidityNet": "839281",
+          "liquidityGross": "33572903203",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22790,
+          "liquidityNet": "3463674774",
+          "liquidityGross": "37037417258",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22789,
+          "liquidityNet": "-20595812689",
+          "liquidityGross": "54172912547",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22788,
+          "liquidityNet": "839407",
+          "liquidityGross": "33577939265",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22787,
+          "liquidityNet": "22207268",
+          "liquidityGross": "33600985940",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22786,
+          "liquidityNet": "3113164",
+          "liquidityGross": "33626306372",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22785,
+          "liquidityNet": "-12830576623",
+          "liquidityGross": "46429846723",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22784,
+          "liquidityNet": "756286386470",
+          "liquidityGross": "789885656570",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22783,
+          "liquidityNet": "2357360",
+          "liquidityGross": "33600362304",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22782,
+          "liquidityNet": "-18143542219",
+          "liquidityGross": "121815022751",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22781,
+          "liquidityNet": "17373912659",
+          "liquidityGross": "86610897911",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22780,
+          "liquidityNet": "-115372027320",
+          "liquidityGross": "215221335820",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22779,
+          "liquidityNet": "-178802681",
+          "liquidityGross": "33788307265",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22778,
+          "liquidityNet": "-7824754",
+          "liquidityGross": "33601679830",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22777,
+          "liquidityNet": "-42811323824",
+          "liquidityGross": "76405180550",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22776,
+          "liquidityNet": "3971824",
+          "liquidityGross": "33597828550",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22775,
+          "liquidityNet": "-377360444546",
+          "liquidityGross": "410963950588",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22774,
+          "liquidityNet": "6650762",
+          "liquidityGross": "33610156804",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22773,
+          "liquidityNet": "8290131",
+          "liquidityGross": "33613476307",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22772,
+          "liquidityNet": "1327393",
+          "liquidityGross": "33623093831",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22771,
+          "liquidityNet": "-33468718296",
+          "liquidityGross": "4093070048854",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22770,
+          "liquidityNet": "-3428601832",
+          "liquidityGross": "37063394568",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22769,
+          "liquidityNet": "1423899",
+          "liquidityGross": "33636216635",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22768,
+          "liquidityNet": "4775106",
+          "liquidityGross": "33642415640",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22767,
+          "liquidityNet": "841158",
+          "liquidityGross": "33648031904",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22766,
+          "liquidityNet": "11561524410",
+          "liquidityGross": "45210397472",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22765,
+          "liquidityNet": "2635623",
+          "liquidityGross": "33653998509",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22764,
+          "liquidityNet": "841395",
+          "liquidityGross": "33657475527",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22763,
+          "liquidityNet": "-9674997598",
+          "liquidityGross": "43336112572",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22762,
+          "liquidityNet": "5266780178",
+          "liquidityGross": "38927895152",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22761,
+          "liquidityNet": "-18839542380",
+          "liquidityGross": "52503997826",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22760,
+          "liquidityNet": "2647518334134",
+          "liquidityGross": "2681182789580",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22759,
+          "liquidityNet": "848043",
+          "liquidityGross": "33666986671",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22758,
+          "liquidityNet": "-11667234109",
+          "liquidityGross": "45336752171",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22757,
+          "liquidityNet": "-6317269311",
+          "liquidityGross": "39995458789",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22756,
+          "liquidityNet": "-11210489674",
+          "liquidityGross": "27727004388",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22755,
+          "liquidityNet": "-131048191073",
+          "liquidityGross": "131048191073",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22754,
+          "liquidityNet": "-1535737434",
+          "liquidityGross": "1535737434",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22753,
+          "liquidityNet": "218330917",
+          "liquidityGross": "218330917",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22752,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22751,
+          "liquidityNet": "238796757198",
+          "liquidityGross": "238796757198",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22750,
+          "liquidityNet": "-771021258852",
+          "liquidityGross": "771021258852",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22749,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22748,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22747,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22746,
+          "liquidityNet": "343855415251",
+          "liquidityGross": "343855415251",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22745,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22744,
+          "liquidityNet": "625182286",
+          "liquidityGross": "625182286",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22743,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        },
+        {
+          "tickIndex": -22742,
+          "liquidityNet": "-44313433534",
+          "liquidityGross": "44313433534",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22741,
+          "liquidityNet": "0",
+          "liquidityGross": "0",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": false
+        }
+      ],
+      "address": "FVGpZaheYCfMD17pAsMzWX5uVuDzbkmMLtTHmzz2ykgi",
+      "capturedLen": 10240
+    },
+    {
+      "startTickIndex": -22860,
+      "poolId": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+      "tickCount": 60,
+      "ticks": [
+        {
+          "tickIndex": -22860,
+          "liquidityNet": "840179",
+          "liquidityGross": "33608821013",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22859,
+          "liquidityNet": "-996753",
+          "liquidityGross": "33608664439",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22858,
+          "liquidityNet": "840170",
+          "liquidityGross": "33608507856",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22857,
+          "liquidityNet": "840213",
+          "liquidityGross": "33610188239",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22856,
+          "liquidityNet": "2079058314754",
+          "liquidityGross": "2116388124578",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22855,
+          "liquidityNet": "2683474809",
+          "liquidityGross": "36285109239",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22854,
+          "liquidityNet": "17395836343",
+          "liquidityGross": "51847985675",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22853,
+          "liquidityNet": "261528187412",
+          "liquidityGross": "295142330892",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22852,
+          "liquidityNet": "8174816669",
+          "liquidityGross": "4118358144377",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22851,
+          "liquidityNet": "840445",
+          "liquidityGross": "33619455565",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22850,
+          "liquidityNet": "2289030",
+          "liquidityGross": "33622585040",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22849,
+          "liquidityNet": "194936554981",
+          "liquidityGross": "228561429051",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22848,
+          "liquidityNet": "6231216419",
+          "liquidityGross": "39859494715",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22847,
+          "liquidityNet": "5314349",
+          "liquidityGross": "33622982497",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22846,
+          "liquidityNet": "840687",
+          "liquidityGross": "33629137533",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22845,
+          "liquidityNet": "273460008350",
+          "liquidityGross": "307089986570",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22844,
+          "liquidityNet": "-544620",
+          "liquidityGross": "33621362064",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22843,
+          "liquidityNet": "189926622438",
+          "liquidityGross": "223547439882",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22842,
+          "liquidityNet": "-78804",
+          "liquidityGross": "33619330032",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22841,
+          "liquidityNet": "1833099115",
+          "liquidityGross": "35452350343",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22840,
+          "liquidityNet": "-4540005104",
+          "liquidityGross": "38115066920",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22839,
+          "liquidityNet": "-50621082541",
+          "liquidityGross": "84197376135",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22838,
+          "liquidityNet": "-190574969",
+          "liquidityGross": "33782875459",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22837,
+          "liquidityNet": "2589387",
+          "liquidityGross": "33594889877",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22836,
+          "liquidityNet": "5559833553621",
+          "liquidityGross": "5593431032885",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22835,
+          "liquidityNet": "9569961",
+          "liquidityGross": "33620172267",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22834,
+          "liquidityNet": "4449016",
+          "liquidityGross": "33634191244",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22833,
+          "liquidityNet": "1977774",
+          "liquidityGross": "33640618034",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22832,
+          "liquidityNet": "841043",
+          "liquidityGross": "33643436851",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22831,
+          "liquidityNet": "-2623405752",
+          "liquidityGross": "36260346926",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22830,
+          "liquidityNet": "291481608161",
+          "liquidityGross": "325118549335",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22829,
+          "liquidityNet": "183442851153",
+          "liquidityGross": "924621802561",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22828,
+          "liquidityNet": "-109125452415",
+          "liquidityGross": "1321229617287",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22827,
+          "liquidityNet": "-191035383589",
+          "liquidityGross": "224677851433",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22826,
+          "liquidityNet": "841040",
+          "liquidityGross": "33643308884",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22825,
+          "liquidityNet": "40339123782",
+          "liquidityGross": "73983273706",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22824,
+          "liquidityNet": "-7018152",
+          "liquidityGross": "33633766444",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22823,
+          "liquidityNet": "-35698740194",
+          "liquidityGross": "154892685020",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22822,
+          "liquidityNet": "-150836340264",
+          "liquidityGross": "184459268656",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22821,
+          "liquidityNet": "-9160599",
+          "liquidityGross": "33613767793",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22820,
+          "liquidityNet": "-273472547419",
+          "liquidityGross": "307060148011",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22819,
+          "liquidityNet": "-1473927",
+          "liquidityGross": "33586126665",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22818,
+          "liquidityNet": "12409967893542",
+          "liquidityGross": "12443552546280",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22817,
+          "liquidityNet": "130765284552",
+          "liquidityGross": "164359605818",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22816,
+          "liquidityNet": "19102297",
+          "liquidityGross": "33621571729",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22815,
+          "liquidityNet": "45807647826",
+          "liquidityGross": "79448321852",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22814,
+          "liquidityNet": "268505767514",
+          "liquidityGross": "302143457058",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22813,
+          "liquidityNet": "6741577",
+          "liquidityGross": "33638582305",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22812,
+          "liquidityNet": "8903425",
+          "liquidityGross": "33654227307",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22811,
+          "liquidityNet": "13857788195",
+          "liquidityGross": "47513732257",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22810,
+          "liquidityNet": "-10309142",
+          "liquidityGross": "33672201986",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22809,
+          "liquidityNet": "377362138906",
+          "liquidityGross": "411024031750",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22808,
+          "liquidityNet": "-8120378876",
+          "liquidityGross": "41793899818",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22807,
+          "liquidityNet": "-8034424",
+          "liquidityGross": "33665486518",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22806,
+          "liquidityNet": "-5348807011",
+          "liquidityGross": "39007941935",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22805,
+          "liquidityNet": "72217403772",
+          "liquidityGross": "156565751788",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22804,
+          "liquidityNet": "135058977005",
+          "liquidityGross": "691776225881",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22803,
+          "liquidityNet": "438767",
+          "liquidityGross": "33670550781",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22802,
+          "liquidityNet": "841754",
+          "liquidityGross": "33671831302",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22801,
+          "liquidityNet": "3050026",
+          "liquidityGross": "33675723082",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        }
+      ],
+      "address": "7i3tVrschaU3vghoATjkEiRFjT4HrUzmoTgNzroSvFvt",
+      "capturedLen": 10240
+    },
+    {
+      "startTickIndex": -22920,
+      "poolId": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+      "tickCount": 60,
+      "ticks": [
+        {
+          "tickIndex": -22920,
+          "liquidityNet": "-16620227",
+          "liquidityGross": "33643134819",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22919,
+          "liquidityNet": "3880376",
+          "liquidityGross": "33630394968",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22918,
+          "liquidityNet": "-93854774054",
+          "liquidityGross": "127505091034",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22917,
+          "liquidityNet": "12009243",
+          "liquidityGross": "33662326223",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22916,
+          "liquidityNet": "3023396",
+          "liquidityGross": "33677358862",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22915,
+          "liquidityNet": "6116843295",
+          "liquidityGross": "39797225553",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22914,
+          "liquidityNet": "-5016879",
+          "liquidityGross": "33654952811",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22913,
+          "liquidityNet": "-11181411",
+          "liquidityGross": "33638754521",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22912,
+          "liquidityNet": "-322238638",
+          "liquidityGross": "33957192990",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22911,
+          "liquidityNet": "-91910720296",
+          "liquidityGross": "199987924058",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22910,
+          "liquidityNet": "-22724939",
+          "liquidityGross": "33594965619",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22909,
+          "liquidityNet": "-1895073711",
+          "liquidityGross": "35459003903",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22908,
+          "liquidityNet": "10459593",
+          "liquidityGross": "33574389785",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22907,
+          "liquidityNet": "8625269885",
+          "liquidityGross": "42210119263",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22906,
+          "liquidityNet": "6847236",
+          "liquidityGross": "33614704900",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22905,
+          "liquidityNet": "-14750619",
+          "liquidityGross": "33606801517",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22904,
+          "liquidityNet": "1627320",
+          "liquidityGross": "33593678218",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22903,
+          "liquidityNet": "22828117791",
+          "liquidityGross": "56416986119",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22902,
+          "liquidityNet": "496899282617",
+          "liquidityGross": "530486482689",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22901,
+          "liquidityNet": "1903029",
+          "liquidityGross": "33605675779",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22900,
+          "liquidityNet": "-1063063",
+          "liquidityGross": "33606515745",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22899,
+          "liquidityNet": "2807098",
+          "liquidityGross": "33608259780",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22898,
+          "liquidityNet": "-81504675509",
+          "liquidityGross": "115140862351",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22897,
+          "liquidityNet": "-6849577",
+          "liquidityGross": "33629337265",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22896,
+          "liquidityNet": "-706281854410",
+          "liquidityGross": "740809484784",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22895,
+          "liquidityNet": "46925700",
+          "liquidityGross": "33671094470",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22894,
+          "liquidityNet": "-3578471",
+          "liquidityGross": "33612746567",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22893,
+          "liquidityNet": "13120712646",
+          "liquidityGross": "46729880742",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22892,
+          "liquidityNet": "-137321141",
+          "liquidityGross": "33758816111",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22891,
+          "liquidityNet": "916935",
+          "liquidityGross": "33622411905",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22890,
+          "liquidityNet": "-3462491958",
+          "liquidityGross": "37537631002",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22889,
+          "liquidityNet": "-2980686",
+          "liquidityGross": "33622131174",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22888,
+          "liquidityNet": "-427002",
+          "liquidityGross": "33618723486",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22887,
+          "liquidityNet": "-33262147368",
+          "liquidityGross": "66909335054",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22886,
+          "liquidityNet": "-826215582",
+          "liquidityGross": "34475085584",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22885,
+          "liquidityNet": "841201",
+          "liquidityGross": "33649711203",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22884,
+          "liquidityNet": "-1847072",
+          "liquidityGross": "33648705332",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22883,
+          "liquidityNet": "-7689261",
+          "liquidityGross": "33639168999",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22882,
+          "liquidityNet": "342511058045",
+          "liquidityGross": "376142537783",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22881,
+          "liquidityNet": "2350823",
+          "liquidityGross": "33635512093",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22880,
+          "liquidityNet": "840925",
+          "liquidityGross": "33638703841",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22879,
+          "liquidityNet": "23409594153",
+          "liquidityGross": "60917430245",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22878,
+          "liquidityNet": "291314101479",
+          "liquidityGross": "863815870283",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22877,
+          "liquidityNet": "375969",
+          "liquidityGross": "33648076679",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22876,
+          "liquidityNet": "1856325250",
+          "liquidityGross": "35504777898",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22875,
+          "liquidityNet": "20928526667",
+          "liquidityGross": "3660572244285",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22874,
+          "liquidityNet": "3750290",
+          "liquidityGross": "33642782980",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22873,
+          "liquidityNet": "-20877272227",
+          "liquidityGross": "124246597735",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22872,
+          "liquidityNet": "1013129",
+          "liquidityGross": "33642823321",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22871,
+          "liquidityNet": "-3825100",
+          "liquidityGross": "33640011350",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22870,
+          "liquidityNet": "273520",
+          "liquidityGross": "33636459770",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22869,
+          "liquidityNet": "-3105348",
+          "liquidityGross": "33633627942",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22868,
+          "liquidityNet": "-6503848",
+          "liquidityGross": "33624018746",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22867,
+          "liquidityNet": "2772294",
+          "liquidityGross": "33620287192",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22866,
+          "liquidityNet": "1535704457",
+          "liquidityGross": "35158763943",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22865,
+          "liquidityNet": "66007511024",
+          "liquidityGross": "99630504556",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22864,
+          "liquidityNet": "-34869797580",
+          "liquidityGross": "68483795198",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22863,
+          "liquidityNet": "-4012649",
+          "liquidityGross": "33609984969",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22862,
+          "liquidityNet": "-81478742",
+          "liquidityGross": "33687677264",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        },
+        {
+          "tickIndex": -22861,
+          "liquidityNet": "26448586277",
+          "liquidityGross": "60054784799",
+          "ordersAmount": "0",
+          "partFilledOrdersRemaining": "0",
+          "initialized": true
+        }
+      ],
+      "address": "7KGRHr8gSwVqmJVv3sdnUEmKM3jRC551SMCt9ZxmCXsb",
+      "capturedLen": 10240
+    }
+  ],
+  "sample": {
+    "inputMint": "So11111111111111111111111111111111111111112",
+    "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amountInRaw": "100000000",
+    "slippageBps": 50,
+    "userPubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "zeroForOne": true
+  },
+  "quote": {
+    "amountInRaw": "100000000",
+    "amountOutRaw": "10322981",
+    "amountOutMinRaw": "10271366",
+    "feeAmount": "40000",
+    "appliedFeeRate": 400,
+    "endTick": -22706,
+    "allTrade": true,
+    "outHuman": 10.322981,
+    "tickArrays": [
+      "9KnMQWpQ8bA7fydP4jsZN6s4waqA7GtA3Wt36zJuozav",
+      "FVGpZaheYCfMD17pAsMzWX5uVuDzbkmMLtTHmzz2ykgi",
+      "7i3tVrschaU3vghoATjkEiRFjT4HrUzmoTgNzroSvFvt",
+      "7KGRHr8gSwVqmJVv3sdnUEmKM3jRC551SMCt9ZxmCXsb"
+    ]
+  },
+  "sim": {
+    "err": {
+      "InstructionError": [
+        0,
+        {
+          "Custom": 3012
+        }
+      ]
+    },
+    "logs": [
+      "Program log: Instruction: SwapV2",
+      "Program log: AnchorError caused by account: input_token_account. Error Code: AccountNotInitialized. Error Number: 3012. Error Message: The program expected this account to be already initialized.",
+      "Program CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK consumed 7482 of 200000 compute units",
+      "Program CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK failed: custom program error: 0xbc4"
+    ],
+    "note": "simulateTransaction with sigVerify:false — read-only sandbox; nothing broadcast."
+  }
+}

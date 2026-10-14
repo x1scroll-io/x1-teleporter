@@ -1,0 +1,262 @@
+{
+  "capturedAt": "2026-09-06T23:20:43.190Z",
+  "round": 1,
+  "routeId": "x1-exotic-2500-down",
+  "legend": "EVM stable → X1 EXOTIC (USDC on Ethereum → LiFi → USDC on Solana → SOL on Solana → Warp → wSOL.X on X1 → XDEX → EXOTIC(x1) B69ch…, ~$2,550) — the full 'land as any token' flow to a fresh X1 token. Leg 2 = the Solana USDC→SOL venue choice (aggregator-DOWN: orca routed); legs 1/3/4 = single-venue rails (bridge / Warp / X1's only DEX — contribute 0, honest: X1 has ONE DEX, so route-choice value concentrates on the Solana-side legs). The Warp hop (0.5% skim) is documented, not quoted; the XDEX leg is quoted live (vault balances refreshed this round) at the journey size.",
+  "legs": [
+    {
+      "hop": 1,
+      "from": "USDC",
+      "to": "USDC",
+      "chain": "eth→sol",
+      "kind": "bridge",
+      "venueChosen": "lifi",
+      "usdPerOutUnit": 0.000001,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "lifi",
+          "pool": "lifi-eth-sol-USDC-USDC",
+          "amountIn": "2500000000",
+          "amountOut": "2493750000",
+          "feeBps": null,
+          "source": "REAL-live-lifi-quote(fee=0)",
+          "capturedAt": "2026-09-06T23:20:42.270Z",
+          "context": {
+            "feeCostsUsd": 6.2464,
+            "gasCostsUsd": 0.0828
+          },
+          "state": null
+        }
+      ]
+    },
+    {
+      "hop": 2,
+      "from": "USDC",
+      "to": "SOL",
+      "chain": "sol",
+      "kind": "swap",
+      "venueChosen": "orca",
+      "usdPerOutUnit": 1.06432911e-7,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "jupiter",
+          "pool": "jupiter-USDC-SOL",
+          "amountIn": "2493750000",
+          "amountOut": "23422792811",
+          "feeBps": null,
+          "source": "REAL-live-jupiter-quote",
+          "capturedAt": "2026-09-06T23:20:43.189Z",
+          "context": null,
+          "state": null
+        },
+        {
+          "venue": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+          "amountIn": "2493750000",
+          "amountOut": "23422195155",
+          "feeBps": 4,
+          "source": "REAL-live-whirlpool-state-walk",
+          "capturedAt": "2026-09-06T23:20:43.190Z",
+          "context": null,
+          "state": {
+            "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+            "programId": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+            "tickCurrent": -22405
+          }
+        },
+        {
+          "venue": "raydium",
+          "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+          "amountIn": "2493750000",
+          "amountOut": "23421421285",
+          "feeBps": 4,
+          "source": "REAL-live-raydium-clmm-state-walk",
+          "capturedAt": "2026-09-06T23:20:43.190Z",
+          "context": null,
+          "state": {
+            "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv",
+            "programId": "CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK",
+            "tickCurrent": -22405
+          }
+        }
+      ]
+    },
+    {
+      "hop": 3,
+      "from": "SOL",
+      "to": "wSOL.X",
+      "chain": "sol→x1",
+      "kind": "bridge",
+      "venueChosen": "warp",
+      "usdPerOutUnit": 1.06432911e-7,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "warp",
+          "pool": "warp-sol-x1",
+          "amountIn": "23422195155",
+          "amountOut": "23305084179",
+          "feeBps": 50,
+          "source": "DOCUMENTED-warp-skim-0.5pct (not live-quoted — invariant across venue choices)",
+          "capturedAt": "2026-09-06T23:20:43.190Z",
+          "context": null,
+          "state": null
+        }
+      ]
+    },
+    {
+      "hop": 4,
+      "from": "wSOL.X",
+      "to": "EXOTIC(x1)",
+      "chain": "x1",
+      "kind": "swap",
+      "venueChosen": "xdex",
+      "usdPerOutUnit": 0.00029762825621784016,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "xdex",
+          "pool": "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
+          "amountIn": "23305084179",
+          "amountOut": "8291123",
+          "feeBps": 28,
+          "source": "REAL-xdex-quote (vault balances refreshed live this round; static pool fields + fee config = frozen 2026-09-02 capture — the XDEX program layout has no in-repo decoder)",
+          "capturedAt": "2026-09-06T23:20:43.190Z",
+          "context": null,
+          "state": {
+            "pool": "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
+            "vault0Sol": "9870626823389",
+            "vault1Exotic": "3529770861"
+          }
+        }
+      ]
+    }
+  ],
+  "routeUsd": {
+    "journeyUnit": "USDC",
+    "journeyAmountRaw": "2500000000",
+    "notes": "EVM stable → X1 EXOTIC (USDC on Ethereum → LiFi → USDC on Solana → SOL on Solana → Warp → wSOL.X on X1 → XDEX → EXOTIC(x1) B69ch…, ~$2,550) — the full 'land as any token' flow to a fresh X1 token. Leg 2 = the Solana USDC→SOL venue choice (aggregator-DOWN: orca routed); legs 1/3/4 = single-venue rails (bridge / Warp / X1's only DEX — contribute 0, honest: X1 has ONE DEX, so route-choice value concentrates on the Solana-side legs). The Warp hop (0.5% skim) is documented, not quoted; the XDEX leg is quoted live (vault balances refreshed this round) at the journey size."
+  },
+  "analysis": {
+    "kind": "route-capture-analysis",
+    "routeId": "x1-exotic-2500-down",
+    "legs": [
+      {
+        "hop": 1,
+        "from": "USDC",
+        "to": "USDC",
+        "chain": "eth→sol",
+        "kind": "bridge",
+        "venueChosen": "lifi",
+        "venueBest": "lifi",
+        "routeChosen": "lifi:lifi-eth-sol-USDC-USDC",
+        "routeBest": "lifi:lifi-eth-sol-USDC-USDC",
+        "singleVenue": true,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": null,
+        "deltaOutRaw": "0",
+        "gapUsd": null,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": null,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      },
+      {
+        "hop": 2,
+        "from": "USDC",
+        "to": "SOL",
+        "chain": "sol",
+        "kind": "swap",
+        "venueChosen": "orca",
+        "venueBest": "jupiter",
+        "routeChosen": "orca:Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+        "routeBest": "jupiter:jupiter-USDC-SOL",
+        "singleVenue": false,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": 0,
+        "deltaOutRaw": "597656",
+        "gapUsd": 0.0636,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": 0.0636,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      },
+      {
+        "hop": 3,
+        "from": "SOL",
+        "to": "wSOL.X",
+        "chain": "sol→x1",
+        "kind": "bridge",
+        "venueChosen": "warp",
+        "venueBest": "warp",
+        "routeChosen": "warp:warp-sol-x1",
+        "routeBest": "warp:warp-sol-x1",
+        "singleVenue": true,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": null,
+        "deltaOutRaw": "0",
+        "gapUsd": null,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": null,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      },
+      {
+        "hop": 4,
+        "from": "wSOL.X",
+        "to": "EXOTIC(x1)",
+        "chain": "x1",
+        "kind": "swap",
+        "venueChosen": "xdex",
+        "venueBest": "xdex",
+        "routeChosen": "xdex:CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
+        "routeBest": "xdex:CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
+        "singleVenue": true,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": null,
+        "deltaOutRaw": "0",
+        "gapUsd": null,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": null,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      }
+    ],
+    "routeGapBps": 0.064,
+    "routeNetBps": 0.064,
+    "routeGapUsd": 0.0636,
+    "routeNetUsd": 0.0636,
+    "routeUsdPartial": false,
+    "wouldCapture": true,
+    "whyNot": null,
+    "economical": false,
+    "optimalRoute": [
+      {
+        "hop": 1,
+        "venue": "lifi"
+      },
+      {
+        "hop": 2,
+        "venue": "jupiter"
+      },
+      {
+        "hop": 3,
+        "venue": "warp"
+      },
+      {
+        "hop": 4,
+        "venue": "xdex"
+      }
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "capturedAt": "2026-09-05T20:18:03.336Z",
+  "request": {
+    "fromChainId": 1,
+    "toChainId": 501,
+    "fromTokenAddress": "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    "toTokenAddress": "0x0000000000000000000000000000000000000000",
+    "fromAddress": "0x2fb4D46372Ea1748ec3c29Bd2C7B536019DF5200",
+    "toAddress": "G8XKKQv6kESVby9b1qvGWHpyexKfbWzFvVQtEz6WyiS2",
+    "fromAmount": "100"
+  },
+  "httpStatus": 200,
+  "response": {
+    "success": false,
+    "error": "get quotes failed, dex okx Error: no token pair for SOL cross ETH -> SOL, dex wanchain Error: Unsupported token #2 "
+  }
+}

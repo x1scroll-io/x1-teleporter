@@ -1,0 +1,975 @@
+/**
+ * ConnectModal + BridgeCard render tests (Step 2.2) — jsdom + React 18 act.
+ *
+ * Proves at the DOM level what modalLogic.test.js proves at the data level:
+ * Starport pinned first, installed highlighted, not-installed shown with
+ * install links, never hidden — plus the sequential connect flow
+ * (family → wallet → connected/error) and the one-card tab shell
+ * (Teleport / THORChain / Buy tabs per docs/BRIEF.md).
+ *
+ * A fake discovery handle stands in for walletDiscovery.js: it can be fed
+ * announce events mid-test to prove the modal reacts to late-discovered
+ * wallets (installed highlighting updates without a reload). EVM entries
+ * carry REAL wagmi mock connectors, so the connect path through
+ * createEvmProviderAdapter is exercised for real.
+ */
+
+import { JSDOM } from "jsdom";
+
+// jsdom globals must exist BEFORE react-dom is imported/evaluated.
+const dom = new JSDOM("<!doctype html><html><body></body></html>", {
+  url: "http://localhost/",
+});
+function setGlobal(name, value) {
+  try {
+    Object.defineProperty(globalThis, name, { value, configurable: true, writable: true });
+  } catch {
+    globalThis[name] = value;
+  }
+}
+setGlobal("window", dom.window);
+setGlobal("document", dom.window.document);
+setGlobal("navigator", dom.window.navigator);
+setGlobal("Event", dom.window.Event);
+setGlobal("CustomEvent", dom.window.CustomEvent);
+setGlobal("HTMLElement", dom.window.HTMLElement);
+setGlobal("Node", dom.window.Node);
+setGlobal("getComputedStyle", dom.window.getComputedStyle.bind(dom.window));
+setGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import React, { act } from "react";
+import { createRoot } from "react-dom/client";
+import { createConfig, createStorage, http, noopStorage } from "wagmi";
+import { mock } from "wagmi/connectors";
+import { mainnet } from "viem/chains";
+import { WalletProvider } from "./WalletContext.jsx";
+import BridgeCard from "../../components/BridgeCard.jsx";
+import { WALLET_FAMILIES, FAMILY_LABELS } from "./families.js";
+import { WALLET_REGISTRY } from "./modalLogic.js";
+import { createEvmProviderAdapter } from "./evmDiscovery.js";
+import { createSolanaProviderAdapter } from "./solanaDiscovery.js";
+import { createBitcoinProviderAdapter } from "./bitcoinDiscovery.js";
+import { createLitecoinProviderAdapter } from "./litecoinDiscovery.js";
+import { createDogecoinProviderAdapter } from "./dogecoinDiscovery.js";
+import { createXrpProviderAdapter } from "./xrpDiscovery.js";
+import { createTronProviderAdapter } from "./tronDiscovery.js";
+import { BITCOIN_WALLET_IDS as BTC_IDS, DEPOSIT_ADDRESS_ID } from "./bitcoinRegistry.js";
+import {
+  LITECOIN_WALLET_IDS as LTC_IDS,
+  LITECOIN_DEPOSIT_ADDRESS_ID as LTC_DEPOSIT,
+} from "./litecoinRegistry.js";
+import { DOGECOIN_WALLET_IDS as DOGE_IDS } from "./dogecoinRegistry.js";
+import { XRP_WALLET_IDS as XRP_IDS } from "./xrpRegistry.js";
+import { TRON_WALLET_IDS as TRON_IDS } from "./tronRegistry.js";
+import { NEAR_WALLET_IDS as NEAR_IDS } from "./nearRegistry.js";
+
+const EVM_ADDRESS = "0x1111222233334444555566667777888899990000";
+const MOCK_EVM_ADDRESS = "mock:evm:0x1234567890abcdef1234567890abcdef12345678";
+
+/**
+ * Build a discovered EVM entry backed by a REAL wagmi mock connector, so the
+ * connect flow through createEvmProviderAdapter is the real wagmi path.
+ */
+function makeEvmEntry({ accounts, rdns, name, connectError } = {}) {
+  const config = createConfig({
+    chains: [mainnet],
+    connectors: [
+      mock({ accounts: accounts ?? [EVM_ADDRESS], features: connectError ? { connectError } : {} }),
+    ],
+    transports: { [mainnet.id]: http() },
+    multiInjectedProviderDiscovery: true,
+    storage: createStorage({ storage: noopStorage }),
+  });
+  const connector = config.connectors[0];
+  return {
+    uuid: connector.uid,
+    name: name ?? "MetaMask",
+    icon: "data:image/svg+xml;base64,AA==",
+    rdns: rdns ?? "io.metamask",
+    provider: connector,
+  };
+}
+
+/** Fake discovery handle — mirrors walletDiscovery.js's interface. */
+function fakeDiscovery() {
+  const listeners = new Set();
+  let evm = [];
+  let solana = [];
+  let bitcoin = [];
+  return {
+    start() {},
+    stop() {},
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    getDiscovered() {
+      return { evm: [...evm], solana: [...solana], bitcoin: [...bitcoin] };
+    },
+    getProvider(family, walletId) {
+      if (family === "evm") {
+        const entry = evm.find((p) => p.rdns === walletId || p.uuid === walletId);
+        return entry ? createEvmProviderAdapter(entry) : null;
+      }
+      if (family === "solana") {
+        const adapter = solana.find((a) => a.name === walletId);
+        return adapter ? createSolanaProviderAdapter(adapter) : null;
+      }
+      if (family === "bitcoin") {
+        const entry = bitcoin.find((w) => w.key === walletId);
+        return entry
+          ? createBitcoinProviderAdapter({ walletId, laserEyes: entry.laserEyes, balanceFetcher: entry.balanceFetcher })
+          : null;
+      }
+      return null;
+    },
+    // Test helpers:
+    _announceEvm(entry) {
+      evm = [...evm, entry];
+      for (const l of listeners) l(this.getDiscovered());
+    },
+    _announceBitcoin(wallet) {
+      bitcoin = [...bitcoin, wallet];
+      for (const l of listeners) l(this.getDiscovered());
+    },
+  };
+}
+
+function renderCard(discovery, { allowMockFallback = false } = {}) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  act(() => {
+    root.render(
+      React.createElement(
+        WalletProvider,
+        // Mirrors production by default (mock OFF). Tests that deliberately
+        // exercise the dev/test mock seam pass { allowMockFallback: true }.
+        { discovery, allowMockFallback },
+        // No-op balancesDeps keeps these render tests hermetic (the balance
+        // line is DI-tested in BalancesLine.test.jsx — no RPC here).
+        React.createElement(BridgeCard, {
+          formProps: {
+            balancesDeps: {
+              priceFetcher: async () => null,
+              evmBalanceFetcher: async () => null,
+              solBalanceFetcher: async () => null,
+              x1BalanceFetcher: async () => null,
+            },
+          },
+        }),
+      ),
+    );
+  });
+  return {
+    root,
+    container,
+    unmount() {
+      act(() => root.unmount());
+      container.remove();
+    },
+  };
+}
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function click(el) {
+  act(() => el.click());
+}
+
+function rows(container) {
+  return [...container.querySelectorAll(".wallet-row")].map((el) => ({
+    id: el.getAttribute("data-wallet-id"),
+    installed: el.getAttribute("data-installed") === "true",
+    pinned: el.getAttribute("data-pinned") === "true",
+    el,
+  }));
+}
+
+test("one-card shell: Teleport tab hosts the modal; THORChain and Buy are placeholders", () => {
+  const { container, unmount } = renderCard(fakeDiscovery());
+  try {
+    const card = container.querySelector('[data-testid="bridge-card"]');
+    assert.ok(card, "the one card exists");
+    assert.ok(container.querySelector('[data-testid="connect-modal"]'), "Teleport tab hosts the modal");
+
+    const tabs = [...container.querySelectorAll('[role="tab"]')];
+    assert.deepEqual(tabs.map((t) => t.getAttribute("data-tab")), ["teleport", "thorchain", "buy"]);
+
+    click(container.querySelector('[data-tab="thorchain"]'));
+    assert.ok(container.querySelector('[data-testid="thorchain-tab"]'), "THORChain tab renders placeholder");
+    click(container.querySelector('[data-tab="buy"]'));
+    assert.ok(container.querySelector('[data-testid="buy-tab"]'), "Buy tab renders placeholder");
+  } finally {
+    unmount();
+  }
+});
+
+test("family list renders all 10 families in fixed order", () => {
+  const { container, unmount } = renderCard(fakeDiscovery());
+  try {
+    const familyButtons = [...container.querySelectorAll(".family-row")];
+    assert.deepEqual(
+      familyButtons.map((b) => b.getAttribute("data-family")),
+      WALLET_FAMILIES,
+      "families in fixed WALLET_FAMILIES order",
+    );
+    assert.equal(familyButtons[0].textContent.includes(FAMILY_LABELS.evm), true);
+  } finally {
+    unmount();
+  }
+});
+
+test("wallet list: Starport pinned first, installed highlighted, not-installed have install links", () => {
+  const discovery = fakeDiscovery();
+  discovery._announceEvm(makeEvmEntry({ rdns: "io.metamask", name: "MetaMask" }));
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="evm"]'));
+
+    const walletRows = rows(container);
+    assert.equal(walletRows[0].id, "starport", "Starport pinned first");
+    assert.equal(walletRows[0].pinned, true);
+
+    const metaMask = walletRows.find((r) => r.id === "io.metamask");
+    assert.equal(metaMask.installed, true, "installed wallet highlighted");
+    assert.ok(
+      metaMask.el.classList.contains("wallet-row--installed"),
+      "installed wallet gets the highlight class",
+    );
+    assert.ok(
+      metaMask.el.querySelector(".badge--installed"),
+      "installed wallet shows the Installed badge",
+    );
+
+    const coinbase = walletRows.find((r) => r.id === "com.coinbase.wallet");
+    assert.equal(coinbase.installed, false, "not-installed wallet still shown");
+    const installLink = coinbase.el.querySelector("a.install-link");
+    assert.ok(installLink, "not-installed wallet has an install link");
+    assert.equal(installLink.getAttribute("href"), "https://www.coinbase.com/wallet/downloads");
+
+    // Never hidden: every registry entry rendered, starport first.
+    assert.deepEqual(
+      walletRows.map((r) => r.id),
+      WALLET_REGISTRY.evm.map((e) => e.id),
+    );
+  } finally {
+    unmount();
+  }
+});
+
+test("late-discovered wallet flips to installed without a reload (subscribe path)", () => {
+  const discovery = fakeDiscovery();
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="evm"]'));
+    assert.equal(rows(container).find((r) => r.id === "io.metamask").installed, false);
+
+    act(() => {
+      discovery._announceEvm(makeEvmEntry({ rdns: "io.metamask", name: "MetaMask" }));
+    });
+    assert.equal(rows(container).find((r) => r.id === "io.metamask").installed, true);
+  } finally {
+    unmount();
+  }
+});
+
+test("connect flow: Starport falls back to the mock provider (dev/test seam)", async () => {
+  const { container, unmount } = renderCard(fakeDiscovery(), { allowMockFallback: true });
+  try {
+    click(container.querySelector('[data-family="evm"]'));
+    const starport = rows(container).find((r) => r.id === "starport");
+    await act(async () => {
+      starport.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    // The connect → body transition (bug fix): the picker closes and the
+    // connected body renders the mock fallback address.
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered after the mock fallback connect");
+    assert.equal(body.textContent.includes(MOCK_EVM_ADDRESS), true, "mock fallback address shown in the body");
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "picker closed after connect");
+  } finally {
+    unmount();
+  }
+});
+
+test("connect flow: an installed discovered wallet connects through the real provider", async () => {
+  const discovery = fakeDiscovery();
+  discovery._announceEvm(makeEvmEntry({ rdns: "io.metamask", name: "MetaMask" }));
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="evm"]'));
+    const metaMask = rows(container).find((r) => r.id === "io.metamask");
+    await act(async () => {
+      metaMask.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered after the real-provider connect");
+    assert.equal(
+      body.textContent.toLowerCase().includes(EVM_ADDRESS.toLowerCase()),
+      true,
+      "real provider address shown in the body",
+    );
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "picker closed after connect");
+  } finally {
+    unmount();
+  }
+});
+
+test("connect flow: a rejected wallet surfaces as an error state (retryable)", async () => {
+  const discovery = fakeDiscovery();
+  discovery._announceEvm(
+    makeEvmEntry({ rdns: "io.metamask", name: "MetaMask", connectError: new Error("user rejected the request") }),
+  );
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="evm"]'));
+    const metaMask = rows(container).find((r) => r.id === "io.metamask");
+    await act(async () => {
+      metaMask.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const status = container.querySelector('[data-testid="connect-status"]');
+    assert.equal(status.textContent.includes("user rejected the request"), true);
+    assert.equal(status.classList.contains("status--error"), true);
+  } finally {
+    unmount();
+  }
+});
+
+/* ————————————— Connect → body transition (bug fix) ————————————— */
+
+// The bug: after a successful connect the UI STAYS on the wallet-picker
+// screen. The session flips to connected (the inline status box proves the
+// state updates) but nothing derives "show body" from the connected
+// session — the picker is the only thing the Teleport tab can render.
+// These tests reproduce that gap and lock the fix: connect → the picker
+// closes → the connected body renders (wallet-agnostic).
+
+test("TRANSITION: connecting a wallet closes the picker and renders the connected body", async () => {
+  const { container, unmount } = renderCard(fakeDiscovery(), { allowMockFallback: true });
+  try {
+    assert.ok(container.querySelector('[data-testid="connect-modal"]'), "picker renders before connect");
+
+    click(container.querySelector('[data-family="evm"]'));
+    const starport = rows(container).find((r) => r.id === "starport");
+    await act(async () => {
+      starport.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    assert.equal(
+      container.querySelector('[data-testid="connect-modal"]'),
+      null,
+      "picker is GONE after connect (the modal closes)",
+    );
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body renders after connect");
+    assert.equal(body.textContent.includes(MOCK_EVM_ADDRESS), true, "connected address rendered in the body");
+  } finally {
+    unmount();
+  }
+});
+
+test("TRANSITION is wallet-agnostic: fires for a mock wallet AND a discovered EVM wallet", async () => {
+  // The mock seam is exercised LEGITIMATELY: at the first connect evm has NO
+  // discovered wallet, so the armed mock applies. Once MetaMask announces
+  // (live), the family is non-empty and the mock no longer applies — the real
+  // provider is used. This also proves the gate: a mocked "empty" family vs a
+  // discovered one.
+  const discovery = fakeDiscovery();
+  const { container, unmount } = renderCard(discovery, { allowMockFallback: true });
+  try {
+    // Wallet 1: Starport → mock provider fallback (evm genuinely empty).
+    click(container.querySelector('[data-family="evm"]'));
+    const starport = rows(container).find((r) => r.id === "starport");
+    await act(async () => {
+      starport.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+    assert.ok(container.querySelector('[data-testid="teleport-connected"]'), "mock wallet: transition fired");
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "picker closed");
+
+    // Disconnect → the picker returns (the connect/disconnect cycle closes).
+    act(() => container.querySelector(".disconnect-btn").click());
+    assert.ok(container.querySelector('[data-testid="connect-modal"]'), "picker returns after disconnect");
+    assert.equal(container.querySelector('[data-testid="teleport-connected"]'), null);
+
+    // MetaMask announces live (the family is no longer empty → mock arm moot).
+    act(() => {
+      discovery._announceEvm(makeEvmEntry({ rdns: "io.metamask", name: "MetaMask" }));
+    });
+
+    // Wallet 2: MetaMask → real discovered wagmi connector.
+    click(container.querySelector('[data-family="evm"]'));
+    const metaMask = rows(container).find((r) => r.id === "io.metamask");
+    await act(async () => {
+      metaMask.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "discovered EVM wallet: transition fired");
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "picker closed again");
+    assert.equal(
+      body.textContent.toLowerCase().includes(EVM_ADDRESS.toLowerCase()),
+      true,
+      "real provider address in the body",
+    );
+  } finally {
+    unmount();
+  }
+});
+
+test("connected body renders the Solana session; Disconnect returns to the picker", async () => {
+  const { container, unmount } = renderCard(fakeDiscovery(), { allowMockFallback: true });
+  try {
+    click(container.querySelector('[data-family="solana"]'));
+    const starport = rows(container).find((r) => r.id === "starport");
+    await act(async () => {
+      starport.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
+    const solanaRow = container.querySelector('[data-family="solana"]');
+    assert.ok(solanaRow, "connected Solana session rendered in the body");
+    assert.equal(solanaRow.textContent.includes("mock:solana:"), true, "Solana address shown in the body");
+
+    act(() => container.querySelector(".disconnect-btn").click());
+    assert.equal(container.querySelector('[data-testid="teleport-connected"]'), null, "body closes on disconnect");
+    assert.ok(container.querySelector('[data-testid="connect-modal"]'), "picker returns after disconnect");
+  } finally {
+    unmount();
+  }
+});
+
+/* ————————————— Bitcoin family (Step 2.3) ————————————— */
+
+const BTC_PAYMENT = "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh";
+const BTC_ORDINALS = "bc1p5d7rjq7g6rdk2yhzks9smlaqtedr4dekq08ge8ztwac72sfr9rusxg3297";
+
+test("bitcoin: deposit-address row always renders LAST with the memo TODO, even with zero wallets installed", () => {
+  const { container, unmount } = renderCard(fakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="bitcoin"]'));
+
+    const allRows = rows(container);
+    const deposit = allRows[allRows.length - 1];
+    assert.equal(deposit.id, DEPOSIT_ADDRESS_ID, "deposit-address row is the final bitcoin row");
+    assert.equal(deposit.el.getAttribute("data-deposit-address"), "true");
+    assert.equal(deposit.installed, false, "never connectable");
+    assert.equal(deposit.el.querySelector(".connect-btn"), null, "no connect button on the deposit row");
+    assert.ok(
+      deposit.el.querySelector(".qr-placeholder"),
+      "QR placeholder renders (real QR arrives with the THORChain deposit address)",
+    );
+    assert.ok(
+      deposit.el.querySelector(".deposit-memo-todo"),
+      "memo TODO is clearly marked (memo arrives with the THORChain quote flow)",
+    );
+  } finally {
+    unmount();
+  }
+});
+
+test("bitcoin: connecting an installed wallet stores the PAYMENT address and shows the balance", async () => {
+  const discovery = fakeDiscovery();
+  discovery._announceBitcoin({
+    key: BTC_IDS.XVERSE,
+    name: "Xverse",
+    source: "standard",
+    laserEyes: {
+      connect: async (providerType) => {
+        assert.equal(providerType, "xverse");
+        return { paymentAddress: BTC_PAYMENT, address: BTC_ORDINALS, accounts: [BTC_PAYMENT] };
+      },
+      disconnect() {},
+    },
+    balanceFetcher: async (address) => {
+      assert.equal(address, BTC_PAYMENT, "balance is fetched for the payment address");
+      return 123_456;
+    },
+  });
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="bitcoin"]'));
+    const xverse = rows(container).find((r) => r.id === BTC_IDS.XVERSE);
+    assert.equal(xverse.installed, true, "Xverse highlighted as installed");
+    assert.ok(xverse.el.querySelector(".badge--installed"));
+
+    await act(async () => {
+      xverse.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
+    assert.ok(body.textContent.includes(BTC_PAYMENT), "payment (bc1q) address shown");
+    assert.equal(body.textContent.includes(BTC_ORDINALS), false, "ordinals (bc1p) address NEVER shown");
+    const balance = container.querySelector('[data-testid="bitcoin-balance"]');
+    assert.ok(balance, "balance rendered in the connected body");
+    assert.equal(balance.textContent.includes("0.00123456 BTC"), true);
+  } finally {
+    unmount();
+  }
+});
+
+test("bitcoin: ⚠️ rows render with a Verify badge and keep their install links (never hidden)", () => {
+  const { container, unmount } = renderCard(fakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="bitcoin"]'));
+
+    const verifyRows = [...container.querySelectorAll('[data-status="verify"]')];
+    assert.ok(verifyRows.length >= 6, "all ⚠️ rows rendered");
+    for (const el of verifyRows) {
+      assert.ok(el.querySelector(".badge--verify"), `${el.getAttribute("data-wallet-id")} shows the Verify badge`);
+      assert.ok(el.querySelector("a.install-link"), `${el.getAttribute("data-wallet-id")} keeps its install link`);
+    }
+  } finally {
+    unmount();
+  }
+});
+
+test("bitcoin: an installed wallet with NO wired LaserEyes handle shows the red 'not wired' banner (the preview bug)", async () => {
+  // The Step 2.3 preview reproduction at the DOM level: the wallet is
+  // detected (Installed badge) but its connect rejects with the banner
+  // error because no LaserEyes handle is wired. The deposit-address
+  // fallback row must survive the failed connect untouched.
+  const discovery = fakeDiscovery();
+  discovery._announceBitcoin({ key: BTC_IDS.XVERSE, name: "Xverse", source: "standard" });
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="bitcoin"]'));
+    const xverse = rows(container).find((r) => r.id === BTC_IDS.XVERSE);
+    assert.equal(xverse.installed, true, "Xverse highlighted as installed (detection works)");
+
+    await act(async () => {
+      xverse.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const status = container.querySelector('[data-testid="connect-status"]');
+    assert.ok(status, "error status renders");
+    assert.match(status.textContent, /LaserEyes handle is not wired/, "the red banner text");
+
+    const allRows = rows(container);
+    const deposit = allRows[allRows.length - 1];
+    assert.equal(deposit.id, DEPOSIT_ADDRESS_ID, "deposit-address row is still the final bitcoin row");
+    assert.equal(deposit.el.getAttribute("data-deposit-address"), "true");
+  } finally {
+    unmount();
+  }
+});
+
+/* ————————————— Step 2.4 families through the modal ————————————— */
+
+const LTC_ADDRESS = "LbTjMGN7gELw4KbeyQf6cTCq859hD18guE";
+const DOGE_ADDRESS = "DQyfNhuqN9mseL9YmgW8Sh7GNDjUn6oC1R";
+
+/**
+ * Extend the base fake discovery with the four Step 2.4 families.
+ * Re-emits the FULL snapshot (all ten families) on every change so a
+ * late announce in one family never wipes the others from context state.
+ */
+function extendFakeDiscovery() {
+  const base = fakeDiscovery();
+  const subs = new Set();
+  let litecoin = [];
+  let dogecoin = [];
+  let xrp = [];
+  let tron = [];
+  const fullSnapshot = () => ({
+    ...base.getDiscovered(),
+    litecoin: [...litecoin],
+    dogecoin: [...dogecoin],
+    xrp: [...xrp],
+    tron: [...tron],
+  });
+  const emit = () => {
+    const snap = fullSnapshot();
+    for (const listener of [...subs]) listener(snap);
+  };
+  return {
+    start: base.start,
+    stop: base.stop,
+    subscribe(listener) {
+      subs.add(listener);
+      base.subscribe(emit); // base announcements re-emit the full snapshot
+      return () => subs.delete(listener);
+    },
+    getDiscovered: fullSnapshot,
+    getProvider(family, walletId) {
+      if (family === "litecoin") {
+        const entry = litecoin.find((w) => w.key === walletId);
+        return entry
+          ? createLitecoinProviderAdapter({ walletId, win: entry.win, balanceFetcher: entry.balanceFetcher })
+          : null;
+      }
+      if (family === "dogecoin") {
+        const entry = dogecoin.find((w) => w.key === walletId);
+        return entry
+          ? createDogecoinProviderAdapter({ walletId, win: entry.win, balanceFetcher: entry.balanceFetcher })
+          : null;
+      }
+      if (family === "xrp") {
+        const entry = xrp.find((w) => w.key === walletId);
+        return entry ? createXrpProviderAdapter({ walletId, win: entry.win }) : null;
+      }
+      if (family === "tron") {
+        const entry = tron.find((w) => w.key === walletId);
+        return entry
+          ? createTronProviderAdapter({ registryId: walletId, adapter: entry.adapter, balanceFetcher: entry.balanceFetcher })
+          : null;
+      }
+      return base.getProvider(family, walletId);
+    },
+    _announceLitecoin(wallet) {
+      litecoin = [...litecoin, wallet];
+      emit();
+    },
+    _announceDogecoin(wallet) {
+      dogecoin = [...dogecoin, wallet];
+      emit();
+    },
+    _announceXrp(wallet) {
+      xrp = [...xrp, wallet];
+      emit();
+    },
+    _announceTron(wallet) {
+      tron = [...tron, wallet];
+      emit();
+    },
+  };
+}
+
+test("litecoin: full table renders — Ctrl reference, deposit-address LAST with the OP_RETURN memo TODO", () => {
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="litecoin"]'));
+
+    const allRows = rows(container);
+    assert.equal(allRows[0].id, "starport", "Starport pinned first");
+    assert.equal(allRows[1].id, LTC_IDS.CTRL, "Ctrl (reference) second");
+    const deposit = allRows[allRows.length - 1];
+    assert.equal(deposit.id, LTC_DEPOSIT, "deposit-address row is the final litecoin row");
+    assert.equal(deposit.el.getAttribute("data-deposit-address"), "true");
+    assert.ok(deposit.el.querySelector(".deposit-memo-todo"), "deposit row shows the memo TODO");
+    assert.match(deposit.el.querySelector(".deposit-memo-todo").textContent, /OP_RETURN/, "LTC memo TODO names OP_RETURN");
+
+    const verifyRows = [...container.querySelectorAll('[data-status="verify"]')];
+    assert.deepEqual(
+      verifyRows.map((el) => el.getAttribute("data-wallet-id")).sort(),
+      [LTC_IDS.ENKRYPT, LTC_IDS.OKX, LTC_IDS.TRUST].sort(),
+      "⚠️ rows render with the Verify badge",
+    );
+    assert.ok(verifyRows.every((el) => el.querySelector(".badge--verify")));
+  } finally {
+    unmount();
+  }
+});
+
+test("litecoin: MEMO RULE — unverified-memo rows show the deposit-address hand-off note", () => {
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="litecoin"]'));
+
+    const litescribe = container.querySelector(`[data-wallet-id="${LTC_IDS.LITESCRIBE}"]`);
+    assert.ok(litescribe.querySelector(".memo-handoff-note"), "Litescribe shows the memo hand-off note");
+    assert.match(litescribe.querySelector(".memo-handoff-note").textContent, /OP_RETURN memo unverified/);
+
+    const ctrl = container.querySelector(`[data-wallet-id="${LTC_IDS.CTRL}"]`);
+    assert.equal(ctrl.querySelector(".memo-handoff-note"), null, "Ctrl can send in-app (OP_RETURN) — no hand-off note");
+  } finally {
+    unmount();
+  }
+});
+
+test("litecoin: connecting Ctrl stores the address and shows the LTC balance", async () => {
+  const discovery = extendFakeDiscovery();
+  discovery._announceLitecoin({
+    key: LTC_IDS.CTRL,
+    name: "Ctrl (ex-XDEFI)",
+    win: { xfi: { litecoin: { request: async () => [LTC_ADDRESS] } } },
+    balanceFetcher: async () => 82_430_950,
+  });
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="litecoin"]'));
+    const ctrl = rows(container).find((r) => r.id === LTC_IDS.CTRL);
+    assert.equal(ctrl.installed, true, "Ctrl highlighted as installed");
+
+    await act(async () => {
+      ctrl.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
+    assert.ok(body.textContent.includes(LTC_ADDRESS), "LTC address shown");
+    const balance = container.querySelector('[data-testid="litecoin-balance"]');
+    assert.ok(balance, "balance rendered in the connected body");
+    assert.equal(balance.textContent.includes("0.8243095 LTC"), true);
+  } finally {
+    unmount();
+  }
+});
+
+test("dogecoin: deposit-address row LAST; MyDoge ⚠️ with the balance-only hand-off note", () => {
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="dogecoin"]'));
+
+    const allRows = rows(container);
+    assert.equal(allRows[1].id, DOGE_IDS.CTRL, "Ctrl (reference) second");
+    assert.equal(allRows[allRows.length - 1].id, "deposit-address", "deposit-address row is final");
+
+    const myDoge = container.querySelector(`[data-wallet-id="${DOGE_IDS.MYDOGE}"]`);
+    assert.ok(myDoge.querySelector(".badge--verify"), "MyDoge shows the Verify badge");
+    assert.ok(myDoge.querySelector(".memo-handoff-note"), "MyDoge shows the memo hand-off note");
+    assert.match(myDoge.querySelector(".memo-handoff-note").textContent, /OP_RETURN memo unverified/);
+  } finally {
+    unmount();
+  }
+});
+
+test("dogecoin: connecting Ctrl shows the DOGE balance", async () => {
+  const discovery = extendFakeDiscovery();
+  discovery._announceDogecoin({
+    key: DOGE_IDS.CTRL,
+    name: "Ctrl (ex-XDEFI)",
+    win: { xfi: { dogecoin: { request: async () => [DOGE_ADDRESS] } } },
+    balanceFetcher: async () => 1_234_567_890,
+  });
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="dogecoin"]'));
+    const ctrl = rows(container).find((r) => r.id === DOGE_IDS.CTRL);
+    await act(async () => {
+      ctrl.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
+    const balance = container.querySelector('[data-testid="dogecoin-balance"]');
+    assert.ok(balance, "balance rendered in the connected body");
+    assert.equal(balance.textContent.includes("12.3456789 DOGE"), true);
+  } finally {
+    unmount();
+  }
+});
+
+test("xrp: Xaman reference; Crossmark/GemWallet badged Unmaintained and ranked before the deposit row; XRPL Memos TODO", () => {
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="xrp"]'));
+
+    const allRows = rows(container);
+    assert.equal(allRows[1].id, XRP_IDS.XAMAN, "Xaman (PRIMARY) second");
+    const ids = allRows.map((r) => r.id);
+    assert.ok(ids.indexOf(XRP_IDS.CROSSMARK) > ids.indexOf(XRP_IDS.LEDGER), "Crossmark ranks after hardware");
+    assert.ok(ids.indexOf(XRP_IDS.GEMWALLET) > ids.indexOf(XRP_IDS.LEDGER), "GemWallet ranks after hardware");
+    assert.equal(allRows[allRows.length - 1].id, XRP_IDS.DEPOSIT_ADDRESS, "deposit-address row is final");
+
+    for (const id of [XRP_IDS.CROSSMARK, XRP_IDS.GEMWALLET]) {
+      const el = container.querySelector(`[data-wallet-id="${id}"]`);
+      assert.equal(el.getAttribute("data-unmaintained"), "true", `${id} flagged unmaintained`);
+      assert.ok(el.querySelector(".badge--unmaintained"), `${id} shows the Unmaintained badge`);
+      assert.ok(el.querySelector("a.install-link"), `${id} keeps its install link`);
+    }
+
+    const tangem = container.querySelector(`[data-wallet-id="${XRP_IDS.TANGEM}"]`);
+    assert.equal(tangem.getAttribute("data-deposit-only"), "true", "Tangem renders as deposit-address only");
+    assert.equal(tangem.querySelector(".connect-btn"), null, "Tangem is never connectable");
+
+    const deposit = allRows[allRows.length - 1];
+    assert.match(deposit.el.querySelector(".deposit-memo-todo").textContent, /XRPL Memos field \(NOT a destination tag\)/);
+  } finally {
+    unmount();
+  }
+});
+
+test("tron: TronLink reference; WalletConnect after hardware; NO deposit row; Binance/Trust Verify badges", () => {
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="tron"]'));
+
+    const allRows = rows(container);
+    assert.equal(allRows[0].id, "starport");
+    assert.equal(allRows[1].id, TRON_IDS.TRONLINK, "TronLink (reference) second");
+    const ids = allRows.map((r) => r.id);
+    assert.ok(ids.indexOf(TRON_IDS.WALLETCONNECT) > ids.indexOf(TRON_IDS.LEDGER), "WalletConnect sorts after hardware");
+    assert.ok(
+      !container.querySelector('[data-deposit-address="true"]'),
+      "Tron has NO deposit-address row (registry: BTC/LTC/DOGE/XRP only)",
+    );
+
+    const wc = container.querySelector(`[data-wallet-id="${TRON_IDS.WALLETCONNECT}"]`);
+    assert.ok(wc.querySelector("a.install-link"), "WalletConnect row keeps its install link");
+    for (const id of [TRON_IDS.BINANCE, TRON_IDS.TRUST]) {
+      const el = container.querySelector(`[data-wallet-id="${id}"]`);
+      assert.ok(el.querySelector(".badge--verify"), `${id} shows the Verify badge`);
+    }
+  } finally {
+    unmount();
+  }
+});
+
+test("tron: connecting an installed adapter wallet stores the address and shows the TRX balance", async () => {
+  const discovery = extendFakeDiscovery();
+  discovery._announceTron({
+    key: TRON_IDS.TRONLINK,
+    name: "TronLink",
+    adapter: {
+      name: "TronLink",
+      readyState: "Found",
+      address: "TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      async connect() {},
+      async disconnect() {},
+    },
+    balanceFetcher: async () => 7_500_000,
+  });
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="tron"]'));
+    const tronlink = rows(container).find((r) => r.id === TRON_IDS.TRONLINK);
+    assert.equal(tronlink.installed, true, "TronLink highlighted as installed");
+
+    await act(async () => {
+      tronlink.el.querySelector(".connect-btn").click();
+      await flush();
+    });
+
+    const body = container.querySelector('[data-testid="teleport-connected"]');
+    assert.ok(body, "connected body rendered");
+    assert.ok(body.textContent.includes("TXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"), "TRX address shown");
+    const balance = container.querySelector('[data-testid="tron-balance"]');
+    assert.ok(balance, "balance rendered in the connected body");
+    assert.equal(balance.textContent.includes("7.5 TRX"), true);
+  } finally {
+    unmount();
+  }
+});
+
+/* ————————————— NEAR fail-closed (Step 2.5 bug fix) ————————————— */
+
+test("near: with zero wallets NOTHING is Installed and the deposit row is non-interactive", () => {
+  // The QA repro: NEAR used to claim "Installed" for MyNearWallet/Meteor/
+  // Nightly/Ledger with NOTHING installed (the selector's `metadata.available`
+  // is not an install signal). With no positively-detected wallet every row
+  // must fall through to its Install link, and the deposit-address row must be
+  // an informational (non-interactive) fallback — not a dead-looking option.
+  const { container, unmount } = renderCard(extendFakeDiscovery());
+  try {
+    click(container.querySelector('[data-family="near"]'));
+
+    const allRows = rows(container);
+    assert.deepEqual(
+      allRows.filter((r) => r.installed).map((r) => r.id),
+      [],
+      "zero wallets installed → nothing highlighted",
+    );
+
+    for (const id of [NEAR_IDS.MY_NEAR_WALLET, NEAR_IDS.METEOR, NEAR_IDS.NIGHTLY, NEAR_IDS.LEDGER]) {
+      const el = container.querySelector(`[data-wallet-id="${id}"]`);
+      assert.ok(el, `${id} row rendered`);
+      assert.equal(el.getAttribute("data-installed"), "false", `${id} is NOT installed`);
+      assert.equal(el.querySelector(".badge--installed"), null, `${id} shows NO Installed badge`);
+      assert.equal(el.querySelector(".connect-btn"), null, `${id} has no Connect button`);
+      assert.ok(el.querySelector("a.install-link"), `${id} shows its Install link instead`);
+    }
+
+    const deposit = allRows[allRows.length - 1];
+    assert.equal(deposit.id, NEAR_IDS.DEPOSIT_ADDRESS, "deposit-address row is final");
+    assert.equal(deposit.el.getAttribute("data-deposit-address"), "true");
+    assert.equal(deposit.el.getAttribute("data-interactive"), "false", "deposit row is non-interactive");
+    assert.equal(deposit.el.querySelector(".connect-btn"), null, "deposit row has no Connect button");
+    assert.equal(deposit.el.querySelector("a.install-link"), null, "deposit row is not a link");
+    assert.ok(deposit.el.querySelector(".deposit-only-note"), "deposit row is clearly labelled non-interactive");
+  } finally {
+    unmount();
+  }
+});
+
+/* ————————————— per-wallet connecting state (global-bug fix) ————————————— */
+
+/** Discovery whose EVM provider connect() is resolved manually by the test. */
+function controllableEvmDiscovery() {
+  const listeners = new Set();
+  const evm = [
+    { rdns: "io.metamask", name: "MetaMask" },
+    { rdns: "com.coinbase.wallet", name: "Coinbase Wallet" },
+  ];
+  let resolveConnect = null;
+  return {
+    start() {},
+    stop() {},
+    subscribe(l) {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
+    getDiscovered() {
+      return { evm: [...evm] };
+    },
+    getProvider(family, walletId) {
+      if (family === "evm" && evm.some((e) => e.rdns === walletId)) {
+        return {
+          family: "evm",
+          id: walletId,
+          isReal: true,
+          connect: () => new Promise((resolve) => { resolveConnect = () => resolve({ address: "0xabc", provider: null }); }),
+          disconnect: async () => {},
+        };
+      }
+      return null;
+    },
+    _resolveAll() {
+      if (resolveConnect) {
+        const r = resolveConnect;
+        resolveConnect = null;
+        r();
+      }
+    },
+  };
+}
+
+test("connecting state is PER-WALLET: only the clicked row shows 'Connecting…'", async () => {
+  // The bug: one Connect click flipped EVERY row to "Connecting…" because the
+  // state was the per-FAMILY session status. Now only the in-flight wallet id
+  // shows it; the other installed wallets stay on "Connect".
+  const discovery = controllableEvmDiscovery();
+  const { container, unmount } = renderCard(discovery);
+  try {
+    click(container.querySelector('[data-family="evm"]'));
+    const metaMask = rows(container).find((r) => r.id === "io.metamask");
+    const coinbase = rows(container).find((r) => r.id === "com.coinbase.wallet");
+    assert.ok(metaMask && coinbase, "both discovered EVM wallets render");
+
+    act(() => metaMask.el.querySelector(".connect-btn").click());
+
+    assert.equal(metaMask.el.querySelector(".connect-btn").textContent, "Connecting…", "clicked row shows Connecting…");
+    assert.equal(coinbase.el.querySelector(".connect-btn").textContent, "Connect", "other row does NOT show Connecting…");
+    assert.equal(
+      container.querySelectorAll(".connect-btn").length
+        - [...container.querySelectorAll(".connect-btn")].filter((b) => b.textContent === "Connect").length,
+      1,
+      "exactly ONE row shows Connecting…",
+    );
+
+    await act(async () => {
+      discovery._resolveAll();
+      await flush();
+    });
+    assert.ok(container.querySelector('[data-testid="teleport-connected"]'), "connect completed → body rendered");
+    assert.equal(container.querySelector('[data-testid="connect-modal"]'), null, "picker closed after connect");
+  } finally {
+    unmount();
+  }
+});

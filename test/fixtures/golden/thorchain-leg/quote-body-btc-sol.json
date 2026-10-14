@@ -1,0 +1,14 @@
+{
+  "tool": "golden-transaction fixtures — THORChain leg (INPUT, synthetic)",
+  "note": "SYNTHETIC THORNode /thorchain/quote/swap response body (the shape the proxy api/thorchain/quote.js passes through verbatim). expected_amount_out is in THORChain 1e8 base units. SYNTHETIC — the aggregator key is a parked item server-side, so no live quote exists yet. Replace with a live capture on the first operator deposit.",
+  "body": {
+    "expected_amount_out": "49750000",
+    "slippage_bps": "50",
+    "inbound_address": "bc1qj9teleportervault0btc000synthetic0x7k2m4",
+    "expiry": 60,
+    "recommended_min_amount_in": "5000000",
+    "notes": [
+      "First output estimate may be inaccurate"
+    ]
+  }
+}

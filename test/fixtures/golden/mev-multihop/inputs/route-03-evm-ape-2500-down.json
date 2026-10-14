@@ -1,0 +1,211 @@
+{
+  "capturedAt": "2026-09-06T23:21:19.033Z",
+  "round": 3,
+  "routeId": "evm-ape-2500-down",
+  "legend": "EVM ape (WETH → USDC on Ethereum → LiFi bridge → USDC on Solana → EXOTIC(sol)) @ ~$2,550. Leg 1 = the EVM aggregator-vs-direct venue choice (lifi vs uniswap v3 f500 — DEX_DIRECT_FALLBACKS.evm.eth). Leg 2 = the EVM→SOL bridge (one serving carrier today — single venue, contributes 0, honest). Leg 3 = the Solana ape leg. Aggregator-DOWN routing on legs 1 + 3.",
+  "legs": [
+    {
+      "hop": 1,
+      "from": "WETH",
+      "to": "USDC",
+      "chain": "eth",
+      "kind": "swap",
+      "venueChosen": "uniswap",
+      "usdPerOutUnit": 0.000001,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "lifi",
+          "pool": "lifi-eth-WETH-USDC",
+          "amountIn": "1000000000000000000",
+          "amountOut": "2507645743",
+          "feeBps": null,
+          "source": "REAL-live-lifi-quote(fee=0)",
+          "capturedAt": "2026-09-06T23:21:16.421Z",
+          "context": {
+            "feeCostsUsd": 6.2828,
+            "gasCostsUsd": 0.0815
+          },
+          "state": null
+        },
+        {
+          "venue": "uniswap",
+          "pool": "uniswap-eth-WETH-USDC-f500",
+          "amountIn": "1000000000000000000",
+          "amountOut": "2511208299",
+          "feeBps": 5,
+          "source": "REAL-live-quoter-eth_call",
+          "capturedAt": "2026-09-06T23:21:16.451Z",
+          "context": {
+            "gasUsd": 0.014298
+          },
+          "state": null
+        }
+      ]
+    },
+    {
+      "hop": 2,
+      "from": "USDC",
+      "to": "USDC",
+      "chain": "eth→sol",
+      "kind": "bridge",
+      "venueChosen": "lifi",
+      "usdPerOutUnit": 0.000001,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "lifi",
+          "pool": "lifi-eth-sol-USDC-USDC",
+          "amountIn": "2511208299",
+          "amountOut": "2504930279",
+          "feeBps": null,
+          "source": "REAL-live-lifi-quote(fee=0)",
+          "capturedAt": "2026-09-06T23:21:17.409Z",
+          "context": {
+            "feeCostsUsd": 6.2745,
+            "gasCostsUsd": 0.0839
+          },
+          "state": null
+        }
+      ]
+    },
+    {
+      "hop": 3,
+      "from": "USDC",
+      "to": "EXOTIC(sol)",
+      "chain": "sol",
+      "kind": "swap",
+      "venueChosen": "raydium-cpmm",
+      "usdPerOutUnit": 1.9320822164400293e-12,
+      "usdPerOutUnitNote": "real $ per raw output unit from this round's own real venue/pool rates (see the report method notes)",
+      "quotes": [
+        {
+          "venue": "jupiter",
+          "pool": "jupiter-USDC-EXOTIC(sol)",
+          "amountIn": "2504930279",
+          "amountOut": "1296492591094532",
+          "feeBps": null,
+          "source": "REAL-live-jupiter-quote",
+          "capturedAt": "2026-09-06T23:21:19.033Z",
+          "context": null,
+          "state": null
+        },
+        {
+          "venue": "raydium-cpmm",
+          "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+          "amountIn": "2504930279",
+          "amountOut": "1294388570796132",
+          "feeBps": 25,
+          "source": "REAL-live-raydium-cpmm-state-walk",
+          "capturedAt": "2026-09-06T23:21:19.033Z",
+          "context": null,
+          "state": {
+            "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+            "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+            "vaultBUsdc": "267614471899",
+            "vaultAExotic": "139997098757513680"
+          }
+        }
+      ]
+    }
+  ],
+  "routeUsd": {
+    "journeyUnit": "WETH",
+    "journeyAmountRaw": "1000000000000000000",
+    "notes": "EVM ape (WETH → USDC on Ethereum → LiFi bridge → USDC on Solana → EXOTIC(sol)) @ ~$2,550. Leg 1 = the EVM aggregator-vs-direct venue choice (lifi vs uniswap v3 f500 — DEX_DIRECT_FALLBACKS.evm.eth). Leg 2 = the EVM→SOL bridge (one serving carrier today — single venue, contributes 0, honest). Leg 3 = the Solana ape leg. Aggregator-DOWN routing on legs 1 + 3."
+  },
+  "analysis": {
+    "kind": "route-capture-analysis",
+    "routeId": "evm-ape-2500-down",
+    "legs": [
+      {
+        "hop": 1,
+        "from": "WETH",
+        "to": "USDC",
+        "chain": "eth",
+        "kind": "swap",
+        "venueChosen": "uniswap",
+        "venueBest": "uniswap",
+        "routeChosen": "uniswap:uniswap-eth-WETH-USDC-f500",
+        "routeBest": "uniswap:uniswap-eth-WETH-USDC-f500",
+        "singleVenue": false,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": 0,
+        "deltaOutRaw": "0",
+        "gapUsd": 0,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": 0,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      },
+      {
+        "hop": 2,
+        "from": "USDC",
+        "to": "USDC",
+        "chain": "eth→sol",
+        "kind": "bridge",
+        "venueChosen": "lifi",
+        "venueBest": "lifi",
+        "routeChosen": "lifi:lifi-eth-sol-USDC-USDC",
+        "routeBest": "lifi:lifi-eth-sol-USDC-USDC",
+        "singleVenue": true,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": null,
+        "deltaOutRaw": "0",
+        "gapUsd": null,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": null,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      },
+      {
+        "hop": 3,
+        "from": "USDC",
+        "to": "EXOTIC(sol)",
+        "chain": "sol",
+        "kind": "swap",
+        "venueChosen": "raydium-cpmm",
+        "venueBest": "jupiter",
+        "routeChosen": "raydium-cpmm:5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+        "routeBest": "jupiter:jupiter-USDC-EXOTIC(sol)",
+        "singleVenue": false,
+        "exact": true,
+        "exactNote": "all venues quoted at the leg's routed size — the improvement math is exact",
+        "gapBps": 16,
+        "deltaOutRaw": "2104020298400",
+        "gapUsd": 4.0651,
+        "costDeltaUsd": 0,
+        "costExact": true,
+        "costNote": "no venue declared explicit additive costs — cost delta 0 (same-chain venue swaps share gas; pool fees are netted inside the quotes)",
+        "netUsd": 4.0651,
+        "netNote": "net = gapUsd − costDeltaUsd (explicit additive costs only; pool fees netted inside the quotes)"
+      }
+    ],
+    "routeGapBps": 5.4079,
+    "routeNetBps": 5.4079,
+    "routeGapUsd": 4.0651,
+    "routeNetUsd": 4.0651,
+    "routeUsdPartial": false,
+    "wouldCapture": true,
+    "whyNot": null,
+    "economical": true,
+    "optimalRoute": [
+      {
+        "hop": 1,
+        "venue": "uniswap"
+      },
+      {
+        "hop": 2,
+        "venue": "lifi"
+      },
+      {
+        "hop": 3,
+        "venue": "jupiter"
+      }
+    ]
+  }
+}

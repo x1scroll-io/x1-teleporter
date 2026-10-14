@@ -1,0 +1,42 @@
+{
+  "tool": "golden-transaction fixtures — THORChain leg (INPUT, synthetic)",
+  "note": "SYNTHETIC THORNode /thorchain/inbound_addresses body (the lane has NOT gone live — no live capture exists yet). Shape mirrors what THORNode returns (a bare array of vault entries; parseInboundAddresses accepts both the bare array and the { addresses: [...] } wrapper). DOGE is marked halted to pin the paused-chain gate. Replace with a live capture on the first operator deposit.",
+  "body": [
+    {
+      "chain": "BTC",
+      "pub_key": "thorpub1addwdve3lcq7q2a06syftq28sx2p8lm7xq0j2",
+      "address": "bc1qj9teleportervault0btc000synthetic0x7k2m4",
+      "halted": false,
+      "router": null,
+      "gas_rate": "14",
+      "dust_threshold": "5000"
+    },
+    {
+      "chain": "DOGE",
+      "pub_key": "thorpub1addwdve3lcq7q2a06syftq28sx2p8lm7xq0j2",
+      "address": "D8B9teleportervault0doge0synthetic0x3p5n7",
+      "halted": true,
+      "router": null,
+      "gas_rate": "100000",
+      "dust_threshold": "100000000"
+    },
+    {
+      "chain": "LTC",
+      "pub_key": "thorpub1addwdve3lcq7q2a06syftq28sx2p8lm7xq0j2",
+      "address": "ltc1qj9teleportervault0ltc000synthetic0x8r2t6",
+      "halted": false,
+      "router": null,
+      "gas_rate": "120",
+      "dust_threshold": "10000"
+    },
+    {
+      "chain": "XRP",
+      "pub_key": "thorpub1addwdve3lcq7q2a06syftq28sx2p8lm7xq0j2",
+      "address": "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+      "halted": false,
+      "router": null,
+      "gas_rate": "0.000015",
+      "dust_threshold": "1000000"
+    }
+  ]
+}

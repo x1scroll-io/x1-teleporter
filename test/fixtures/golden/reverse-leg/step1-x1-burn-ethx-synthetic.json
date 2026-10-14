@@ -1,0 +1,114 @@
+{
+  "step": "x1-reverse-burn",
+  "sampleInput": {
+    "from": "x1",
+    "to": "eth",
+    "token": "ETH.X",
+    "toToken": "USDC",
+    "amountUser": 0.4,
+    "solanaAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "feeWallet": "TiPy76viRMRTcKsZMfNp9enh2cCfaUXg3LPdjtpmBDu",
+    "evmDestination": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "seqSlot": 305000000
+  },
+  "artifact": {
+    "seq": "1152921809606846976",
+    "seqSlot": 305000000,
+    "token": "ETH.X",
+    "decimals": 8,
+    "grossBase": "40000000",
+    "skimBase": "200000",
+    "bridgeBase": "39800000",
+    "grossHuman": 0.4,
+    "amountHuman": 0.398,
+    "skimHuman": 0.002,
+    "outgoingMsgPda": "62CTLR9iHRjmJiZiFTMTSxm2EiVnJP3tkjPNmepEZVib",
+    "feeAtaCreated": true,
+    "feeAta": "DPF2SejGbdChpYyoJhTvgJrPUDLrU1nnyPmPNeGqKcvT",
+    "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+    "instructionCount": 3,
+    "instructions": [
+      {
+        "programId": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+        "dataBase64": "AQ=="
+      },
+      {
+        "programId": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "dataBase64": "A0ANAwAAAAAA"
+      },
+      {
+        "programId": "6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD",
+        "dataBase64": "G8I5d9el95YAqmoDRwAAEMBMXwIAAAAA"
+      }
+    ],
+    "accountList": [
+      {
+        "pubkey": "48Po6qAHRJojbXH7KRqt6s5GfNfs9VEGccfqYEHmubEi",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "3qpfaz5ToY9va7jn1qSUrM558KPjQ98L48kJHRbC3L7B",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "62CTLR9iHRjmJiZiFTMTSxm2EiVnJP3tkjPNmepEZVib",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+        "isSigner": true,
+        "isWritable": true
+      },
+      {
+        "pubkey": "7cYcp8xX2shnZnZXW5gDGjxLsATGgwuvtHoEauGAdNLr",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "4wxJFFnRSCgFgS8GvWH9iHgSjFsKbQpXkBG5Y826cbvw",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "pubkey": "6JbPTuxVuoTgyQeXFb9MH8C8nUY8NBbLP1Lu4B13JfMD",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "pubkey": "7bz2ZNphReLcmwv1tbhG8VnR1RzAzyxPNuKa3s2Jig7j",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "4JXWhxSyMB5fy7GDkqXqNCgA6tRWfK5qSY6gXChkHTvJ",
+        "isSigner": false,
+        "isWritable": true
+      },
+      {
+        "pubkey": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+        "isSigner": false,
+        "isWritable": false
+      },
+      {
+        "pubkey": "11111111111111111111111111111111",
+        "isSigner": false,
+        "isWritable": false
+      }
+    ],
+    "serializedBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAUODemPkGJ7C08djOeZ2XzHRO9CYCPEyaz5lQkfwWtbo8gqOSXibO47RzlZYUosn/wbU1nYnJRdbtMTWfty1zDvUi535pDE7U8n40bONpyS1QdKUmh274g/9+kJ9S8bVIGDMRBvTGOlTByjP/cjYyX0ucQ9k9f6dvlOZui2Ac+Uw6s6pvMKCD4NLg5lUeypg9Dd1JFLLHh4qKvq3A3P18EQqEqY93Fh+z+iTb53I6ZSoNk4doNbQ42ojSLh67e9s/bMYhxZfA/0X+6n6if+wcdjjNNGObwGbtBaemAWKKMmwJpiQTMphZ7Tf5Pp5H0elbE+nmVo6NiytQZUtPiSJBBgg7f+4P53ZmcrZXm++GsNw42nPgtjE5yzVCrLVH4qjp/4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABOzDCztbhcZdmmi8C+i6129W+sz4LwizDy67YtmPoOtIyXJY9OJInxuz0QKRSODYMLWhOZ2v8QhASOe9jb6fhZBtfoWmVmOyBbRdHTzCQb1kcXygrp0DwU+RkmVdM4foQG3fbh7nWP3hhCXbzkbM3athr8TYO5DSf+vfko2KGL/AcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHAwsGAAgMBAkNAQENAwcIAAkDQA0DAAAAAAAKDAIBBQAHBAoKBgMNCRgbwjl316X3lgCqagNHAAAQwExfAgAAAAA="
+  },
+  "sha256": "94879586843e3ed629279221d7f879a5e0dd92bf8c8860a93fef150fc0692ee8",
+  "bytesSha256": "99b6cc469800eee92682aab3cb6575a4ea285c354e659d6c40342d27e59f76a9",
+  "meta": {
+    "note": "The X1 reverse burn tx: 1% skim Token-2022 transfer (user → fee wallet's wSOL.X ATA) + Warp BridgeOut(seq, bridgeBase) in ONE tx — built by buildReverseBurnWithSkim (runReverse's shared construction helper), serialized unsigned. Live ground truth: X1 burn 3q7H3kV4ZrrUPEbQ37DQv1cWRNmJ2V4pSMYZV3xCDYr8VrD58YZV9irDiveeCaYVmBqCxTu3cmxrXhepgJxegPe1 (skim 4,000,000 base + bridge_out 396,000,000 base, 12-account BridgeOut, slot 75951086)."
+  }
+}

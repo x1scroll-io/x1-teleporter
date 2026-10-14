@@ -1,0 +1,149 @@
+{
+  "chain": "eth",
+  "pair": {
+    "from": "USDC",
+    "to": "USDT"
+  },
+  "decimals": 6,
+  "amountIn": "2500000000",
+  "amountInHuman": "2500",
+  "buy": [
+    {
+      "ok": true,
+      "dex": "uniswap",
+      "pool": "uniswap-eth-USDC-USDT-f100",
+      "chain": "eth",
+      "from": "USDC",
+      "to": "USDT",
+      "amountIn": "2500000000",
+      "amountOut": "2499574815",
+      "fee": 100,
+      "feeBps": 1,
+      "gasEstimate": "98169",
+      "sqrtPriceX96After": "79225379321056734118393892378",
+      "quoteRequest": {
+        "to": "0x61ffe014ba17989e743c5f6cb21bf9697530b21e",
+        "data": "0xc6a5026a000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48000000000000000000000000dac17f958d2ee523a2206206994597c13d831ec7000000000000000000000000000000000000000000000000000000009502f90000000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x0000000000000000000000000000000000000000000000000000000094fc7c1f0000000000000000000000000000000000000000fffdb2a2cb3c9a3ce1c74e1a00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000017f79",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:02:25.661Z",
+      "rpc": "https://ethereum-rpc.publicnode.com"
+    },
+    {
+      "ok": true,
+      "dex": "uniswap",
+      "pool": "uniswap-eth-USDC-USDT-f500",
+      "chain": "eth",
+      "from": "USDC",
+      "to": "USDT",
+      "amountIn": "2500000000",
+      "amountOut": "2498144422",
+      "fee": 500,
+      "feeBps": 5,
+      "gasEstimate": "98216",
+      "sqrtPriceX96After": "79218092356457325957821514843",
+      "quoteRequest": {
+        "to": "0x61ffe014ba17989e743c5f6cb21bf9697530b21e",
+        "data": "0xc6a5026a000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb48000000000000000000000000dac17f958d2ee523a2206206994597c13d831ec7000000000000000000000000000000000000000000000000000000009502f90000000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x0000000000000000000000000000000000000000000000000000000094e6a8a60000000000000000000000000000000000000000fff7ab8fa6c359a09914445b00000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000017fa8",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:02:25.685Z",
+      "rpc": "https://ethereum-rpc.publicnode.com"
+    },
+    {
+      "ok": true,
+      "dex": "lifi",
+      "pool": "lifi-eth-USDC-USDT",
+      "chain": "eth",
+      "from": "USDC",
+      "to": "USDT",
+      "amountIn": "2500000000",
+      "amountOut": "2493958633",
+      "fee": 0,
+      "feeBps": 0,
+      "source": "REAL-live-lifi-quote(fee=0)",
+      "capturedAt": "2026-09-06T17:02:26.151Z",
+      "tool": "nordstern",
+      "steps": null
+    }
+  ],
+  "sell": [
+    {
+      "ok": true,
+      "dex": "uniswap",
+      "pool": "uniswap-eth-USDT-USDC-f100",
+      "chain": "eth",
+      "from": "USDT",
+      "to": "USDC",
+      "amountIn": "2499574815",
+      "amountOut": "2499499144",
+      "fee": 100,
+      "feeBps": 1,
+      "gasEstimate": "92316",
+      "sqrtPriceX96After": "79225407173863097763337610497",
+      "quoteRequest": {
+        "to": "0x61ffe014ba17989e743c5f6cb21bf9697530b21e",
+        "data": "0xc6a5026a000000000000000000000000dac17f958d2ee523a2206206994597c13d831ec7000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000000000000000000000000000000000000094fc7c1f00000000000000000000000000000000000000000000000000000000000000640000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x0000000000000000000000000000000000000000000000000000000094fb54880000000000000000000000000000000000000000fffdb888b292c37aee2025010000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000001689c",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:02:26.184Z",
+      "rpc": "https://ethereum-rpc.publicnode.com"
+    },
+    {
+      "ok": true,
+      "dex": "uniswap",
+      "pool": "uniswap-eth-USDT-USDC-f500",
+      "chain": "eth",
+      "from": "USDT",
+      "to": "USDC",
+      "amountIn": "2499574815",
+      "amountOut": "2498871465",
+      "fee": 500,
+      "feeBps": 5,
+      "gasEstimate": "92345",
+      "sqrtPriceX96After": "79219968519476913943350748169",
+      "quoteRequest": {
+        "to": "0x61ffe014ba17989e743c5f6cb21bf9697530b21e",
+        "data": "0xc6a5026a000000000000000000000000dac17f958d2ee523a2206206994597c13d831ec7000000000000000000000000a0b86991c6218b36c1d19d4a2e9eb0ce3606eb480000000000000000000000000000000000000000000000000000000094fc7c1f00000000000000000000000000000000000000000000000000000000000001f40000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "responseHex": "0x0000000000000000000000000000000000000000000000000000000094f1c0a90000000000000000000000000000000000000000fff938daa70ab332e1962409000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000168b9",
+      "source": "REAL-live-quoter-eth_call",
+      "capturedAt": "2026-09-06T17:02:26.207Z",
+      "rpc": "https://ethereum-rpc.publicnode.com"
+    },
+    {
+      "ok": true,
+      "dex": "lifi",
+      "pool": "lifi-eth-USDT-USDC",
+      "chain": "eth",
+      "from": "USDT",
+      "to": "USDC",
+      "amountIn": "2499574815",
+      "amountOut": "2493529625",
+      "fee": 0,
+      "feeBps": 0,
+      "source": "REAL-live-lifi-quote(fee=0)",
+      "capturedAt": "2026-09-06T17:02:26.378Z",
+      "tool": "nordstern",
+      "steps": null
+    }
+  ],
+  "capturedAt": "2026-09-06T17:02:26.378Z",
+  "round": 2,
+  "detection": {
+    "wouldCapture": false,
+    "gapBps": 5,
+    "grossRoundTripBps": -2,
+    "netRoundTripBps": -2,
+    "netValueAfterCostsRaw": "-555787",
+    "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+    "route": [
+      "uniswap(uniswap-eth-USDC-USDT-f100)",
+      "uniswap(uniswap-eth-USDT-USDC-f100)"
+    ],
+    "exact": true
+  }
+}

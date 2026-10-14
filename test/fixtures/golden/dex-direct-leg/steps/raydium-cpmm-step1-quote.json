@@ -1,0 +1,44 @@
+{
+  "step": "raydium-cpmm-step1-quote",
+  "artifact": {
+    "pool": {
+      "pool": "5KXE8RMF7iW9Ptn665AHfzsMFjYb4LV2Ta8eZEtsTwWC",
+      "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+      "configId": "D4FPEruKEHrG5TenZ2mpDGEfu1iUvTiqBxvpU8HLBvC2",
+      "poolCreator": "GccTQTfZtvQC4vamMdTdhMtgETiATFKtbZz3dZMNheHy",
+      "vaultA": "7jzdRNd8rutdT38CKGkSeuaBmQDyucFJfbh6WEfwnDss",
+      "vaultB": "AQrpuddRvJeVvbBbtQrUdV8YFeh3om9eyBQX2h5ojKh2",
+      "mintLp": "7J7QMtPvgrQVA5qomGBVwTgBuPySFf7uozy2Sy7qJWyk",
+      "mintA": "DvjbEsdca43oQcw2h3HW1CT7N3x5vRcr3QrvTUHnXvgV",
+      "mintB": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "mintProgramA": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "mintProgramB": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "observationId": "31mbs1syFfZioCsu3pQGpsWAQwNGSWgsnYtnrFbwtBBT",
+      "bump": 253,
+      "status": 0,
+      "lpDecimals": 9,
+      "mintDecimalA": 9,
+      "mintDecimalB": 6,
+      "lpAmount": "140995696975410",
+      "openTime": "1746795666",
+      "feeOn": 0,
+      "enableCreatorFee": false
+    },
+    "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+    "inputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "outputMint": "DvjbEsdca43oQcw2h3HW1CT7N3x5vRcr3QrvTUHnXvgV",
+    "quote": {
+      "amountInRaw": "100000000",
+      "tradeFeeRaw": "250000",
+      "outRaw": "68530663519451",
+      "amountOutMinRaw": "68188010201853",
+      "slippageBps": 50,
+      "outHuman": 68530.663519451
+    },
+    "capturedAt": "2026-09-05T20:38:52.516Z"
+  },
+  "sha256": "bbd9bc54f64f8e18afbccb8dd574a4e229e71589b5acc39b89e6211fa2d533b1",
+  "meta": {
+    "note": "The Raydium CPMM DEX-direct quote from the FROZEN live pool state (pool + config + vault balances — 2026-09-05 capture) — numerically identical to raydium-sdk-v2 CurveCalculator.swapBaseInput on the same state (see the summary). quote-level REAL — swap-execution pending Mr. Esters' live anchor."
+  }
+}

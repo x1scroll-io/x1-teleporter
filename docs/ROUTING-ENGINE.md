@@ -1,0 +1,558 @@
+# ROUTING-ENGINE.md — the x1-teleporter routing engine (Phase 5)
+
+Status: **Phase 5 — the Rango aggregator leg joins the engine (the
+multi-chain rail: source chains THORChain can't serve — SUI/TRON/XRPL —
+plus the UTXO-native FALLBACK when THORChain halts, the live SOL-halt
+lesson), scaffolded instruments-first on REAL quote responses.** All four
+earlier route classes (forward ETH → X1, reverse X1 → EVM, THORChain source
+→ SOL.SOL, DEX swap) stay planned on the engine, proven byte-identical
+against the measuring instruments. Phase 5 adds `planRango` (quote leg +
+GUARDED execute leg — the swap-execution anchor is READY FOR LIVE TEST and
+stays Mr. Esters' job; the execute leg's submit() throws
+RangoLiveTestGateError and never broadcasts) and slots Rango into the rail
+layer's fallback chain (`pickRail` — teleportRail.js). The engine never
+merges until the instruments pass unchanged (PR policy: base `v2`, branch
+`feat/engine-phaseN`).
+
+**Phase-5 addendum (2026-09-05 — Wanchain-family verification, branch
+feat/wanchain-leg): the Wanchain-family rail was verified LIVE and found
+NOT to serve any non-EVM source today** — see §11. The claim that Rango
+“unlocks ADA/Polkadot” was already corrected in §10 (Rango serves neither,
+verified via its live `/basic/meta`); the Wanchain family's only public
+quote+buildTx HTTP API (XFlows v3) was probed for every console source and
+quotes EVM-chain pairs only — ADA→SOL, SUI-native, BTC→SOL, TRX→SOL and
+Polkadot all have NO quotable rail in [THORChain, Rango, Wanchain] today.
+The coverage matrix (§11) now drives `railCandidates` in teleportRail.js.
+
+---
+
+## 0. FEE-MODEL v2 (2026-09-02 — the money-path update, branch feat/fee-model-v2)
+
+Mr. Esters' spec: **Teleporter fee = 0.5% of the route total, CAPPED at $250
+max per trade, charged once per journey** (`teleporterFee = min(routeTotal ×
+0.005, 250)`) — replaces the 2026-08-28 1%-once policy on EVERY route class
+(forward x1, reverse x1_reverse/x1_onward, thorchain, dex/same-chain). The
+$25 minimum (X1_MIN / X1_REVERSE_MIN) is REMOVED everywhere — small bridges
+are viable, no floor (Warp's own on-chain minimums — USDC 10 / wSOL.X 0.1 —
+still apply at the tx layer via `minBase`).
+
+Single source of truth: `src/lib/fees.ts` (rates, `TELEPORTER_FEE_CAP_USD`,
+labels) → `SKIM_BPS` (warpBridge.js, = 50bps), `quoteFees` (every quote
+box), `api/_lifi.js INTEGRATOR_FEE` ("0.005" — server-forced on same-chain
+routes). OPS: the LiFi portal config for `x1-teleporter-labs` must charge
+0.5% to match before any same-chain go-live.
+
+### WARP FEE — VERIFIED ON-CHAIN (do NOT price on rumor)
+
+The rumored "USDC flat $1 → 0.25%" change did NOT happen. Verified
+2026-09-02 from primary sources:
+
+- Live config `https://api.bridge.mainnet.x1.xyz/config`: USDC (Solana) /
+  USDC.X (X1): `flatFeeAmount 1000000` (flat $1), `percentageFeeBps 0`;
+  wSOL/WSOL + wSOL.X + cbBTC/ETH (both sides): `flatFeeAmount 0`,
+  `percentageFeeBps 25`; no global fee on either chain. Per-tx maxAmount:
+  USDC 5000 / wSOL 50 (keeps every executable journey below the $250 cap
+  boundary — the cap never binds on-chain today).
+- Fresh bridge_out logs (2026-09-02, both chains): USDC locks on Solana
+  "Token fee: 1000000" (collector +1.0 USDC — txs 3cscs4Dx5…, 3uyuZVtcX…);
+  USDC.x burns on X1 flat 1.0 (2Vb6HgsU… gross 367.34 → fee 1.00;
+  2chsddLVV… gross 34.69 → fee 1.00); wSOL.X burns exactly 25bps
+  (7QH5SAaH3… gross 129.675 → fee 324,187 base; 3q7H3kV4… gross 396 → fee
+  0.99); WSOL locks exactly 25bps (2mXgFxAun… gross 130 → fee 325,000 base).
+- Solana-side release (`bridge_in_v2`): NO separate fee — the fee is charged
+  ONCE on the source-side bridge_out (X1 BridgeInV2 txs show no token-fee
+  logs; fee lines appear only on lock/burn txs).
+
+So the Warp pass-through components are UNCHANGED: USDC.x/USDC flat $1
+(`warp-flat`, label "Warp bridge fee ($1 flat)"), wSOL.X/WSOL 25bps
+(`warp-pct`, label "Warp bridge fee (0.25%)").
+
+### Re-anchored oracles (expected — the oracle definition changed)
+
+The golden fixtures pinned the OLD fees and were intentionally wrong after
+the model change. Re-anchored via the capture tools ONLY (never hand-edited):
+forward (delivered 25.554929 → skim 0.5% = 127,774 base → bridge
+25,427,155), reverse (0.4 wSOL.X → skim 2,000,000 → bridge 398,000,000 →
+Warp 25bps 995,000 → release 397,005,000), thorchain (fee display 0.50%),
+dex (forced fee=0.005 URL). New sha256s are in the summary fixtures + the
+PR. Raw live-anchor tx bytes are historical facts; only the
+fee-computation artifacts changed.
+
+---
+
+## 1. Why this exists
+
+Today the forward leg's flow lives inside bespoke runners
+(`teleportExecute.executeLiFiEvmTx`, `warpBridge.runStage2`) — correct,
+proven, but not composable. The next phases (multi-leg routes, new lanes)
+need a uniform way to say: *a route is an ordered set of chain-scoped legs,
+each of which builds → simulates → requests a signature → submits → confirms.*
+
+Phase 1 builds that skeleton WITHOUT touching the proven transaction logic:
+every leg **wraps** the existing builder/sender functions (no rewrites), and
+the two measuring instruments (the golden fixtures + the browser harness)
+prove the wrapped output is byte-for-byte what the reference path produced.
+
+## 2. The three core abstractions
+
+### 2.1 `LegContract` — `src/engine/legContract.js`
+
+A leg is one atomic, chain-scoped step of a route. Every leg implements the
+same five-phase contract:
+
+| phase | what it does | Phase-1 reality |
+|---|---|---|
+| `build(ctx)` | deterministic artifact — the app-controlled bytes (calldata + tx params, or the unsigned serialized tx) | **the byte-identity surface the golden fixtures pin**; pure/offline |
+| `simulate(ctx)` | pre-send gate (Step 1.3A, fail-closed) | EVM legs THROW `SimulationError` on a revert; SVM legs return the normalized `{ ok, err/logs/simUnavailable }`; `{ ok:true, skipSubmit:true }` = the rest of the lifecycle is unnecessary |
+| `requestSignature(ctx)` | the wallet boundary when signing is separable from broadcast | Phase-1 legs use wallet-mediated sends whose proven code bundles request+submit (EIP-1193 `eth_sendTransaction`, Wallet-Standard sign-and-send) — those legs implement `submit`; future server-side signers can split this phase out |
+| `submit(ctx)` | broadcast → tx id/hash/signature | **only runs when `simulate` passed** — a failed sim never reaches the wallet or the network |
+| `confirm(ctx)` | finality (receipt / confirmation) | optional; the EVM bridge leg treats the hash as final (reference behavior) |
+
+`runLeg(leg, ctx)` executes the defined phases in order, records a trace, and
+enforces the sim gate (a non-ok sim or a `skipSubmit` marker stops the leg
+before submit/confirm; a throwing sim propagates).
+
+Legs never construct wallets, RPC connections or endpoints — everything is
+dependency-injected through the route context, so legs are deterministic and
+unit-testable, and the SAME leg can run against a live chain, a mock, or a
+fixture.
+
+### 2.2 `SignerResolver` — `src/engine/signerResolver.js`
+
+The engine's SINGLE signer-resolution point, keyed by chain family:
+
+- `"evm"` → the EIP-1193 provider (`resolveEvmProvider`)
+- `"svm"` → the sign-capable Solana adapter (`resolveSolanaAdapter`)
+
+Both delegates are the **proven resolvers** from
+`src/lib/wallet/sessionProviders.js` — the ones the reference path already
+ships (PR #34's stage-2 submit fix resolves the Solana signer through exactly
+this adapter resolver). The resolver adds family keying + fail-soft nulls
+(unknown family / mock session with no signing surface → `null`, caller
+surfaces the honest "connect a real wallet" error).
+
+### 2.3 `RoutePlanner` (stub) — `src/engine/routePlanner.js`
+
+Owns ROUTE SHAPE: which legs, in which order, grouped into which stages.
+Phase 1 plans exactly one route — `forward-eth-x1` — as four legs:
+
+```
+stage 1 of 2 (EVM)   evm-approval      exact-amount ERC-20 approval      (golden step1)
+                      lifi-evm-bridge   LiFi stage-1 bridge tx, forwarded  (quoteReference)
+                                        verbatim
+stage 2 of 2 (SVM)   x1-ata-create     X1 recipient ATA-create,           (golden step2a)
+                                        Token-2022, idempotent
+                      warp-lock         0.5% skim + BridgeOut in ONE tx,   (golden step2b)
+                                        + the bridge_in_v2 account          (+ golden step3)
+                                        pre-image for the guardians' mint
+```
+
+The planner does not execute anything — the stage runners drive the planned
+legs with an injected context. Unplanned directions (`plan({direction:
+"reverse"})`, THORChain, DEX) return `null`: those lanes keep their existing
+paths until a later phase adds their `plan*`.
+
+## 3. Which existing functions each leg wraps
+
+| leg | file | wraps (unchanged) |
+|---|---|---|
+| `evm-approval` | `src/engine/legs/forward/approvalLeg.js` | `lifiApproval.buildApprovalData` + `validateLiFiApproval` (fail-closed spender gate), `simulateTx.simulateEvmTx`, `teleportExecute.waitForReceipt` — the approval block of `executeLiFiEvmTx` (same validation → allowance read → exact approve() → sim → send → receipt-wait order, same status lines, same `LiFiApprovalValidationError`/`SimulationError` pass-through and the reference "Token approval failed: …" wrap for everything else) |
+| `lifi-evm-bridge` | `src/engine/legs/forward/lifiEvmLeg.js` | the bridge-tx half of `executeLiFiEvmTx` — the quote's `transactionRequest` forwarded VERBATIM (calldata sha256 reference) through `simulateEvmTx` + `eth_sendTransaction` |
+| `x1-ata-create` | `src/engine/legs/forward/ataCreateLeg.js` | `warpBridge.ensureX1RecipientAta` (idempotent Token-2022 create) + `simulateStage2` + `sendX1AtaCreation` (guarded, deterministic-chain broadcast) — `runStage2`'s X1-prep step |
+| `warp-lock` | `src/engine/legs/forward/warpLockLeg.js` | `warpBridge.buildStage2` (ComputeBudget + skim + BridgeOut), `simulateStage2`, `sendStage2ViaPhantom` — `runStage2`'s Solana leg; `deriveBridgeInV2AccountList` is the engine port of the golden step3 rebuild (PDA derivations + spec filter, oracle-pinned) |
+
+The stage runners (`src/engine/runners/`) own the reference error/return
+contracts so the UI behaves identically:
+
+- `forwardEvmStage.js` — chain-ensure prelude (migrated from
+  `executeLiFiEvmTx`), approval leg under the reference error policy, bridge
+  leg; returns `{ stage: "evm_sent", txHash }`.
+- `forwardSvmStage.js` — fee-payer preflight (`assertSolanaFeePayer`), ATA
+  leg (simulate or guarded-send per `allowLive`), warp-lock leg; returns the
+  **runStage2 result shape** the form reads (`x1_ata_simulation` /
+  `simulation` / `simulated_ok` / `sent` + `sim`/`built`/`prep`). The
+  WARP_LIVE_SEND gate is forwarded as `allowLive` — never decided by the
+  engine.
+
+`src/engine/index.js` is the facade. `TeleportForm.jsx` now plans the forward
+route and runs the two stages through the engine; the REVERSE handlers
+(`executeReverseStage1/2`, the reverse runners) still use the reference
+resolvers/functions — untouched.
+
+## 4. The proof protocol (non-negotiable)
+
+The engine is correct **iff** it reproduces the reference transactions
+byte-for-byte. Two instruments measure this; neither may be modified to
+accommodate the engine:
+
+1. **`test/golden.test.js`** (+ `test/fixtures/golden/forward-leg/`) — the
+   regression oracle. Rebuilds the forward leg from the frozen quote + fixed
+   inputs and asserts canonical-JSON equality + sha256 for all four steps
+   (approval calldata/params, X1 ATA serialized tx, Warp lock serialized tx,
+   bridge_in_v2 account list + spec) plus the cross-step chain of custody.
+2. **`e2e/forward-leg.spec.js`** — the browser harness. Drives the REAL UI
+   (connect modal → quote → Bridge) and asserts the fee lines, the To-address
+   line, advancement to the sign step, and that the wallet is asked to sign
+   the EXACT golden approval — byte-for-byte — stopping at the signature.
+
+`test/engine.test.js` adds engine-specific coverage WITHOUT duplicating the
+oracle: lifecycle ordering/gating with fakes, SignerResolver delegation,
+RoutePlanner shape, and a byte-identity pass that runs the ENGINE's leg
+artifacts against the same fixtures (all four sha256s + serialized bytes +
+chain of custody). If any comparison fails, **the engine is wrong** — fix the
+engine, never the oracle.
+
+## 5. Phase-1 scope (hard boundaries)
+
+- Migrates: the forward leg ETH → X1 (approval, LiFi stage-1 bridge, X1
+  ATA-create, Warp lock + bridge_in_v2 pre-image).
+- Does NOT migrate: reverse (X1 → EVM), THORChain lanes, DEX/swap lanes.
+- No new chains, no new tokens, no fee changes.
+- `vite.config.js` / `vercel.json` untouched; `npm run build` must succeed;
+  the branch stays deployable at every commit.
+
+## 6. Phase-2 scope — the REVERSE route (X1 → EVM)
+
+- Migrates: the X1 Warp burn (bundled fee-ATA create when missing + 0.5% skim +
+  BridgeOut — `x1-reverse-burn`), the release-wait poll (`warp-release-wait`,
+  submitter-side release DETECTION via the same-origin `/api/warp/*` proxy),
+  and the LiFi Solana→EVM out leg to the PINNED EVM destination
+  (`lifi-solana-out`). Golden oracle: `test/goldenReverse.test.js` +
+  `test/fixtures/golden/reverse-leg/`; harness: `e2e/reverse-leg.spec.js`.
+
+## 7. Phase-3 scope — the THORChain deposit-address lane
+
+- Migrates: the THORChain lane's app-constructed artifacts (the Buy/THORChain
+  tab — BTC/DOGE/LTC/XRP → SOL.SOL deposit-address flow) as TWO build-only
+  legs — `thorchain-quote` (the canonical proxy quote request + size-cap
+  gate) and `thorchain-deposit-build` (the vault deposit address + the
+  deposit memo). Golden oracle: `test/goldenThorchain.test.js` +
+  `test/fixtures/golden/thorchain-leg/` (synthetic THORNode input bodies —
+  the lane is NOT live yet; the fixtures pin CURRENT construction; replace
+  with live captures on the first operator deposit).
+- BOTH legs are family `"external"` (an additive LegContract family): the
+  deposit executes OUT-OF-BAND in the user's external wallet — the engine's
+  SINGLE SignerResolver returns null for them BY DESIGN (no in-app session
+  signer exists for the deposit-address lane; the UI surfaces the honest
+  "send from your wallet" step). The SOL-landing watcher + post-landing
+  auto-advance reuse the Phase-1/2-proven executors on their existing gated
+  paths — not re-migrated.
+- Does NOT migrate: DEX/swap lanes (stay unplanned — `plan` returns null).
+- No new chains, no new tokens, no fee changes; `vite.config.js` /
+  `vercel.json` untouched; `npm run build` must succeed.
+
+## 8. Later phases (not built here)
+
+New route classes arrive as new `plan*` functions + leg factories behind the
+same shape; legs that need separable signing implement `requestSignature`;
+the planner learns to branch on quote/route-class. Each migration repeats the
+same proof protocol against the instruments that exist for that lane.
+
+## 9. Phase-4 scope — the DEX swap legs
+
+- Migrates (construction): the engine's DEX swap legs, pinned by the Phase-4
+  oracle `test/goldenDex.test.js` + `test/fixtures/golden/dex-leg/` (inputs:
+  frozen LIVE captures — the Jupiter quote, the XDEX pool snapshot, the
+  LiFi same-chain quote). Engine coverage: `test/engineDex.test.js`.
+- **Jupiter (Solana DEX aggregator)** — `jupiter-swap` (family svm, chain
+  sol), planned by `planJupiterSwap()` (`swap-sol-sol-jupiter`). The
+  canonical construction: the quote request (GET `api.jup.ag/swap/v1/quote`
+  — RAW base-unit amount + slippage bps; the old `quote-api.jup.ag/v6` host
+  is dead) + the swap-instructions request (POST `…/swap-instructions` — the
+  quote forwarded VERBATIM as quoteResponse + the pinned session pubkey +
+  the fixed option set). Build is pure; the network half (fetch → LUT
+  assembly → sign-and-send via the single SignerResolver's svm adapter) is
+  the stage layer's job once a live lane lands.
+- **XDEX (X1's DEX — DIRECT on-chain)** — `xdex-swap` (family svm, chain x1),
+  planned by `planXdexSwap()` (`swap-x1-x1-xdex`). Discovery: XDEX has NO
+  HTTP swap API — the swap is one instruction to the XDEX program
+  `sEsYH97…4fN` (owner BPFLoaderUpgradeab1e — UPGRADEABLE, verified
+  on-chain 2026-09-02; NOT immutable), method SwapBaseInput (Anchor
+  log-confirmed), discriminator **8fbe5adac41e33de** (= sha256("global:
+  swap_base_input")[..8] — LIVE-VERIFIED on the anchor swap tx 65xjdHVd…,
+  slot 76,014,947, err ok — Mr. Esters' controlled $5 swap, 5 USDC.x →
+  ~12.74 XNT on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR),
+  13 accounts in the live-verified order, data = disc + amount_in u64 LE +
+  min_out u64 LE. The quote is the CP curve on the live pool snapshot
+  (trade fee 2800/1e6 = 0.28% from the live AmmConfig; protocol 25% + fund
+  5% of the trade fee are internal). ARG SEMANTICS LIVE-CONFIRMED 1:1 by the
+  anchor tx (decoded args 5,000,000 / 0 + vault deltas match). NEBULA
+  WALL-OFF: nebula-dex is a SEPARATE project — its notes never inform XDEX
+  reasoning; XDEX truth = its own live on-chain data only. If the program
+  is ever upgraded, re-verify against a NEW live swap — never a note.
+- **LiFi EVM same-chain swap (Leg C verdict)** — `lifi-evm-swap` (family
+  evm), planned by `planLifiEvmSwap()` (`swap-eth-eth-lifi`). VERDICT
+  (verified live 2026-09-02): LiFi ALREADY quotes EVM same-chain swaps —
+  fromChain == toChain returns a swap route (observed tools: sushiswap AND
+  nordstern; includedSteps `[protocol:feeCollection, swap:<dex>]`); the
+  app's quote params never filtered swap tools and the server fee policy
+  forces the 0.5% integrator fee on same-chain routes (fee-model v2). EVM swap legs
+  are DONE by LiFi — the leg pins the canonical quote-request construction
+  through the existing `/api/lifi/quote` policy; execution reuses the
+  existing /api/lifi/* path + the lifiApproval audit gate (accepts exchange
+  tools).
+- **Leg-composition design ("swap then bridge")**: `composeRoute(first,
+  second)` splices a swap route's legs IN FRONT of a bridge route's legs and
+  re-groups the stages under a prefixed namespace — the legs stay the SAME
+  LegContract objects; only the ordered leg list + stage grouping compose.
+  The canonical use: the THORChain post-landing auto-advance (SOL lands →
+  swap SOL→USDC on Jupiter → 0.5% skim + Warp hop into X1) =
+  `composeRoute(planJupiterSwap(), planForward())`. The planner owns the
+  SHAPE; the runners own execution.
+- Does NOT migrate: DEX lane RUNNERS (the legs' network half — live sends
+  stay gated on their existing paths until a later phase wires them).
+- No new chains, no new tokens, no fee changes; `vite.config.js` /
+  `vercel.json` untouched; `npm run build` must succeed.
+
+## 10. Phase-5 scope — the Rango aggregator leg (scaffold)
+
+- Adds the **Rango rail** (the multi-chain aggregator: wraps THORChain/Mayan
+  for the UTXO natives + its own bridges for SUI/TRON/XRPL/TON/STELLAR) as
+  the engine's expansion lane. Scaffolded instruments-first — **quote-level
+  fixtures are REAL** (live read-only captures, 2026-09-05 —
+  `test/fixtures/golden/rango-leg/*.real.json`); the **swap-execution anchor
+  is PENDING LIVE TEST** (Mr. Esters' job — needs live funds + a real source
+  wallet). Research verdicts (verified live 2026-09-05, NOT guessed):
+  - Quote endpoint: `GET {base}/basic/quote` — `apiKey` is a QUERY PARAM and
+    keyless calls 401. Public test key (docs) works only on
+    `https://public-api.rango.exchange`; private keys use
+    `https://api.rango.exchange`. Key request = Rango's Discord.
+  - Source coverage: **SUI ✅ TRON ✅ XRPL ✅** BTC/DOGE/LTC/BCH/DASH/ZCASH ✅
+    TON ✅ STELLAR ✅ — **CARDANO ❌ and POLKADOT ❌ are NOT in Rango's chain
+    list today** (re-verified live 2026-09-05 against `/basic/meta` — 102
+    blockchains, no CARDANO, no POLKADOT; DOT appears only as a bridged EVM
+    asset on BASE/OPTIMISM, never as a POLKADOT source chain). Re-scope:
+    **Rango does NOT unlock ADA or Polkadot** — an earlier framing claimed
+    it did; that claim is wrong for today's Rango. Re-verify via
+    `/basic/meta` before ever re-adding them.
+  - SOL destination: **SOLANA.SOL ✅** (real quotes answer OK — SUI→SOL via
+    NearIntent, XRP→SOL via NearIntent, TRON USDT→SOL via NearIntent,
+    BTC→SOL via Flashnet). From SOL the journey continues into X1 through
+    the proven Warp bridge (composeRoute — same as the THORChain lane).
+  - Referrer fee mechanics: quote carries `referrerFee` (percent of INPUT,
+    default 0.1%, max 3%); the swap-create call carries `referrerFee` +
+    `referrerAddress` (EVM/Starknet/Osmosis payouts — Solana fee payout is
+    NOT public-ready). **Fee-class ruling pending (Mr. Esters):** our
+    fee-model v2 charges 0.5% once per journey — on the SOL-landing
+    continuation that is the Warp-leg skim, so a Rango referrerFee would
+    double-charge unless the lane is ruled its own class. The config
+    placeholders (RANGO_REFERRER_FEE / RANGO_REFERRER_ADDRESS) stay EMPTY →
+    no referrer params are ever sent (nothing invented).
+  - Security posture (honest): Rango claims zero exploits since launch;
+    published audits PeckShield 2023-06 + AstraSec 2024-09 (V2.1) and
+    2025-10 (V2.1.1). Route-level risk is delegated to the per-route swapper
+    (the quote names it — NearIntent/Flashnet/Mayan/…); Rango says it
+    circuit-breaks unhealthy/incident protocols. The sibling aggregator
+    LI.Fi (already integrated here) DID have the 2022 exploit — separate
+    company; the app's existing LiFi audit gates (lifiDiamondAllowlist) are
+    the model for a future Rango swapper allowlist on the execution path.
+- Engine construction: **`rango-quote`** (build-only leg — the canonical
+  proxy quote request: raw base units, canonical asset strings, explicit
+  slippage, no referrer params while the placeholders are empty) +
+  **`rango-execute`** (🔴 GUARDED STUB — pins the canonical swap-create
+  request against the future `/api/rango/swap` proxy; submit() ALWAYS throws
+  `RangoLiveTestGateError`: "not wired for autonomous broadcast — READY FOR
+  LIVE TEST, Mr. Esters fires live tests"). Both legs family `"external"`
+  (no in-app signer exists for the Rango source chains yet — the
+  SignerResolver returns null by design).
+- `planRango({source})` → `rango-<source>-sol` (`direction: "rango"`);
+  `RoutePlanner.plan` dispatches it. `api/rango/quote.js` is the serverless
+  proxy (CORS allowlist, param whitelist from/to/amount/slippage, server-side
+  RANGO_API_KEY appended, fail-closed 502 without a key). `api/rango/swap.js`
+  lands WITH the live test.
+- Rail layer (teleportRail.js): natives (BTC/DOGE/LTC/XRP) now carry TWO
+  candidates — THORChain (deposit-address) first, **Rango (wallet-connect)
+  as the silent fallback**; SUI/TRON (RANGO_CHAINS) are Rango-only sources.
+  Console wiring is deliberately NOT in this phase (the console passes no
+  unavailableRails today → no behavior change; see the ⚠️ CONSOLE BOUNDARY
+  note in teleportRail.js before wiring the halt fallback UI).
+- Golden oracle: `test/goldenRango.test.js` + the REAL fixtures; engine
+  coverage: `test/engineRango.test.js`; rail: `src/lib/teleportRail.test.js`;
+  proxy: `src/lib/rango/quoteProxy.test.js`; pure module:
+  `src/lib/rango/quote.test.js`.
+- Does NOT migrate: console/picker wiring, the `/api/rango/swap` proxy, any
+  live execution. No fee changes (referrer placeholders empty);
+  `vite.config.js` / `vercel.json` untouched; `npm run build` must succeed.
+
+## 11. Wanchain-family verification (2026-09-05) — the rail that ISN'T (yet)
+
+### 11.1 The question
+
+Mr. Esters' direction (2026-09-04/05): Rango does NOT serve ADA/Polkadot, so
+Wanchain should be the primary ADA/SUI/Polkadot rail — build the leg with
+REAL quote fixtures and reorder the rail fallback chain to
+[THORChain, Rango, Wanchain], filtered by what each rail ACTUALLY supports.
+Rule applied first: **verify Wanchain's real supported-chain list live —
+don't assume.**
+
+### 11.2 What was verified LIVE (read-only, no funds — evidence pack:
+`test/fixtures/golden/wanchain-leg/VERIFICATION-2026-09-05.json`)
+
+| Surface | Live finding (2026-09-05) | Verdict |
+|---|---|---|
+| WanBridge REST API (`bridge-api.wanchain.org/api` — the docs' documented developer API: tokenPairs / quota / fee / quotaAndFee) | 448 live tokenPairs across **26 EVM-class chains only** (Arbitrum…zkSync + Wanchain hub). No Cardano, Sui, Polkadot, Solana, Tron-native, XRPL-native or native-UTXO chains. “BTC/ADA/DOGE” symbols there are wrapped EVM representations. | **Does NOT serve the non-EVM sources.** The docs' own “verify the pair via tokenPairs” caveat fails for them. |
+| XFlows v3 API (`xflows.wanchain.org/api/v3` — quote POST / buildTx / status; the ONLY Wanchain-family quote+build HTTP API; keyless) | Registries list 25 chains **incl. Cardano(ADA), Sui, Bitcoin, Solana, TRON rows** + tokens (ADA native, BTC native, TRX native, SOL native; SUI has **USDC only — no native SUI**). BUT the quote ROUTER failed **every** non-EVM probe: ADA→SOL, ADA→WAN, BTC→SOL, TRX→SOL, and the EVM control USDC(ETH)→SOL (“no token pair for SOL cross ETH -> SOL”). Real failed bodies pinned in `test/fixtures/golden/wanchain-leg/*.failed.json`. | **Quotes EVM-chain pairs only. No non-EVM source → SOL exists through it. SOL itself has NO quotable pairs.** |
+| Intent API (`intent-api.wanscan.org`) | `supportedChains` = 7 EVM chains only. | No non-EVM coverage. |
+| WanBridge portal (`bridge.wanchain.org`) | The docs' “new version” manual walks Cardano(ADA, Nami) → Wanchain and BTC → Wanchain through this portal. Its non-EVM pair registry + fee/quota are **on-chain iWan JSON-RPC calls** (25-node bridge group, 17-of-25 sMPC, monthly rotation) — NOT a documented public REST quote API. Live operational status of the Cardano storeman lane could not be verified without portal/on-chain sessions. | **Not integrable as an HTTP quote rail today.** Would need a public Wanchain API for the storeman routes, or Mr. Esters' ruling to treat it as an out-of-band deposit-style lane (like THORChain) with the portal as the tool. |
+
+### 11.3 The Rango re-verification (same pass)
+
+Live `/basic/meta` (public test key, read-only): **102 blockchains** —
+BTC/DOGE/LTC/DASH/BCH/ZCASH/SUI/TRON/XRPL/TON/STELLAR/SOLANA/THOR/MAYA +
+EVMs + Cosmos family all present. **CARDANO ❌ POLKADOT ❌** — confirmed
+absent. (DOT exists only as bridged EVM assets.) Rango's real coverage:
+**SUI, TRON, XRPL, the UTXO/BTC-family, TON, Stellar** (+ EVM stables). It
+does NOT cover Cardano or Polkadot, and nothing in this repo claims it does
+anymore.
+
+### 11.4 The coverage matrix (drives `railCandidates` in teleportRail.js)
+
+Per source, the rails that ACTUALLY serve it, priority-ordered — the global
+preference is [THORChain, Rango, Wanchain], FILTERED by this matrix:
+
+| Source | THORChain | Rango | Wanchain-family | Serving candidates (priority) |
+|---|---|---|---|---|
+| BTC | ✅ | ✅ | ❌ (BTC→SOL probe failed) | [THORChain, Rango] |
+| DOGE | ✅ | ✅ | ❌ (no XFlows row) | [THORChain, Rango] |
+| LTC | ✅ | ✅ | ❌ (no XFlows row) | [THORChain, Rango] |
+| XRP | ✅ | ✅ | ❌ (no XFlows row) | [THORChain, Rango] |
+| SUI (native) | ❌ | ✅ | ❌ (XFlows has SUI-USDC only, no native SUI) | [Rango] ⚠️ SINGLE-RAIL |
+| TRON (TRX) | ❌ | ✅ | ❌ (TRX→SOL probe failed) | [Rango] ⚠️ SINGLE-RAIL |
+| ADA (Cardano) | ❌ | ❌ | ❌ (ADA→SOL + ADA→WAN probes failed; portal flow not API-quotable) | **NO RAIL** — do not list as a console source |
+| POLKADOT | ❌ | ❌ | ❌ (no row in any Wanchain-family API) | **NO RAIL** — do not list as a console source |
+| EVM stables / X1 | — | — | (EVM pairs only; land EVM/Wanchain-L1, never SOL/X1) | LiFi/Warp (unchanged) |
+
+Consequence: the rail reorder the mission asked for ([THORChain, Rango,
+Wanchain] filtered by the matrix) leaves every current source's candidate
+list unchanged — Wanchain earns NO slot until a live-proven route exists.
+The `RAIL.WANCHAIN` rail + label + engine plan exist (registered, wired,
+tested) so the seam is one line per source when a route becomes quotable.
+
+⚠️ **SINGLE-RAIL sources (SUI/TRON) — single point of failure + the
+future second rail:** the ⚠️ rows above have exactly ONE serving rail
+(Rango) with no fallback candidate — when Rango is down/halted/erroring,
+`pickRail` answers the honest dead-end ({ rail: null }) and the lane goes
+dark. The graceful-failure UX + the THORChain-Sui launch watch are the
+2026-09-06 SUI COVERAGE CHECK — see §11.7.
+
+### 11.5 What was built (branch feat/wanchain-leg, additive, all green)
+
+- `api/wanchain/quote.js` — serverless POST proxy → XFlows v3 `/quote`
+  (CORS allowlist, body whitelist, fail-closed; keyless today —
+  `WANCHAIN_API_URL` server override documented for a future keyed host).
+- `src/lib/wanchain/config.js` + `quote.js` — the verified registry
+  (**coverage gate**: quotable sources = EVM class only), deterministic
+  quote-request builder, canonical response parser (OK + real failure
+  bodies). Pure + tested.
+- `src/engine/legs/wanchain/wanchainQuoteLeg.js` (coverage-gated build;
+  refuses ADA/Sui/Polkadot rows at build time with the live evidence) +
+  `wanchainExecuteLeg.js` (**🔴 GUARDED STUB** — submit() ALWAYS throws
+  `WanchainLiveTestGateError`, never broadcasts; pins the buildTx request
+  shape from the OpenAPI).
+- `RoutePlanner.planWanchain()` + `plan({direction:"wanchain"})` +
+  `WANCHAIN_LEG_IDS`/`WANCHAIN_STAGES`.
+- `teleportRail.js` — `RAIL.WANCHAIN` + `COVERAGE_MATRIX` (the §11.4 table
+  in code) driving `railCandidates`; ADA/Polkadot answer the honest
+  dead-end ({ rail: null }) and stay OUT of the console's source list.
+- Fixtures (REAL, labeled): one ok EVM quote (the docs' own example
+  reproduced live) + six REAL failed-route bodies + the verification
+  evidence JSON. Golden + engine + rail + proxy + pure-module tests
+  (31 new — full suite count in the PR).
+- Live-test anchors (Mr. Esters' — nothing here broadcasts):
+  **wanchain-buildtx-execution** (the guarded execute leg) and the future
+  **api/wanchain/buildTx.js** proxy route (lands with the live test, same
+  shape as the quote proxy).
+
+### 11.6 Security note (honest)
+
+June 2022: the third-party NIGHT token's own cross-chain bridge contract on
+Wanchain was exploited (attacker minted NIGHT; ~$1M-scale at the time,
+widely reported). The compromise was the NIGHT project's custom contract —
+NOT the Wanchain storeman bridge infrastructure. No Wanchain-core bridge
+exploit has been publicly documented since. Current posture (docs):
+WanBridge = 25 decentralised bridge nodes, rotated/re-elected monthly,
+17-of-25 threshold, sMPC + Shamir Secret Sharing; storeman economics =
+SecRand selection, threshold TSS, deposits + falling-price auction to
+compensate users. No public audit history appears in Wanchain's docs — an
+independent audit is a live-test open item before any Wanchain-family lane
+moves real funds.
+
+### 11.7 SUI COVERAGE CHECK + HARDENING (2026-09-06 — the 4-point check)
+
+Mr. Esters' four-point Sui check, answered with code evidence (branch
+feat/sui-coverage-check — additive only; no new rails, no funds/tx, frozen
+instruments byte-unchanged):
+
+**1. Sui's exact routing — Rango-ONLY, no fallback (confirmed).**
+`src/lib/teleportRail.js` COVERAGE_MATRIX: `sui → [RANGO]` (tron likewise).
+THORChain can't serve Sui; the Wanchain-family XFlows v3 API has no native
+SUI row (SUI-USDC only — the wanchain verification §11.2); Rango serves
+SUI.SUI → SOLANA.SOL (live fixture
+`test/fixtures/golden/rango-leg/quote-sui-sol-100sui.real.json`, NearIntent,
+2026-09-05). Engine: `RoutePlanner.planRango({source:"sui"})` →
+`rango-sui-sol` (rango-quote + the 🔴 GUARDED rango-execute stub). No other
+rail row mentions Sui. Contrast: BTC/DOGE/LTC/XRP carry TWO candidates
+[THORChain, Rango] with silent failover — Sui has ONE.
+
+**2. The single point of failure + the graceful-failure UX (flagged +
+hardened at the seam).** Sui's one rail means: when Rango is down / a Sui
+route is halted / the Rango API errors, `pickRail({fromChain:"sui"})` with
+Rango unavailable answers `{ rail: null }` — no second candidate to fail
+over to; the lane goes fully dark. Hardening (the Rango mirror of the
+THORChain SOL-halt UX — THORChainDeposit's isThorchainHaltMessage +
+destHalted calm state + gate disable + auto re-check):
+- `src/lib/rango/routeState.js` (NEW, pure, tested) — detects the failure
+  class (`isRangoRouteUnavailable`: transport down / proxy fail-closed
+  codes / HTTP ≥500 / route-halt wire phrases — and deliberately EXCLUDES
+  Rango's NO_ROUTE coverage answer, which keeps its own honest message)
+  and carries the calm copy
+  (`rangoRouteUnavailableMessage("Sui")` =
+  "⚠️ Sui route temporarily unavailable (the bridge network is having
+  issues) — this usually recovers; try again shortly.").
+- CONSOLE STATE TODAY (honest): the console does NOT list Sui as a source
+  yet — its source picker is EVM-chains + BTC/DOGE/LTC/XRP + X1
+  (SOURCE_CHAINS in teleportRail.js; the ⚠️ CONSOLE BOUNDARY note still
+  holds — no Rango execution step UI exists, so no Rango-Sui quote can
+  fail IN the console today). When the console's Sui phase lands, its
+  Rango quote step MUST route every failure through isRangoRouteUnavailable
+  and render rangoRouteUnavailableMessage (gate disabled, calm state,
+  auto-recover on the next attempt/refresh — the console's existing
+  re-quote semantics ARE the re-check; no new timers). The seam is pinned
+  + tested now so that wiring is copy-paste, not design.
+- Rail tests now pin the SPOF: SUI/TRON have exactly ONE serving rail and
+  answer the honest dead-end when Rango is unavailable
+  (src/lib/teleportRail.test.js).
+
+**3. Wallet side — Sui lane is ROUTE-registered but WALLET-INCOMPLETE.**
+The wallet layer (`src/lib/wallet/families.js` — the canonical
+WALLET_FAMILIES/FAMILY_LABELS order + `walletDiscovery`, ConnectModal) has
+NO Sui/Move family: families are evm, solana, bitcoin, litecoin, dogecoin,
+xrp, tron. No Sui wallet (Petra/Suiet/Slush — the Move-family registry
+convention) is wired anywhere: no discovery handle, no connect row, no
+balance read, no signer. What the flow requires TODAY: nothing — Sui is
+not a console source, so no in-flow Sui wallet is needed yet. When the Sui
+phase lands, the Rango leg's execution shape (rangoExecuteLeg: the
+swap-create request needs `fromAddress` = the user's REAL Sui source
+wallet + `toAddress` = the SOL session pubkey; family "external" — no
+in-app signer by design) means the MINIMUM wallet wiring is a
+Sui-address input seam (the user pastes their Sui address — like the
+THORChain natives' refund-address prefill, out-of-band send), NOT a full
+Move-family session. A full Petra/Suiet/Slush family (connect/balance/
+sign) is a separate, bigger phase decision (Mr. Esters' call) — and only
+needed if the Sui flow is ever to sign in-app.
+
+**4. THORChain-Sui roadmap watch (the future SECOND Sui rail).**
+THORChain's roadmap ships SOL/TON/Cardano/Sui via EdDSA. The moment
+THORChain enables SUI, it becomes the Sui FALLBACK rail behind Rango —
+and our X1TP affiliate (the deposit-memo pair) earns on Sui journeys.
+Watcher + note:
+- `tools/thorchain-sui-launch-watch.mjs` (NEW — mirror of the SOL-halt
+  watcher): polls THORChain's public inbound_addresses for a "SUI" chain
+  entry; the moment it appears it fires a REAL SUI→SOL probe quote and
+  prints the exact matrix-update steps. `--once` mode for cron/CI;
+  WATCH_INTERVAL_MS configurable. No deps, no writes, log-only.
+- Rail matrix comment (teleportRail.js COVERAGE_MATRIX): the sui row now
+  carries the 🔭 roadmap note — when SUI appears in inbound_addresses,
+  re-verify a live quote and flip the row to [THORChain, Rango].
+- On launch: update the matrix row + this doc's §11.4 table, re-verify
+  live (Wanchain-style evidence pack), then retire/repoint the watcher.

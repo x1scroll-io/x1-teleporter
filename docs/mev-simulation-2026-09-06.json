@@ -1,0 +1,1975 @@
+{
+  "title": "MEV/price-gap capture SIMULATION — real on-chain quotes, zero trades",
+  "date": "2026-09-06T17:04:19.060Z",
+  "gate": {
+    "MEV_CAPTURE_ENABLED": false,
+    "label": "gated OFF",
+    "note": "detection-only — nothing executable; the live arm is Mr. Esters' alone (mirror of WARP_LIVE_SEND)"
+  },
+  "feePolicy": {
+    "CAPTURE_FEE_POLICY_BPS": 0,
+    "note": "capture value = gross round trip − pool fees (netted in quotes) − gas; the 0.5%/capped-$250 fee-model-v2 charge applies to user journeys, not internal capture legs (configurable)"
+  },
+  "method": {
+    "rounds": 8,
+    "evm": "QuoterV2/PCS-QuoterV2 eth_call (read-only) USDC↔USDT @ 2,500 USDC; fee tiers 100+500 per chain; LiFi aggregator quote (fee=0) when reachable",
+    "sol": "Orca whirlpool + Raydium CLMM pool-state walks (getAccountInfo) + pure leg quote math; Jupiter aggregator quote when reachable; SOL→USDC @ 5 SOL",
+    "gas": "EVM: 2 txs × quoter gasEstimate × live eth_gasPrice → USDC via REAL same-chain WETH/WBNB→USDC quoter reads. Solana: 2 × 5000 lamports.",
+    "honesty": [
+      "legs quoted sequentially (two read-only calls) — a real capture executes buy+sell atomically; net figures assume the quotes held",
+      "pool fees are netted inside the quotes (not double counted)",
+      "quotes are market data — they move; fixtures are dated"
+    ]
+  },
+  "summary": {
+    "total": 32,
+    "wouldCapture": 4,
+    "tooSmall": 28,
+    "singleRoute": 0,
+    "gapBps": {
+      "min": 0,
+      "max": 7,
+      "avg": 3.9375,
+      "distribution": {
+        "0-1bps": 2,
+        "1-5bps": 12,
+        "5-20bps": 18,
+        "20+bps": 0
+      }
+    },
+    "netRoundTripBps": {
+      "min": -2,
+      "max": 0,
+      "avg": -1.5
+    },
+    "note": "gapBps = best-vs-second venue spread on the buy side (raw units). netRoundTripBps is net of BOTH pool fees (already inside the quotes) + gas. wouldCapture is the strict positive-net flag; see economic.* for the honest bar."
+  },
+  "detections": [
+    {
+      "round": 1,
+      "chain": "eth",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 5,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-555406",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-eth-USDC-USDT-f100)",
+        "uniswap(uniswap-eth-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499574815"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f500"
+        },
+        "gapBps": 5
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f100",
+          "amountInRaw": "2499574815",
+          "amountOutRaw": "2499499144"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f500"
+        },
+        "gapBps": 2
+      },
+      "netValueAfterCostsUsd": -0.555406,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 1,
+      "chain": "arb",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 6,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-511641",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-arb-USDC-USDT-f100)",
+        "uniswap(uniswap-arb-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499670966"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f500"
+        },
+        "gapBps": 6
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f100",
+          "amountInRaw": "2499670966",
+          "amountOutRaw": "2499497997"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f500"
+        },
+        "gapBps": 4
+      },
+      "netValueAfterCostsUsd": -0.511641,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 1,
+      "chain": "bsc",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 2,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-509554614116344953",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+        "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f100",
+          "amountInRaw": "2500000000000000000000",
+          "amountOutRaw": "2499606298723016822442"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f500"
+        },
+        "gapBps": 2
+      },
+      "sellSide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f100",
+          "amountInRaw": "2499606298723016822442",
+          "amountOutRaw": "2499499604516903039197"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f500"
+        },
+        "gapBps": 5
+      },
+      "netValueAfterCostsUsd": -0.509554614116345,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 1,
+      "chain": "sol",
+      "pair": {
+        "from": "SOL",
+        "to": "USDC"
+      },
+      "gapBps": 7,
+      "grossRoundTripBps": 0,
+      "netRoundTripBps": 0,
+      "netValueAfterCostsRaw": "-180328",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "jupiter(jupiter-sol-USDC)",
+        "jupiter(jupiter-USDC-sol)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "jupiter(jupiter-sol-USDC)",
+          "dex": "jupiter",
+          "pool": "jupiter-sol-USDC",
+          "amountInRaw": "5000000000",
+          "amountOutRaw": "530459716"
+        },
+        "second": {
+          "route": "orca(Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE)",
+          "dex": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+        },
+        "gapBps": 7
+      },
+      "sellSide": {
+        "best": {
+          "route": "jupiter(jupiter-USDC-sol)",
+          "dex": "jupiter",
+          "pool": "jupiter-USDC-sol",
+          "amountInRaw": "530459716",
+          "amountOutRaw": "4999829672"
+        },
+        "second": {
+          "route": "raydium(3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv)",
+          "dex": "raydium",
+          "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv"
+        },
+        "gapBps": 0
+      },
+      "netValueAfterCostsUsd": -0.019131347933369597,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 2,
+      "chain": "eth",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 5,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-555787",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-eth-USDC-USDT-f100)",
+        "uniswap(uniswap-eth-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499574815"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f500"
+        },
+        "gapBps": 5
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f100",
+          "amountInRaw": "2499574815",
+          "amountOutRaw": "2499499144"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f500"
+        },
+        "gapBps": 2
+      },
+      "netValueAfterCostsUsd": -0.555787,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 2,
+      "chain": "arb",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 6,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-511549",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-arb-USDC-USDT-f100)",
+        "uniswap(uniswap-arb-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499670966"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f500"
+        },
+        "gapBps": 6
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f100",
+          "amountInRaw": "2499670966",
+          "amountOutRaw": "2499497997"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f500"
+        },
+        "gapBps": 4
+      },
+      "netValueAfterCostsUsd": -0.511549,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 2,
+      "chain": "bsc",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 2,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-507818042671589265",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+        "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f100",
+          "amountInRaw": "2500000000000000000000",
+          "amountOutRaw": "2499605921817603933389"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f500"
+        },
+        "gapBps": 2
+      },
+      "sellSide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f100",
+          "amountInRaw": "2499605921817603933389",
+          "amountOutRaw": "2499499604516934740658"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f500"
+        },
+        "gapBps": 5
+      },
+      "netValueAfterCostsUsd": -0.5078180426715893,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 2,
+      "chain": "sol",
+      "pair": {
+        "from": "SOL",
+        "to": "USDC"
+      },
+      "gapBps": 7,
+      "grossRoundTripBps": 0,
+      "netRoundTripBps": 0,
+      "netValueAfterCostsRaw": "213746",
+      "wouldCapture": true,
+      "whyNot": null,
+      "route": [
+        "jupiter(jupiter-sol-USDC)",
+        "jupiter(jupiter-USDC-sol)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "jupiter(jupiter-sol-USDC)",
+          "dex": "jupiter",
+          "pool": "jupiter-sol-USDC",
+          "amountInRaw": "5000000000",
+          "amountOutRaw": "530489888"
+        },
+        "second": {
+          "route": "raydium(3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv)",
+          "dex": "raydium",
+          "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv"
+        },
+        "gapBps": 7
+      },
+      "sellSide": {
+        "best": {
+          "route": "jupiter(jupiter-USDC-sol)",
+          "dex": "jupiter",
+          "pool": "jupiter-USDC-sol",
+          "amountInRaw": "530489888",
+          "amountOutRaw": "5000223746"
+        },
+        "second": {
+          "route": "orca(Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE)",
+          "dex": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+        },
+        "gapBps": 0
+      },
+      "netValueAfterCostsUsd": 0.022678018320089602,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 3,
+      "chain": "eth",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 5,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-553993",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-eth-USDC-USDT-f100)",
+        "uniswap(uniswap-eth-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499574815"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f500"
+        },
+        "gapBps": 5
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f100",
+          "amountInRaw": "2499574815",
+          "amountOutRaw": "2499499144"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f500"
+        },
+        "gapBps": 2
+      },
+      "netValueAfterCostsUsd": -0.553993,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 3,
+      "chain": "arb",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 6,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-511551",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-arb-USDC-USDT-f100)",
+        "uniswap(uniswap-arb-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499670966"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f500"
+        },
+        "gapBps": 6
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f100",
+          "amountInRaw": "2499670966",
+          "amountOutRaw": "2499497997"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f500"
+        },
+        "gapBps": 4
+      },
+      "netValueAfterCostsUsd": -0.511551,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 3,
+      "chain": "bsc",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 2,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-509492862707552094",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+        "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f100",
+          "amountInRaw": "2500000000000000000000",
+          "amountOutRaw": "2499605924346738248956"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f500"
+        },
+        "gapBps": 2
+      },
+      "sellSide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f100",
+          "amountInRaw": "2499605924346738248956",
+          "amountOutRaw": "2499499666748644650152"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f500"
+        },
+        "gapBps": 5
+      },
+      "netValueAfterCostsUsd": -0.5094928627075521,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 3,
+      "chain": "sol",
+      "pair": {
+        "from": "SOL",
+        "to": "USDC"
+      },
+      "gapBps": 1,
+      "grossRoundTripBps": 0,
+      "netRoundTripBps": 0,
+      "netValueAfterCostsRaw": "-119684",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "jupiter(jupiter-sol-USDC)",
+        "jupiter(jupiter-USDC-sol)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "jupiter(jupiter-sol-USDC)",
+          "dex": "jupiter",
+          "pool": "jupiter-sol-USDC",
+          "amountInRaw": "5000000000",
+          "amountOutRaw": "530252648"
+        },
+        "second": {
+          "route": "orca(Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE)",
+          "dex": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+        },
+        "gapBps": 1
+      },
+      "sellSide": {
+        "best": {
+          "route": "jupiter(jupiter-USDC-sol)",
+          "dex": "jupiter",
+          "pool": "jupiter-USDC-sol",
+          "amountInRaw": "530252648",
+          "amountOutRaw": "4999890316"
+        },
+        "second": {
+          "route": "raydium(3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv)",
+          "dex": "raydium",
+          "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv"
+        },
+        "gapBps": 6
+      },
+      "netValueAfterCostsUsd": -0.0126925515846464,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 4,
+      "chain": "eth",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 5,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-552547",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-eth-USDC-USDT-f100)",
+        "uniswap(uniswap-eth-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499574984"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f500"
+        },
+        "gapBps": 5
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f100",
+          "amountInRaw": "2499574984",
+          "amountOutRaw": "2499499145"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f500"
+        },
+        "gapBps": 2
+      },
+      "netValueAfterCostsUsd": -0.552547,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 4,
+      "chain": "arb",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 6,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-511606",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-arb-USDC-USDT-f100)",
+        "uniswap(uniswap-arb-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499670966"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f500"
+        },
+        "gapBps": 6
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f100",
+          "amountInRaw": "2499670966",
+          "amountOutRaw": "2499497997"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f500"
+        },
+        "gapBps": 4
+      },
+      "netValueAfterCostsUsd": -0.511606,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 4,
+      "chain": "bsc",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 2,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-507818042661424413",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+        "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f100",
+          "amountInRaw": "2500000000000000000000",
+          "amountOutRaw": "2499605800965508281824"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f500"
+        },
+        "gapBps": 2
+      },
+      "sellSide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f100",
+          "amountInRaw": "2499605800965508281824",
+          "amountOutRaw": "2499499604516944905510"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f500"
+        },
+        "gapBps": 5
+      },
+      "netValueAfterCostsUsd": -0.5078180426614244,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 4,
+      "chain": "sol",
+      "pair": {
+        "from": "SOL",
+        "to": "USDC"
+      },
+      "gapBps": 0,
+      "grossRoundTripBps": 0,
+      "netRoundTripBps": 0,
+      "netValueAfterCostsRaw": "219304",
+      "wouldCapture": true,
+      "whyNot": null,
+      "route": [
+        "jupiter(jupiter-sol-USDC)",
+        "jupiter(jupiter-USDC-sol)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "jupiter(jupiter-sol-USDC)",
+          "dex": "jupiter",
+          "pool": "jupiter-sol-USDC",
+          "amountInRaw": "5000000000",
+          "amountOutRaw": "529872782"
+        },
+        "second": {
+          "route": "orca(Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE)",
+          "dex": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+        },
+        "gapBps": 0
+      },
+      "sellSide": {
+        "best": {
+          "route": "jupiter(jupiter-USDC-sol)",
+          "dex": "jupiter",
+          "pool": "jupiter-USDC-sol",
+          "amountInRaw": "529872782",
+          "amountOutRaw": "5000229304"
+        },
+        "second": {
+          "route": "orca(Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE)",
+          "dex": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+        },
+        "gapBps": 7
+      },
+      "netValueAfterCostsUsd": 0.0232406441167456,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 5,
+      "chain": "eth",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 5,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-547651",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-eth-USDC-USDT-f100)",
+        "uniswap(uniswap-eth-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499574984"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f500"
+        },
+        "gapBps": 5
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f100",
+          "amountInRaw": "2499574984",
+          "amountOutRaw": "2499499145"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f500"
+        },
+        "gapBps": 2
+      },
+      "netValueAfterCostsUsd": -0.547651,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 5,
+      "chain": "arb",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 6,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-511551",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-arb-USDC-USDT-f100)",
+        "uniswap(uniswap-arb-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499670966"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f500"
+        },
+        "gapBps": 6
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f100",
+          "amountInRaw": "2499670966",
+          "amountOutRaw": "2499497997"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f500"
+        },
+        "gapBps": 4
+      },
+      "netValueAfterCostsUsd": -0.511551,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 5,
+      "chain": "bsc",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 2,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-507818042662855186",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+        "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f100",
+          "amountInRaw": "2500000000000000000000",
+          "amountOutRaw": "2499605817976293117975"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f500"
+        },
+        "gapBps": 2
+      },
+      "sellSide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f100",
+          "amountInRaw": "2499605817976293117975",
+          "amountOutRaw": "2499499604516943474737"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f500"
+        },
+        "gapBps": 5
+      },
+      "netValueAfterCostsUsd": -0.5078180426628551,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 5,
+      "chain": "sol",
+      "pair": {
+        "from": "SOL",
+        "to": "USDC"
+      },
+      "gapBps": 1,
+      "grossRoundTripBps": 0,
+      "netRoundTripBps": 0,
+      "netValueAfterCostsRaw": "67697",
+      "wouldCapture": true,
+      "whyNot": null,
+      "route": [
+        "jupiter(jupiter-sol-USDC)",
+        "jupiter(jupiter-USDC-sol)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "jupiter(jupiter-sol-USDC)",
+          "dex": "jupiter",
+          "pool": "jupiter-sol-USDC",
+          "amountInRaw": "5000000000",
+          "amountOutRaw": "529655728"
+        },
+        "second": {
+          "route": "raydium(3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv)",
+          "dex": "raydium",
+          "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv"
+        },
+        "gapBps": 1
+      },
+      "sellSide": {
+        "best": {
+          "route": "jupiter(jupiter-USDC-sol)",
+          "dex": "jupiter",
+          "pool": "jupiter-USDC-sol",
+          "amountInRaw": "529655728",
+          "amountOutRaw": "5000077697"
+        },
+        "second": {
+          "route": "orca(Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE)",
+          "dex": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+        },
+        "gapBps": 6
+      },
+      "netValueAfterCostsUsd": 0.0071712207636832,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 6,
+      "chain": "eth",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 5,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-552105",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-eth-USDC-USDT-f100)",
+        "uniswap(uniswap-eth-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499574978"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f500"
+        },
+        "gapBps": 5
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f100",
+          "amountInRaw": "2499574978",
+          "amountOutRaw": "2499499145"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f500"
+        },
+        "gapBps": 2
+      },
+      "netValueAfterCostsUsd": -0.552105,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 6,
+      "chain": "arb",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 6,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-511549",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-arb-USDC-USDT-f100)",
+        "uniswap(uniswap-arb-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499670966"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f500"
+        },
+        "gapBps": 6
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f100",
+          "amountInRaw": "2499670966",
+          "amountOutRaw": "2499497997"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f500"
+        },
+        "gapBps": 4
+      },
+      "netValueAfterCostsUsd": -0.511549,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 6,
+      "chain": "bsc",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 2,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-509555094408927729",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+        "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f100",
+          "amountInRaw": "2500000000000000000000",
+          "amountOutRaw": "2499605820356738781619"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f500"
+        },
+        "gapBps": 2
+      },
+      "sellSide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f100",
+          "amountInRaw": "2499605820356738781619",
+          "amountOutRaw": "2499499604516943274517"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f500"
+        },
+        "gapBps": 5
+      },
+      "netValueAfterCostsUsd": -0.5095550944089278,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 6,
+      "chain": "sol",
+      "pair": {
+        "from": "SOL",
+        "to": "USDC"
+      },
+      "gapBps": 3,
+      "grossRoundTripBps": 0,
+      "netRoundTripBps": 0,
+      "netValueAfterCostsRaw": "-127983",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "jupiter(jupiter-sol-USDC)",
+        "jupiter(jupiter-USDC-sol)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "jupiter(jupiter-sol-USDC)",
+          "dex": "jupiter",
+          "pool": "jupiter-sol-USDC",
+          "amountInRaw": "5000000000",
+          "amountOutRaw": "529656735"
+        },
+        "second": {
+          "route": "raydium(3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv)",
+          "dex": "raydium",
+          "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv"
+        },
+        "gapBps": 3
+      },
+      "sellSide": {
+        "best": {
+          "route": "jupiter(jupiter-USDC-sol)",
+          "dex": "jupiter",
+          "pool": "jupiter-USDC-sol",
+          "amountInRaw": "529656735",
+          "amountOutRaw": "4999882017"
+        },
+        "second": {
+          "route": "orca(Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE)",
+          "dex": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+        },
+        "gapBps": 4
+      },
+      "netValueAfterCostsUsd": -0.013557411583100998,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 7,
+      "chain": "eth",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 5,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-550621",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-eth-USDC-USDT-f100)",
+        "uniswap(uniswap-eth-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499574978"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f500"
+        },
+        "gapBps": 5
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f100",
+          "amountInRaw": "2499574978",
+          "amountOutRaw": "2499499145"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f500"
+        },
+        "gapBps": 2
+      },
+      "netValueAfterCostsUsd": -0.550621,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 7,
+      "chain": "arb",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 6,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-511558",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-arb-USDC-USDT-f100)",
+        "uniswap(uniswap-arb-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499670966"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f500"
+        },
+        "gapBps": 6
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f100",
+          "amountInRaw": "2499670966",
+          "amountOutRaw": "2499497997"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f500"
+        },
+        "gapBps": 4
+      },
+      "netValueAfterCostsUsd": -0.511558,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 7,
+      "chain": "bsc",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 2,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-509555094410728817",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+        "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f100",
+          "amountInRaw": "2500000000000000000000",
+          "amountOutRaw": "2499605841770267499776"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f500"
+        },
+        "gapBps": 2
+      },
+      "sellSide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f100",
+          "amountInRaw": "2499605841770267499776",
+          "amountOutRaw": "2499499604516941473429"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f500"
+        },
+        "gapBps": 5
+      },
+      "netValueAfterCostsUsd": -0.5095550944107289,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 7,
+      "chain": "sol",
+      "pair": {
+        "from": "SOL",
+        "to": "USDC"
+      },
+      "gapBps": 3,
+      "grossRoundTripBps": 0,
+      "netRoundTripBps": 0,
+      "netValueAfterCostsRaw": "7906",
+      "wouldCapture": true,
+      "whyNot": null,
+      "route": [
+        "jupiter(jupiter-sol-USDC)",
+        "jupiter(jupiter-USDC-sol)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "jupiter(jupiter-sol-USDC)",
+          "dex": "jupiter",
+          "pool": "jupiter-sol-USDC",
+          "amountInRaw": "5000000000",
+          "amountOutRaw": "529675323"
+        },
+        "second": {
+          "route": "raydium(3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv)",
+          "dex": "raydium",
+          "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv"
+        },
+        "gapBps": 3
+      },
+      "sellSide": {
+        "best": {
+          "route": "jupiter(jupiter-USDC-sol)",
+          "dex": "jupiter",
+          "pool": "jupiter-USDC-sol",
+          "amountInRaw": "529675323",
+          "amountOutRaw": "5000017906"
+        },
+        "second": {
+          "route": "orca(Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE)",
+          "dex": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+        },
+        "gapBps": 4
+      },
+      "netValueAfterCostsUsd": 0.0008375226207276,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 8,
+      "chain": "eth",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 5,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-552901",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-eth-USDC-USDT-f100)",
+        "uniswap(uniswap-eth-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499574978"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDC-USDT-f500"
+        },
+        "gapBps": 5
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f100",
+          "amountInRaw": "2499574978",
+          "amountOutRaw": "2499499145"
+        },
+        "second": {
+          "route": "uniswap(uniswap-eth-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-eth-USDT-USDC-f500"
+        },
+        "gapBps": 2
+      },
+      "netValueAfterCostsUsd": -0.552901,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 8,
+      "chain": "arb",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 6,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-511549",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "uniswap(uniswap-arb-USDC-USDT-f100)",
+        "uniswap(uniswap-arb-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f100",
+          "amountInRaw": "2500000000",
+          "amountOutRaw": "2499670966"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDC-USDT-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDC-USDT-f500"
+        },
+        "gapBps": 6
+      },
+      "sellSide": {
+        "best": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f100)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f100",
+          "amountInRaw": "2499670966",
+          "amountOutRaw": "2499497997"
+        },
+        "second": {
+          "route": "uniswap(uniswap-arb-USDT-USDC-f500)",
+          "dex": "uniswap",
+          "pool": "uniswap-arb-USDT-USDC-f500"
+        },
+        "gapBps": 4
+      },
+      "netValueAfterCostsUsd": -0.511549,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 8,
+      "chain": "bsc",
+      "pair": {
+        "from": "USDC",
+        "to": "USDT"
+      },
+      "gapBps": 2,
+      "grossRoundTripBps": -2,
+      "netRoundTripBps": -2,
+      "netValueAfterCostsRaw": "-509555094407781429",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+        "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f100",
+          "amountInRaw": "2500000000000000000000",
+          "amountOutRaw": "2499605806728150144600"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDC-USDT-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDC-USDT-f500"
+        },
+        "gapBps": 2
+      },
+      "sellSide": {
+        "best": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f100)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f100",
+          "amountInRaw": "2499605806728150144600",
+          "amountOutRaw": "2499499604516944420817"
+        },
+        "second": {
+          "route": "pancakeswap(pancakeswap-bsc-USDT-USDC-f500)",
+          "dex": "pancakeswap",
+          "pool": "pancakeswap-bsc-USDT-USDC-f500"
+        },
+        "gapBps": 5
+      },
+      "netValueAfterCostsUsd": -0.5095550944077815,
+      "economicallyCapturable": false
+    },
+    {
+      "round": 8,
+      "chain": "sol",
+      "pair": {
+        "from": "SOL",
+        "to": "USDC"
+      },
+      "gapBps": 0,
+      "grossRoundTripBps": 0,
+      "netRoundTripBps": 0,
+      "netValueAfterCostsRaw": "-93422",
+      "wouldCapture": false,
+      "whyNot": "no-arb: the best round trip through the quoted venues returns at or below the starting amount (both pool fees already netted)",
+      "route": [
+        "jupiter(jupiter-sol-USDC)",
+        "jupiter(jupiter-USDC-sol)"
+      ],
+      "exact": true,
+      "buySide": {
+        "best": {
+          "route": "jupiter(jupiter-sol-USDC)",
+          "dex": "jupiter",
+          "pool": "jupiter-sol-USDC",
+          "amountInRaw": "5000000000",
+          "amountOutRaw": "529480665"
+        },
+        "second": {
+          "route": "orca(Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE)",
+          "dex": "orca",
+          "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE"
+        },
+        "gapBps": 0
+      },
+      "sellSide": {
+        "best": {
+          "route": "jupiter(jupiter-USDC-sol)",
+          "dex": "jupiter",
+          "pool": "jupiter-USDC-sol",
+          "amountInRaw": "529480665",
+          "amountOutRaw": "4999916578"
+        },
+        "second": {
+          "route": "raydium(3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv)",
+          "dex": "raydium",
+          "pool": "3ucNos4NbumPLZNWztqGHNFFgkHeRMBQAVemeeomsUxv"
+        },
+        "gapBps": 6
+      },
+      "netValueAfterCostsUsd": -0.009893028537126,
+      "economicallyCapturable": false
+    }
+  ],
+  "gas": {
+    "1": {
+      "eth": {
+        "gasCostQuoteUnits": "54550",
+        "gasPriceWei": "111927188",
+        "gasUnitsBothLegs": "196338",
+        "via": "REAL eth WETH→USDC quoter"
+      },
+      "arb": {
+        "gasCostQuoteUnits": "9638",
+        "gasPriceWei": "20192000",
+        "gasUnitsBothLegs": "192256",
+        "via": "REAL arb WETH→USDC quoter"
+      },
+      "bsc": {
+        "gasCostQuoteUnits": "9159131019384150",
+        "gasPriceWei": "50000000",
+        "gasUnitsBothLegs": "245272",
+        "via": "REAL bsc WETH→USDC quoter"
+      },
+      "sol": {
+        "gasCostQuoteUnits": "10000",
+        "note": "2 txs × 5000 lamports (no priority fees modeled)"
+      }
+    },
+    "2": {
+      "eth": {
+        "gasCostQuoteUnits": "54931",
+        "gasPriceWei": "112709147",
+        "gasUnitsBothLegs": "196338",
+        "via": "REAL eth WETH→USDC quoter"
+      },
+      "arb": {
+        "gasCostQuoteUnits": "9546",
+        "gasPriceWei": "20000000",
+        "gasUnitsBothLegs": "192256",
+        "via": "REAL arb WETH→USDC quoter"
+      },
+      "bsc": {
+        "gasCostQuoteUnits": "7422559606329923",
+        "gasPriceWei": "50000000",
+        "gasUnitsBothLegs": "198758",
+        "via": "REAL bsc WETH→USDC quoter"
+      },
+      "sol": {
+        "gasCostQuoteUnits": "10000",
+        "note": "2 txs × 5000 lamports (no priority fees modeled)"
+      }
+    },
+    "3": {
+      "eth": {
+        "gasCostQuoteUnits": "53137",
+        "gasPriceWei": "109029366",
+        "gasUnitsBothLegs": "196338",
+        "via": "REAL eth WETH→USDC quoter"
+      },
+      "arb": {
+        "gasCostQuoteUnits": "9548",
+        "gasPriceWei": "20004000",
+        "gasUnitsBothLegs": "192256",
+        "via": "REAL arb WETH→USDC quoter"
+      },
+      "bsc": {
+        "gasCostQuoteUnits": "9159611352202246",
+        "gasPriceWei": "50000000",
+        "gasUnitsBothLegs": "245272",
+        "via": "REAL bsc WETH→USDC quoter"
+      },
+      "sol": {
+        "gasCostQuoteUnits": "10000",
+        "note": "2 txs × 5000 lamports (no priority fees modeled)"
+      }
+    },
+    "4": {
+      "eth": {
+        "gasCostQuoteUnits": "51692",
+        "gasPriceWei": "106063285",
+        "gasUnitsBothLegs": "196338",
+        "via": "REAL eth WETH→USDC quoter"
+      },
+      "arb": {
+        "gasCostQuoteUnits": "9603",
+        "gasPriceWei": "20120000",
+        "gasUnitsBothLegs": "192256",
+        "via": "REAL arb WETH→USDC quoter"
+      },
+      "bsc": {
+        "gasCostQuoteUnits": "7422559606329923",
+        "gasPriceWei": "50000000",
+        "gasUnitsBothLegs": "198758",
+        "via": "REAL bsc WETH→USDC quoter"
+      },
+      "sol": {
+        "gasCostQuoteUnits": "10000",
+        "note": "2 txs × 5000 lamports (no priority fees modeled)"
+      }
+    },
+    "5": {
+      "eth": {
+        "gasCostQuoteUnits": "46796",
+        "gasPriceWei": "96017621",
+        "gasUnitsBothLegs": "196338",
+        "via": "REAL eth WETH→USDC quoter"
+      },
+      "arb": {
+        "gasCostQuoteUnits": "9548",
+        "gasPriceWei": "20004000",
+        "gasUnitsBothLegs": "192256",
+        "via": "REAL arb WETH→USDC quoter"
+      },
+      "bsc": {
+        "gasCostQuoteUnits": "7422559606329923",
+        "gasPriceWei": "50000000",
+        "gasUnitsBothLegs": "198758",
+        "via": "REAL bsc WETH→USDC quoter"
+      },
+      "sol": {
+        "gasCostQuoteUnits": "10000",
+        "note": "2 txs × 5000 lamports (no priority fees modeled)"
+      }
+    },
+    "6": {
+      "eth": {
+        "gasCostQuoteUnits": "51250",
+        "gasPriceWei": "105157201",
+        "gasUnitsBothLegs": "196338",
+        "via": "REAL eth WETH→USDC quoter"
+      },
+      "arb": {
+        "gasCostQuoteUnits": "9546",
+        "gasPriceWei": "20000000",
+        "gasUnitsBothLegs": "192256",
+        "via": "REAL arb WETH→USDC quoter"
+      },
+      "bsc": {
+        "gasCostQuoteUnits": "9159611352202246",
+        "gasPriceWei": "50000000",
+        "gasUnitsBothLegs": "245272",
+        "via": "REAL bsc WETH→USDC quoter"
+      },
+      "sol": {
+        "gasCostQuoteUnits": "10000",
+        "note": "2 txs × 5000 lamports (no priority fees modeled)"
+      }
+    },
+    "7": {
+      "eth": {
+        "gasCostQuoteUnits": "49766",
+        "gasPriceWei": "102111322",
+        "gasUnitsBothLegs": "196338",
+        "via": "REAL eth WETH→USDC quoter"
+      },
+      "arb": {
+        "gasCostQuoteUnits": "9555",
+        "gasPriceWei": "20020000",
+        "gasUnitsBothLegs": "192256",
+        "via": "REAL arb WETH→USDC quoter"
+      },
+      "bsc": {
+        "gasCostQuoteUnits": "9159611352202246",
+        "gasPriceWei": "50000000",
+        "gasUnitsBothLegs": "245272",
+        "via": "REAL bsc WETH→USDC quoter"
+      },
+      "sol": {
+        "gasCostQuoteUnits": "10000",
+        "note": "2 txs × 5000 lamports (no priority fees modeled)"
+      }
+    },
+    "8": {
+      "eth": {
+        "gasCostQuoteUnits": "52046",
+        "gasPriceWei": "106790364",
+        "gasUnitsBothLegs": "196338",
+        "via": "REAL eth WETH→USDC quoter"
+      },
+      "arb": {
+        "gasCostQuoteUnits": "9546",
+        "gasPriceWei": "20000000",
+        "gasUnitsBothLegs": "192256",
+        "via": "REAL arb WETH→USDC quoter"
+      },
+      "bsc": {
+        "gasCostQuoteUnits": "9159611352202246",
+        "gasPriceWei": "50000000",
+        "gasUnitsBothLegs": "245272",
+        "via": "REAL bsc WETH→USDC quoter"
+      },
+      "sol": {
+        "gasCostQuoteUnits": "10000",
+        "note": "2 txs × 5000 lamports (no priority fees modeled)"
+      }
+    }
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "started": "2026-09-06T17:02:06.946Z",
+      "finished": "2026-09-06T17:02:10.607Z",
+      "failed": null
+    },
+    {
+      "round": 2,
+      "started": "2026-09-06T17:02:25.618Z",
+      "finished": "2026-09-06T17:02:28.773Z",
+      "failed": null
+    },
+    {
+      "round": 3,
+      "started": "2026-09-06T17:02:43.778Z",
+      "finished": "2026-09-06T17:02:47.363Z",
+      "failed": null
+    },
+    {
+      "round": 4,
+      "started": "2026-09-06T17:03:02.367Z",
+      "finished": "2026-09-06T17:03:05.525Z",
+      "failed": null
+    },
+    {
+      "round": 5,
+      "started": "2026-09-06T17:03:20.534Z",
+      "finished": "2026-09-06T17:03:24.573Z",
+      "failed": null
+    },
+    {
+      "round": 6,
+      "started": "2026-09-06T17:03:39.576Z",
+      "finished": "2026-09-06T17:03:42.268Z",
+      "failed": null
+    },
+    {
+      "round": 7,
+      "started": "2026-09-06T17:03:57.278Z",
+      "finished": "2026-09-06T17:04:00.800Z",
+      "failed": null
+    },
+    {
+      "round": 8,
+      "started": "2026-09-06T17:04:15.811Z",
+      "finished": "2026-09-06T17:04:19.060Z",
+      "failed": null
+    }
+  ],
+  "economic": {
+    "EC_MIN_USD": 0.1,
+    "EC_MIN_BPS": 1,
+    "total": 32,
+    "wouldCapture": 4,
+    "economicallyCapturable": 0,
+    "note": "wouldCapture (strict): net after both pool fees + gas is positive in raw units. economicallyCapturable: net ≥ $0.1 AND ≥ 1 bps — the honest bar (a few raw units of profit are quote-rounding noise).",
+    "byChain": {
+      "eth": {
+        "total": 8,
+        "wouldCapture": 0,
+        "economicallyCapturable": 0,
+        "gapBps": {
+          "min": 5,
+          "max": 5,
+          "avg": 5
+        }
+      },
+      "arb": {
+        "total": 8,
+        "wouldCapture": 0,
+        "economicallyCapturable": 0,
+        "gapBps": {
+          "min": 6,
+          "max": 6,
+          "avg": 6
+        }
+      },
+      "bsc": {
+        "total": 8,
+        "wouldCapture": 0,
+        "economicallyCapturable": 0,
+        "gapBps": {
+          "min": 2,
+          "max": 2,
+          "avg": 2
+        }
+      },
+      "sol": {
+        "total": 8,
+        "wouldCapture": 4,
+        "economicallyCapturable": 0,
+        "gapBps": {
+          "min": 0,
+          "max": 7,
+          "avg": 2.75
+        }
+      }
+    }
+  }
+}

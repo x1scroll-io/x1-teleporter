@@ -1,0 +1,492 @@
+{
+ "schemaVersion": "1.0.0",
+ "pairs": [
+  {
+   "chainId": "solana",
+   "dexId": "pumpfun",
+   "url": "https://dexscreener.com/solana/ezdd9yzvh2js6hvcaw4wxcakc81kmeumvuu4xa5n3gmx",
+   "pairAddress": "EzDd9yzVh2js6hVcaW4wXcaKc81kmEUMVUu4xa5n3gMX",
+   "baseToken": {
+    "address": "CW8LSonJxHu7k3JnQnp5eTsrtRVgbpg38RwdizWWPyoi",
+    "name": "dogwifhat",
+    "symbol": "WIF"
+   },
+   "quoteToken": {
+    "address": "So11111111111111111111111111111111111111112",
+    "name": "Wrapped SOL",
+    "symbol": "SOL"
+   },
+   "priceNative": "0.0000001201",
+   "priceUsd": "0.00001264",
+   "txns": {
+    "m5": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h1": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h6": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h24": {
+     "buys": 6,
+     "sells": 19
+    }
+   },
+   "volume": {
+    "h24": 574.17,
+    "h6": 0,
+    "h1": 0,
+    "m5": 0
+   },
+   "priceChange": {
+    "h24": -6.73
+   },
+   "fdv": 12641.18,
+   "marketCap": 12641.18,
+   "info": {
+    "imageUrl": "https://cdn.dexscreener.com/cms/images/EHFEKnLIU9OM4Do8?width=800&height=800&quality=95&format=auto",
+    "header": "https://cdn.dexscreener.com/cms/images/WlEcM0qWAUdQ2jt2?width=1500&height=500&quality=95&format=auto",
+    "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/CW8LSonJxHu7k3JnQnp5eTsrtRVgbpg38RwdizWWPyoi?timestamp=1788785400000",
+    "websites": [],
+    "socials": [
+     {
+      "url": "https://x.com/i/communities/2031175349376266445",
+      "type": "twitter"
+     }
+    ]
+   }
+  },
+  {
+   "chainId": "solana",
+   "dexId": "raydium",
+   "url": "https://dexscreener.com/solana/32vfamd12dthmwo9g5quce9sgvdv72yufk9pmp2dtbj7",
+   "pairAddress": "32vFAmd12dTHMwo9g5QuCE9sgvdv72yUfK9PMP2dtBj7",
+   "baseToken": {
+    "address": "21AErpiB8uSb94oQKRcwuHqyHF93njAxBSbdUrpupump",
+    "name": "Dog wif hat",
+    "symbol": "Wif"
+   },
+   "quoteToken": {
+    "address": "So11111111111111111111111111111111111111112",
+    "name": "Wrapped SOL",
+    "symbol": "SOL"
+   },
+   "priceNative": "0.0000005419",
+   "priceUsd": "0.00005713",
+   "txns": {
+    "m5": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h1": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h6": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h24": {
+     "buys": 0,
+     "sells": 1
+    }
+   },
+   "volume": {
+    "h24": 13.16,
+    "h6": 0,
+    "h1": 0,
+    "m5": 0
+   },
+   "priceChange": {},
+   "liquidity": {
+    "usd": 35730.77,
+    "base": 312419008,
+    "quote": 169.6021
+   },
+   "fdv": 45690,
+   "marketCap": 45707,
+   "pairCreatedAt": 1717345411000,
+   "info": {
+    "imageUrl": "https://cdn.dexscreener.com/cms/images/c7171ca704aba8ffc733ae553cf1a7465e614d6c2bfb6043a785b897f1e7c3f7?width=800&height=800&quality=95&format=auto",
+    "header": "https://cdn.dexscreener.com/cms/images/e0eb47087585526d756b62da2a591417f20453fbaf5bfa869fc6610d5f7e26f8?width=1500&height=500&quality=95&format=auto",
+    "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/21AErpiB8uSb94oQKRcwuHqyHF93njAxBSbdUrpupump?timestamp=1788785400000",
+    "websites": [],
+    "socials": [
+     {
+      "url": "https://x.com/Wif2ndChance",
+      "type": "twitter"
+     },
+     {
+      "url": "https://t.me/wifSecondchanceCTO",
+      "type": "telegram"
+     }
+    ]
+   }
+  },
+  {
+   "chainId": "solana",
+   "dexId": "pumpswap",
+   "url": "https://dexscreener.com/solana/9ehdvwjukvstrjrpxobt3xme8h9mpa1d6wccixjscdgb",
+   "pairAddress": "9EhdVwJukvSTrJrpXobT3xmE8H9mpA1d6WcciXJScDgb",
+   "baseToken": {
+    "address": "3L3ub2FBz15NeNgQVYpowANzANTNUiyKW5bfGVxYpump",
+    "name": "BullWifHat",
+    "symbol": "WIF"
+   },
+   "quoteToken": {
+    "address": "So11111111111111111111111111111111111111112",
+    "name": "Wrapped SOL",
+    "symbol": "SOL"
+   },
+   "priceNative": "0.0000002361",
+   "priceUsd": "0.00002478",
+   "txns": {
+    "m5": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h1": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h6": {
+     "buys": 1,
+     "sells": 0
+    },
+    "h24": {
+     "buys": 1,
+     "sells": 0
+    }
+   },
+   "volume": {
+    "h24": 3.24,
+    "h6": 3.24,
+    "h1": 0,
+    "m5": 0
+   },
+   "priceChange": {},
+   "liquidity": {
+    "usd": 14337.83,
+    "base": 289225064,
+    "quote": 68.3165
+   },
+   "fdv": 24774,
+   "marketCap": 24774,
+   "pairCreatedAt": 1782736731000,
+   "info": {
+    "imageUrl": "https://cdn.dexscreener.com/cms/images/-XEhTwRYk_j-kgpB?width=800&height=800&quality=95&format=auto",
+    "header": "https://cdn.dexscreener.com/cms/images/RVbC0Sa2UGI4yIrP?width=1500&height=500&quality=95&format=auto",
+    "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/3L3ub2FBz15NeNgQVYpowANzANTNUiyKW5bfGVxYpump?timestamp=1788785400000",
+    "websites": [],
+    "socials": [
+     {
+      "url": "https://x.com/BullWifHatpf",
+      "type": "twitter"
+     }
+    ]
+   }
+  },
+  {
+   "chainId": "solana",
+   "dexId": "raydium",
+   "url": "https://dexscreener.com/solana/9uapk1wqz1qnpv2dzeek1ldfxud2sx1fnkwdwq25u9sv",
+   "pairAddress": "9uaPK1Wqz1QNpV2dzEEk1LdfxUD2sx1FnkwdwQ25u9SV",
+   "baseToken": {
+    "address": "3V9RSvTZugo9LWbK39Q6gNrmE56bArRVfWpx23X4pump",
+    "name": "Wallahi im fucked",
+    "symbol": "WIF"
+   },
+   "quoteToken": {
+    "address": "So11111111111111111111111111111111111111112",
+    "name": "Wrapped SOL",
+    "symbol": "SOL"
+   },
+   "priceNative": "0.00000006666",
+   "priceUsd": "0.000007042",
+   "txns": {
+    "m5": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h1": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h6": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h24": {
+     "buys": 1,
+     "sells": 4
+    }
+   },
+   "volume": {
+    "h24": 144.38,
+    "h6": 0,
+    "h1": 0,
+    "m5": 0
+   },
+   "priceChange": {
+    "h24": -0.7
+   },
+   "liquidity": {
+    "usd": 10966.2,
+    "base": 775780539,
+    "quote": 52.08258
+   },
+   "fdv": 6994,
+   "marketCap": 6994,
+   "pairCreatedAt": 1738104248000,
+   "info": {
+    "imageUrl": "https://cdn.dexscreener.com/cms/images/665f41d6aa3a269101a42de4ade5a6811c2e31cd53cabca0e3f2c33226011930?width=800&height=800&quality=95&format=auto",
+    "header": "https://cdn.dexscreener.com/cms/images/77abe04960292c457696dcfc2ea92c400931f4363645fe48cffa41495fffad9a?width=1500&height=500&quality=95&format=auto",
+    "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/3V9RSvTZugo9LWbK39Q6gNrmE56bArRVfWpx23X4pump?timestamp=1788785400000",
+    "websites": [],
+    "socials": []
+   }
+  },
+  {
+   "chainId": "solana",
+   "dexId": "pumpfun",
+   "url": "https://dexscreener.com/solana/gjwpttqcksmkb4sphfv5a1x8zh2mntj5lg8xyku2ksxv",
+   "pairAddress": "GJWPTTQckSMKb4sPHFV5A1X8zH2MNtj5Lg8xYKu2kSXv",
+   "baseToken": {
+    "address": "qQsZNGMLUDS8DBmshddCNQj3Pn9zJrGjrXQEVDZpump",
+    "name": "Biden Wif Hat",
+    "symbol": "WIF"
+   },
+   "quoteToken": {
+    "address": "So11111111111111111111111111111111111111112",
+    "name": "Wrapped SOL",
+    "symbol": "SOL"
+   },
+   "priceNative": "0.00000002801",
+   "priceUsd": "0.000002931",
+   "txns": {
+    "m5": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h1": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h6": {
+     "buys": 0,
+     "sells": 1
+    },
+    "h24": {
+     "buys": 908,
+     "sells": 912
+    }
+   },
+   "volume": {
+    "h24": 28653.97,
+    "h6": 0.86,
+    "h1": 0,
+    "m5": 0
+   },
+   "priceChange": {
+    "h6": -0.4,
+    "h24": -4.69
+   },
+   "fdv": 2931.94,
+   "marketCap": 2931.94,
+   "pairCreatedAt": 1788720052000
+  },
+  {
+   "chainId": "solana",
+   "dexId": "pumpfun",
+   "url": "https://dexscreener.com/solana/27htzsbvpplnkcnbuvawaqjymdeqhhiszqeddgtxwj85",
+   "pairAddress": "27HTZSbVPpLnKCNbUVAwAqJyMdEqHhiszqeDdGtXwJ85",
+   "baseToken": {
+    "address": "5tQCVv2GXnwP24F2reb3ykSdKrtdhgVDnHcigWqopump",
+    "name": "corgi wif towel",
+    "symbol": "wif"
+   },
+   "quoteToken": {
+    "address": "So11111111111111111111111111111111111111112",
+    "name": "Wrapped SOL",
+    "symbol": "SOL"
+   },
+   "priceNative": "0.00000002797",
+   "priceUsd": "0.000002962",
+   "txns": {
+    "m5": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h1": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h6": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h24": {
+     "buys": 243,
+     "sells": 125
+    }
+   },
+   "volume": {
+    "h24": 27692.03,
+    "h6": 0,
+    "h1": 0,
+    "m5": 0
+   },
+   "priceChange": {
+    "h24": -12.19
+   },
+   "fdv": 2962.38,
+   "marketCap": 2962.38,
+   "pairCreatedAt": 1788717736000
+  },
+  {
+   "chainId": "solana",
+   "dexId": "pumpswap",
+   "url": "https://dexscreener.com/solana/fgp3vthh5jw32pukgaopqeua5u6flbnu9mbaiyzruewh",
+   "pairAddress": "FGp3VTHH5JW32PUKGAopqEUA5u6fLBnU9MbAiYzRuewh",
+   "baseToken": {
+    "address": "8fSUpBWPzpjGG1kuJFxayj7SEx6JHgznLPiMqPxkpump",
+    "name": "Wif Hat",
+    "symbol": "WIF"
+   },
+   "quoteToken": {
+    "address": "So11111111111111111111111111111111111111112",
+    "name": "Wrapped SOL",
+    "symbol": "SOL"
+   },
+   "priceNative": "0.00000005748",
+   "priceUsd": "0.000006029",
+   "txns": {
+    "m5": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h1": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h6": {
+     "buys": 1,
+     "sells": 0
+    },
+    "h24": {
+     "buys": 1,
+     "sells": 2
+    }
+   },
+   "volume": {
+    "h24": 15.2,
+    "h6": 1.09,
+    "h1": 0,
+    "m5": 0
+   },
+   "priceChange": {
+    "h6": 0.71,
+    "h24": -0.25
+   },
+   "liquidity": {
+    "usd": 4903.06,
+    "base": 559479313,
+    "quote": 14.5799
+   },
+   "fdv": 5839,
+   "marketCap": 5839,
+   "pairCreatedAt": 1784994802000,
+   "info": {
+    "imageUrl": "https://cdn.dexscreener.com/cms/images/u7oYTu-qcS8L-VNG?width=800&height=800&quality=95&format=auto",
+    "header": "https://cdn.dexscreener.com/cms/images/1tW2bfj3FJAZtjM9?width=1500&height=500&quality=95&format=auto",
+    "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/8fSUpBWPzpjGG1kuJFxayj7SEx6JHgznLPiMqPxkpump?timestamp=1788785400000",
+    "websites": [],
+    "socials": [
+     {
+      "url": "https://x.com/WIFhatCTO",
+      "type": "twitter"
+     }
+    ]
+   }
+  },
+  {
+   "chainId": "solana",
+   "dexId": "pumpswap",
+   "url": "https://dexscreener.com/solana/2xkm4yfqeuk3hldzdsymurwhdt34k9kcotoxxwzz78lf",
+   "pairAddress": "2Xkm4YfqeuK3HLdzDSYMuRWhdT34k9kcoToXXwzz78LF",
+   "baseToken": {
+    "address": "DVee9B1Ja8pRWRLLruUAaN4Q7zHMh1x5CzdFat98iYv",
+    "name": "Wif Hat",
+    "symbol": "WIF"
+   },
+   "quoteToken": {
+    "address": "So11111111111111111111111111111111111111112",
+    "name": "Wrapped SOL",
+    "symbol": "SOL"
+   },
+   "priceNative": "0.00000004334",
+   "priceUsd": "0.000004554",
+   "txns": {
+    "m5": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h1": {
+     "buys": 0,
+     "sells": 0
+    },
+    "h6": {
+     "buys": 0,
+     "sells": 3
+    },
+    "h24": {
+     "buys": 31,
+     "sells": 34
+    }
+   },
+   "volume": {
+    "h24": 35.72,
+    "h6": 5.85,
+    "h1": 0,
+    "m5": 0
+   },
+   "priceChange": {
+    "h6": -0.65,
+    "h24": -1.55
+   },
+   "liquidity": {
+    "usd": 4510.89,
+    "base": 719842050,
+    "quote": 11.7241
+   },
+   "fdv": 4421,
+   "marketCap": 4421,
+   "pairCreatedAt": 1784993211000,
+   "info": {
+    "imageUrl": "https://cdn.dexscreener.com/cms/images/IZbrZ1Q6HTUiSfrO?width=800&height=800&quality=95&format=auto",
+    "header": "https://cdn.dexscreener.com/cms/images/Y2Gy8XNttp-spVnf?width=1500&height=500&quality=95&format=auto",
+    "openGraph": "https://cdn.dexscreener.com/token-images/og/solana/DVee9B1Ja8pRWRLLruUAaN4Q7zHMh1x5CzdFat98iYv?timestamp=1788785400000",
+    "websites": [
+     {
+      "url": "https://wif-hat.com",
+      "label": "Website"
+     },
+     {
+      "url": "https://x.com/blknoiz06/status/2080619523841900745?s=46",
+      "label": "hat"
+     }
+    ],
+    "socials": [
+     {
+      "url": "https://x.com/i/communities/2018588222327001330",
+      "type": "twitter"
+     }
+    ]
+   }
+  }
+ ]
+}

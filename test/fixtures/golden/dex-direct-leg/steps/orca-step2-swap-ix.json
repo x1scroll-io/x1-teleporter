@@ -1,0 +1,125 @@
+{
+  "step": "orca-step2-swap-ix",
+  "artifact": {
+    "programId": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+    "pool": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+    "userPubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "inputAta": "KHc1hKunyrAeMYBPbww84hp2DZs2qPLkqsKKAJhXuaV",
+    "outputAta": "4Rrj7pgmDgJ7c52D2RFZY7WGee1QdJeN2iHHNJGeYLGf",
+    "quote": {
+      "amountInRaw": "100000000",
+      "amountOutRaw": "10322982",
+      "amountOutMinRaw": "10271367",
+      "feeAmount": "40000",
+      "allTrade": true,
+      "appliedFeeRate": 400,
+      "endSqrtPrice": "5928013436506882346",
+      "endTickIndex": -22706,
+      "aToB": true,
+      "tickArrays": [
+        "7T6JQngtMoLfPoxT6ZpbzY1uGiWkGPgwLC2vR1sTjPsn",
+        "7ayWKntkc7zDBSUHQPjBKexQRzGf9XUgCiSZN1xj6Bey",
+        "Dsb9ogdvNLTtefz48ZBb6XUewrsHGmwQ82W8RMiQc5E1"
+      ]
+    },
+    "ix": {
+      "programId": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+      "discriminator": "2b04ed0b1ac91e62",
+      "aToB": true,
+      "amountInRaw": "100000000",
+      "amountOutMinRaw": "10271367",
+      "sqrtPriceLimit": "4295048017",
+      "keys": [
+        {
+          "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+          "isSigner": true,
+          "isWritable": false
+        },
+        {
+          "pubkey": "Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "So11111111111111111111111111111111111111112",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "isSigner": false,
+          "isWritable": false
+        },
+        {
+          "pubkey": "KHc1hKunyrAeMYBPbww84hp2DZs2qPLkqsKKAJhXuaV",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "EUuUbDcafPrmVTD5M6qoJAoyyNbihBhugADAxRMn5he9",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "4Rrj7pgmDgJ7c52D2RFZY7WGee1QdJeN2iHHNJGeYLGf",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "2WLWEuKDgkDUccTpbwYp1GToYktiSB1cXvreHUwiSUVP",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "7T6JQngtMoLfPoxT6ZpbzY1uGiWkGPgwLC2vR1sTjPsn",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "7ayWKntkc7zDBSUHQPjBKexQRzGf9XUgCiSZN1xj6Bey",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "Dsb9ogdvNLTtefz48ZBb6XUewrsHGmwQ82W8RMiQc5E1",
+          "isSigner": false,
+          "isWritable": true
+        },
+        {
+          "pubkey": "FoKYKtRpD25TKzBMndysKpgPqbj8AdLXjfpYHXn9PGTX",
+          "isSigner": false,
+          "isWritable": true
+        }
+      ],
+      "dataBase64": "KwTtCxrJHmIA4fUFAAAAAIe6nAAAAAAAUTsBAAEAAAAAAAAAAAAAAAEBAA==",
+      "dataHex": "2b04ed0b1ac91e6200e1f5050000000087ba9c0000000000513b0100010000000000000000000000010100"
+    },
+    "transaction": {
+      "blockhash": "96BfNwYAmZ29CRUHtMGVj6K3wESXTCVbFUVZHSXKfuXP",
+      "feePayer": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+      "instructionCount": 1,
+      "serializedBase64": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAUPDemPkGJ7C08djOeZ2XzHRO9CYCPEyaz5lQkfwWtbo8gWX5VyxalqpQLdURBUomptJY73wdbWwa7hKRkU3FECMjLxOcrgrVni48bMp+4XaRJtZ8C49Nsv1T/QqTnaHsKAYdot6GWs9/F3EKUNN69uC6FKIQh/Qb5useG8eASJK0pf1TcsXZEUkMZUPv0i8RBqTP78BauNmnOvrtnwtyjTCbI2kNfQdY0dXYuJUM7HqbTXx5ro/7XGug29YqGYN5Nbv0HmLjleo9lofi8Xxrq6BhzNRvqcwwSW90owzblvLArITfJDOJg75KhbMJe69AvJVxEI0omsALNo3xddRHXPetvhTCumAT17ZVxeED02OqxHvocZAaQqBiu1CbuQR1CuBK86dtcuYCcpV2FeIuEJfC+Rkk9LEmjIYGhcmHYRAPbG+nrzvtutOj1l82qryXQxsbvkwtL24OR8pgIDRS9dYQVKU1qZKSEGTSTocWDaOHx8NbXdvJK7geQfqEBBBUSNBpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAEG3fbh12Whk9nL4UbO63msHLSF7V9bN5E6jPWFfv8AqQ4DaF+OkJBT5FgSHGb1p2rtx3BqoRyC+KqVKo8reHmpeDF0ZWxlcG9ydGVyLXhkZXgtc3dhcC1sZWctdjIAAEIBDg8NDQsABQwKCQcCAQQDBggrKwTtCxrJHmIA4fUFAAAAAIe6nAAAAAAAUTsBAAEAAAAAAAAAAAAAAAEBAA=="
+    }
+  },
+  "sha256": "d1f2fc60af95aa58869f9798d56f4995ff55aca6949403decc63f8427943eb09",
+  "dataSha256": "0d2426525162a46c6b9d056ef9b0a8d09fea6ff69594d9984f34535b4d9f0d74",
+  "txSha256": "5b23019a3f28f951ed63cfacaa7d8371c9f229e1118c99b240f8ca528bae2565",
+  "meta": {
+    "note": "The Orca swap_v2 instruction + unsigned tx (disc 2b04ed0b1ac91e62 — the live-verified deployed instruction; 15 metas + option None). LIVE-READ-ONLY SIMULATED on mainnet during capture (sigVerify:false): the program parsed the ix and stopped only at the user-ATA initialization check (the repo test wallet has no ATAs) — the wire construction is correct. 🔴 submit() throws DexDirectLiveTestGateError — READY FOR LIVE ANCHOR."
+  }
+}

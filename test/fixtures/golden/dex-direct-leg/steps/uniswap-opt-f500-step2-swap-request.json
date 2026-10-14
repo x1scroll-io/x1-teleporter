@@ -1,0 +1,21 @@
+{
+  "step": "uniswap-opt-step2-swap-request",
+  "artifact": {
+    "dex": "uniswap",
+    "chain": "opt",
+    "swapRequest": {
+      "to": "0xe592427a0aece92de3edee1f18e0157c05861564",
+      "data": "0x414bf3890000000000000000000000000b2c639c533813f4aa9d7837caf62653d097ff8500000000000000000000000094b008aa00579c1307b0ef2c499ad98a8ce58e5800000000000000000000000000000000000000000000000000000000000001f40000000000000000000000004634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f600000000000000000000000000000000000000000000000000000000f48657000000000000000000000000000000000000000000000000000000000000989680000000000000000000000000000000000000000000000000000000000097b8440000000000000000000000000000000000000000000000000000000000000000",
+      "value": "0x0",
+      "chain": "opt",
+      "kind": "swap-exactInputSingle"
+    },
+    "minOutRaw": "9943108",
+    "slippageBps": 50
+  },
+  "sha256": "90b3be1aa960670aaa467ececf16ffeb5148138f3a96c786f844806e102534f2",
+  "calldataSha256": "d1e8697f908dd68ab0d24c53adc3b65f9c2dd0b4c9724c9592d193edb5dd4f38",
+  "meta": {
+    "note": "The guarded swap-call REQUEST (SwapRouter.exactInputSingle — the direct periphery path). 🔴 The execute leg never signs/broadcasts: submit() throws DexDirectLiveTestGateError — READY FOR LIVE ANCHOR (Mr. Esters fires the first live swap with a funded wallet + real ATA/allowance to the router)."
+  }
+}

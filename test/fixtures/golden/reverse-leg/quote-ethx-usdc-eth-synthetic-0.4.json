@@ -1,0 +1,524 @@
+{
+  "type": "lifi",
+  "id": "900f9ff2-df0a-4af5-80c9-4be58ea05624:0",
+  "tool": "relaydepository",
+  "toolDetails": {
+    "key": "relaydepository",
+    "name": "Relay",
+    "logoURI": "https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/bridges/relay.svg"
+  },
+  "action": {
+    "fromToken": {
+      "address": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+      "chainId": 1151111081099710,
+      "symbol": "ETH",
+      "decimals": 8,
+      "name": "Ether (Wormhole)",
+      "coinKey": "ETH",
+      "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png",
+      "priceUSD": "2405.1724376376",
+      "tags": [],
+      "verificationStatus": "verified",
+      "verificationStatusBreakdown": [
+        {
+          "provider": "hypernative",
+          "result": "verified",
+          "providerResult": "accept"
+        }
+      ]
+    },
+    "fromAmount": "39700500",
+    "toToken": {
+      "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "chainId": 1,
+      "symbol": "USDC",
+      "decimals": 6,
+      "name": "USD Coin",
+      "coinKey": "USDC",
+      "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
+      "priceUSD": "1.001626391",
+      "tags": [
+        "stablecoin"
+      ],
+      "verificationStatus": "verified",
+      "verificationStatusBreakdown": [
+        {
+          "provider": "hypernative",
+          "result": "verified",
+          "providerResult": "accept"
+        }
+      ]
+    },
+    "fromChainId": 1151111081099710,
+    "toChainId": 1,
+    "slippage": 0.005,
+    "fromAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+    "toAddress": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+    "destinationGasConsumption": "",
+    "destinationCallData": "0x00",
+    "jitoBundle": false
+  },
+  "estimate": {
+    "tool": "relaydepository",
+    "approvalAddress": "0x1231DEB6f5749EF6cE6943a275A1D3E7486F4EaE",
+    "toAmountMin": "946971216",
+    "toAmount": "951729865",
+    "fromAmount": "39700500",
+    "feeCosts": [
+      {
+        "name": "LIFI Fixed Fee",
+        "description": "Fixed LIFI fee, independent of any other fee",
+        "token": {
+          "address": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+          "chainId": 1151111081099710,
+          "symbol": "ETH",
+          "decimals": 8,
+          "name": "Ether (Wormhole)",
+          "coinKey": "ETH",
+          "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png",
+          "priceUSD": "2405.1724376376",
+          "tags": [],
+          "verificationStatus": "verified",
+          "verificationStatusBreakdown": [
+            {
+              "provider": "hypernative",
+              "result": "verified",
+              "providerResult": "accept"
+            }
+          ]
+        },
+        "amount": "99251",
+        "amountUSD": "2.3872",
+        "percentage": "0.0025",
+        "included": true,
+        "feeSplit": {
+          "lifiFee": "99251",
+          "integratorFee": "0",
+          "recipients": [
+            {
+              "name": "lifi",
+              "type": "FIXED",
+              "fee": "99251"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Relayer Gas fee",
+        "description": "Relay bridge gas fee",
+        "token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "chainId": 1151111081099710,
+          "symbol": "USDC",
+          "decimals": 6,
+          "name": "USD Coin",
+          "coinKey": "USDC",
+          "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
+          "priceUSD": "1.0018140919",
+          "tags": [
+            "stablecoin"
+          ],
+          "verificationStatus": "unverified",
+          "verificationStatusBreakdown": []
+        },
+        "amount": "14089",
+        "amountUSD": "0.0141",
+        "percentage": "0.0004",
+        "included": true
+      },
+      {
+        "name": "Relayer Service fee",
+        "description": "Relay bridge service fee",
+        "token": {
+          "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "chainId": 1151111081099710,
+          "symbol": "USDC",
+          "decimals": 6,
+          "name": "USD Coin",
+          "coinKey": "USDC",
+          "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
+          "priceUSD": "1.0018140919",
+          "tags": [
+            "stablecoin"
+          ],
+          "verificationStatus": "unverified",
+          "verificationStatusBreakdown": []
+        },
+        "amount": "666492",
+        "amountUSD": "0.6677",
+        "percentage": "0.0168",
+        "included": true
+      }
+    ],
+    "gasCosts": [
+      {
+        "token": {
+          "address": "11111111111111111111111111111111",
+          "chainId": 1151111081099710,
+          "symbol": "SOL",
+          "decimals": 9,
+          "name": "SOL",
+          "coinKey": "SOL",
+          "logoURI": "https://s2.coinmarketcap.com/static/img/coins/64x64/5426.png",
+          "priceUSD": "100.589292929293",
+          "tags": [
+            "major_asset"
+          ],
+          "verificationStatus": "unverified",
+          "verificationStatusBreakdown": []
+        },
+        "amount": "37500",
+        "amountUSD": "0.003772098484848487",
+        "estimate": "37500",
+        "limit": "37500",
+        "price": "1",
+        "type": "SEND"
+      }
+    ],
+    "executionDuration": 4,
+    "fromAmountUSD": "954.8655",
+    "toAmountUSD": "953.2777",
+    "skipPermit": false
+  },
+  "includedSteps": [
+    {
+      "id": "70337cc4-4768-4d9e-96f0-e1b0f65dd5a2",
+      "type": "protocol",
+      "action": {
+        "fromChainId": 1151111081099710,
+        "fromAmount": "39700500",
+        "fromToken": {
+          "address": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+          "chainId": 1151111081099710,
+          "symbol": "ETH",
+          "decimals": 8,
+          "name": "Ether (Wormhole)",
+          "coinKey": "ETH",
+          "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png",
+          "priceUSD": "2405.1724376376",
+          "tags": [],
+          "verificationStatus": "verified",
+          "verificationStatusBreakdown": [
+            {
+              "provider": "hypernative",
+              "result": "verified",
+              "providerResult": "accept"
+            }
+          ]
+        },
+        "toChainId": 1151111081099710,
+        "toToken": {
+          "address": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+          "chainId": 1151111081099710,
+          "symbol": "ETH",
+          "decimals": 8,
+          "name": "Ether (Wormhole)",
+          "coinKey": "ETH",
+          "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png",
+          "priceUSD": "2405.1724376376",
+          "tags": [],
+          "verificationStatus": "verified",
+          "verificationStatusBreakdown": [
+            {
+              "provider": "hypernative",
+              "result": "verified",
+              "providerResult": "accept"
+            }
+          ]
+        },
+        "slippage": 0.005,
+        "fromAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+        "toAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+        "jitoBundle": false,
+        "integratorFees": {
+          "feePercent": 0.0025,
+          "sourceAmount": {
+            "s": 1,
+            "e": 7,
+            "c": [
+              39700500
+            ]
+          },
+          "totalFee": {
+            "s": 1,
+            "e": 4,
+            "c": [
+              99251
+            ]
+          },
+          "recipients": [
+            {
+              "name": "lifi",
+              "type": "FIXED",
+              "fee": {
+                "s": 1,
+                "e": 4,
+                "c": [
+                  99251
+                ]
+              }
+            }
+          ]
+        },
+        "integratorId": "x1-teleporter-labs"
+      },
+      "estimate": {
+        "fromAmount": "39700500",
+        "toAmount": "39601249",
+        "toAmountMin": "39601249",
+        "tool": "feeCollection",
+        "approvalAddress": "0x0000000000000000000000000000000000000000",
+        "gasCosts": [
+          {
+            "type": "SEND",
+            "price": "1",
+            "estimate": "130000",
+            "limit": "169000",
+            "amount": "130000",
+            "amountUSD": "0.0131",
+            "token": {
+              "address": "11111111111111111111111111111111",
+              "chainId": 1151111081099710,
+              "symbol": "SOL",
+              "decimals": 9,
+              "name": "SOL",
+              "coinKey": "SOL",
+              "logoURI": "https://s2.coinmarketcap.com/static/img/coins/64x64/5426.png",
+              "priceUSD": "100.589292929293",
+              "tags": [
+                "major_asset"
+              ],
+              "verificationStatus": "unverified",
+              "verificationStatusBreakdown": []
+            }
+          }
+        ],
+        "feeCosts": [
+          {
+            "name": "LIFI Fixed Fee",
+            "description": "Fixed LIFI fee, independent of any other fee",
+            "token": {
+              "address": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+              "chainId": 1151111081099710,
+              "symbol": "ETH",
+              "decimals": 8,
+              "name": "Ether (Wormhole)",
+              "coinKey": "ETH",
+              "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png",
+              "priceUSD": "2405.1724376376",
+              "tags": [],
+              "verificationStatus": "verified",
+              "verificationStatusBreakdown": [
+                {
+                  "provider": "hypernative",
+                  "result": "verified",
+                  "providerResult": "accept"
+                }
+              ]
+            },
+            "amount": "99251",
+            "amountUSD": "2.3872",
+            "percentage": "0.0025",
+            "included": true,
+            "feeSplit": {
+              "lifiFee": "99251",
+              "integratorFee": "0",
+              "recipients": [
+                {
+                  "name": "lifi",
+                  "type": "FIXED",
+                  "fee": "99251"
+                }
+              ]
+            }
+          }
+        ],
+        "executionDuration": 0
+      },
+      "tool": "feeCollection",
+      "toolDetails": {
+        "key": "feeCollection",
+        "name": "Integrator Fee",
+        "logoURI": "https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/protocols/feeCollection.svg"
+      }
+    },
+    {
+      "id": "2f8a2aa9-319a-4280-b5d5-ca3024350bfd",
+      "type": "cross",
+      "action": {
+        "fromChainId": 1151111081099710,
+        "fromAmount": "39601249",
+        "fromToken": {
+          "address": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+          "chainId": 1151111081099710,
+          "symbol": "ETH",
+          "decimals": 8,
+          "name": "Ether (Wormhole)",
+          "coinKey": "ETH",
+          "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2/logo.png",
+          "priceUSD": "2405.1724376376",
+          "tags": [],
+          "verificationStatus": "verified",
+          "verificationStatusBreakdown": [
+            {
+              "provider": "hypernative",
+              "result": "verified",
+              "providerResult": "accept"
+            }
+          ]
+        },
+        "toChainId": 1,
+        "toToken": {
+          "address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+          "chainId": 1,
+          "symbol": "USDC",
+          "decimals": 6,
+          "name": "USD Coin",
+          "coinKey": "USDC",
+          "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
+          "priceUSD": "1.001626391",
+          "tags": [
+            "stablecoin"
+          ],
+          "verificationStatus": "verified",
+          "verificationStatusBreakdown": [
+            {
+              "provider": "hypernative",
+              "result": "verified",
+              "providerResult": "accept"
+            }
+          ]
+        },
+        "slippage": 0.005,
+        "fromAddress": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV",
+        "toAddress": "0x1870aFAfA502223f6F70b6DDB93dc4099C86C239",
+        "jitoBundle": false,
+        "integratorFees": {
+          "feePercent": 0.0025,
+          "sourceAmount": {
+            "s": 1,
+            "e": 7,
+            "c": [
+              39700500
+            ]
+          },
+          "totalFee": {
+            "s": 1,
+            "e": 4,
+            "c": [
+              99251
+            ]
+          },
+          "recipients": [
+            {
+              "name": "lifi",
+              "type": "FIXED",
+              "fee": {
+                "s": 1,
+                "e": 4,
+                "c": [
+                  99251
+                ]
+              }
+            }
+          ]
+        },
+        "integratorId": "x1-teleporter-labs",
+        "destinationGasConsumption": "0"
+      },
+      "estimate": {
+        "tool": "relaydepository",
+        "fromAmount": "39601249",
+        "toAmount": "951729865",
+        "toAmountMin": "946971216",
+        "gasCosts": [
+          {
+            "type": "SEND",
+            "price": "1",
+            "estimate": "5000",
+            "limit": "6500",
+            "amount": "5000",
+            "amountUSD": "0.0005",
+            "token": {
+              "address": "11111111111111111111111111111111",
+              "chainId": 1151111081099710,
+              "symbol": "SOL",
+              "decimals": 9,
+              "name": "SOL",
+              "coinKey": "SOL",
+              "logoURI": "https://s2.coinmarketcap.com/static/img/coins/64x64/5426.png",
+              "priceUSD": "100.589292929293",
+              "tags": [
+                "major_asset"
+              ],
+              "verificationStatus": "unverified",
+              "verificationStatusBreakdown": []
+            }
+          }
+        ],
+        "executionDuration": 4,
+        "approvalAddress": "2wQgmKii8TjfreSER4JvDZ6NSoeu49WNWDdJnFKpQWuj",
+        "feeCosts": [
+          {
+            "name": "Relayer Gas fee",
+            "description": "Relay bridge gas fee",
+            "token": {
+              "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "chainId": 1151111081099710,
+              "symbol": "USDC",
+              "decimals": 6,
+              "name": "USD Coin",
+              "coinKey": "USDC",
+              "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
+              "priceUSD": "1.0018140919",
+              "tags": [
+                "stablecoin"
+              ],
+              "verificationStatus": "unverified",
+              "verificationStatusBreakdown": []
+            },
+            "amount": "14089",
+            "amountUSD": "0.0141",
+            "percentage": "0.0004",
+            "included": true
+          },
+          {
+            "name": "Relayer Service fee",
+            "description": "Relay bridge service fee",
+            "token": {
+              "address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+              "chainId": 1151111081099710,
+              "symbol": "USDC",
+              "decimals": 6,
+              "name": "USD Coin",
+              "coinKey": "USDC",
+              "logoURI": "https://raw.githubusercontent.com/trustwallet/assets/master/blockchains/ethereum/assets/0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48/logo.png",
+              "priceUSD": "1.0018140919",
+              "tags": [
+                "stablecoin"
+              ],
+              "verificationStatus": "unverified",
+              "verificationStatusBreakdown": []
+            },
+            "amount": "666492",
+            "amountUSD": "0.6677",
+            "percentage": "0.0168",
+            "included": true
+          }
+        ]
+      },
+      "tool": "relaydepository",
+      "toolDetails": {
+        "key": "relaydepository",
+        "name": "Relay",
+        "logoURI": "https://raw.githubusercontent.com/lifinance/types/main/src/assets/icons/bridges/relay.svg"
+      }
+    }
+  ],
+  "integrator": "x1-teleporter-labs",
+  "executionType": "transaction",
+  "transactionRequest": {
+    "data": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAQALFA3pj5BiewtPHYznmdl8x0TvQmAjxMms+ZUJH8FrW6PI4JevE8ACoFeNe+VTkjfx5RCGR3LdOUpK5Hn3jTE5Jll2oXJWxn6XKFmCrC9QBlxe6OT6Kdsyiq5+990xLPpaLQSvOnbXLmAnKVdhXiLhCXwvkZJPSxJoyGBoXJh2EQD2MvE5yuCtWeLjxsyn7hdpEm1nwLj02y/VP9CpOdoewoBdWmViIoJpHrGAV9fYUtUTFJiVeK+4ECaoJmNuMdWww576vRtGQc2xkQRLqUCxi3Li3xWaR2FtPENMCq+WWpVYhabnz0D5DGYACiuQiF1ZwQ5nKfpfwIwxUtXbm5wiaYQfweVw5/JZS885sZwP1WMXHz1CrCqDDOm3WfuKR9FaiAMGRm/lIRcy/+ytunLDm+e8jOW7xfcSayxDmzpAAAAAKD0N0oI1T+8K47DiJ9N82JyiZvsX3fj3y3zO++Tr3FWNOoH7Y5DoS0H21gLVsWGLbmQMsENDrMUed0h1hAObcwbd9uHXZaGT2cvhRs7reawctIXtX1s3kTqM9YV+/wCpjJclj04kifG7PRApFI4NgwtaE5na/xCEBI572Nvp+FkEedVb8jHAbu50xW7OaBUH/bGy3qP0jlECsc2iVrwTj7Q/+if11/ZKdMCbHylYed5LCas238ndUUsyGqezjOXoisvCTJsHOCDW1MzJCAKg4c5OgLAcIz3rKVmNMHl1pir80T2gQVWQE89K66GoTtcCOtT/IahHR/87Basw+oIHw7f6K3eHRbE0zOLZykatQ5V+5eiGSPTViHw/bADWsPg3BUpTWpkpIQZNJOhxYNo4fHw1td28kruB5B+oQEEFRI1W1pKaPCDLREi9neXDYQ3xeNdlXKU4ce4I3P4FoRilsgkJAAUCEOsJAAkACQNQwwAAAAAAAAoCHgsJAJ6Mgl8ElCkADAQBIgIACgyzgwEAAAAAAAgNBgAbHCMmDAEBDQYAAwAfJgwBAQ4tDAABBBsjDg8OJBcFGBkBAyIfGiQADAwlJAYHCA4gABQVFgMEHgwMIR8jEBEOMOUXy5d6460qAgAAACZkAAF2wfIkUez9QCkBZAECYURcAgAAAACwrsQ4AAAAADIAABIMAAAcJygjGx0pDA0mKJ1TcCG/MqslplzeSfQMl3sKQDlyl7U88WEtwLTIlWaG5drhkPuUBxATAEIweDE3ODg0MjY2MDA4NWY2NzgzM2UwZGNkNmZkYjkxZTMzMjRkOTVkNjc0ZmMzNDFmMTBkNTg1NWNmODc5YzRkMzMDYBJ5r4pEbzHEJJQMgh5/snFdE4ilVuXhaTjfDoo5qd4DR0lIBEwKS0qoUam/ygKBJMbV45qOz+wjO5U5ukIdTgJnbqa1HLKRGAQkIyUmBCn1HyH5CleX0p1W2E0BwNC64/nFjEaXTuuVyg5P1Sf64f/vAgMMAwcEDgECAA=="
+  },
+  "transactionId": "0x9e8c825f04942900"
+}

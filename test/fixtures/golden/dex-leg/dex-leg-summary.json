@@ -1,0 +1,98 @@
+{
+  "tool": "golden-transaction fixtures — the DEX swap legs (regression oracle, Phase 4)",
+  "capturedAt": "2026-09-06T14:23:09.379Z",
+  "liveStatus": {
+    "note": "Input fixtures are LIVE read-only captures (2026-09-02): the Jupiter quote, the LiFi same-chain quote and the XDEX pool snapshot. The oracle pins the CONSTRUCTION given the same inputs. XDEX arg semantics (disc 8fbe5adac41e33de, amount_in u64 LE + min_out u64 LE) are LIVE-CONFIRMED 1:1 by the anchor swap tx 65xjdHVd… (slot 76,014,947, err ok — Mr. Esters' controlled $5 swap on pool CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR); the xdex sample IS that swap.",
+    "replaceWith": "On first live use: refresh the XDEX pool snapshot (tools/capture-xdex-snapshot.mjs equivalent — read-only RPC) and re-run tools/capture-dex-golden-fixtures.mjs."
+  },
+  "samples": {
+    "jupiter": {
+      "inputMint": "So11111111111111111111111111111111111111112",
+      "outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "amount": "500000000",
+      "slippageBps": 50,
+      "userPublicKey": "wJs2CD1pDFQCSDi4vd6bFuuZSM1YAdoE3HwHdTex8MV"
+    },
+    "xdex": {
+      "pool": "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
+      "inputMint": "B69chRzqzDCmdB5WYB8NRu5Yv5ZA95ABiZcdzCgGm9Tq",
+      "outputMint": "So11111111111111111111111111111111111111112",
+      "amountInRaw": "5000000",
+      "slippageBps": 10000,
+      "userPubkey": "FKBMEQ6yyEyaK49hEnct3HnKXrCDy5o6W3LcU2ojBtrZ",
+      "blockhash": "96BfNwYAmZ29CRUHtMGVj6K3wESXTCVbFUVZHSXKfuXP"
+    },
+    "lifi": {
+      "chain": "eth",
+      "fromToken": "USDC",
+      "toToken": "USDT",
+      "amount": "10000000",
+      "fromAddress": "0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6"
+    }
+  },
+  "evidence": {
+    "jupiterQuote": {
+      "file": "jupiter-quote-input.json",
+      "outAmount": "49015373",
+      "routePlan": [
+        "Quantum",
+        "Deriverse"
+      ],
+      "sha256": "9bfb4afa3b495303818b4bc12c20b0d609149160183b4f672bae3d14c1209b76"
+    },
+    "lifiSameChainQuote": {
+      "file": "lifi-samechain-quote-input.json",
+      "type": "lifi",
+      "tool": "nordstern",
+      "includedSteps": [
+        "protocol:feeCollection",
+        "swap:nordstern"
+      ],
+      "sha256": "9d029a6fa747ece56a577b3e73ebc872cd1d3883c451225f47cccf381c309e5d"
+    },
+    "xdexSnapshot": {
+      "file": "xdex-pool-snapshot.json",
+      "capturedAt": "2026-09-02T10:45:34.860Z",
+      "pool": "CAJeVEoSm1QQZccnCqYu9cnNF7TTD2fcUA3E5HQoxRvR",
+      "programId": "sEsYH97wqmfnkzHedjNcw3zyJdPvUmsa9AixhS4b4fN",
+      "poolDiscriminator": "f7ede3f5d7c3de46",
+      "tradeFeeRate": "2800",
+      "vault0Raw": "8114259914966",
+      "vault1Raw": "3223424244"
+    }
+  },
+  "steps": {
+    "jupiterStep1QuoteRequest": {
+      "file": "jupiter-step1-quote-request.json",
+      "sha256": "83cd48e718eec77851736a47b3e80088d1ed5c021bb2b9b86a9b0cfb8817e04d",
+      "url": "https://api.jup.ag/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=500000000&slippageBps=50",
+      "urlSha256": "916c9818b9b5918a621369da6b44630d7e0503f57aecb4beb76adc9ca8284b12"
+    },
+    "jupiterStep2SwapRequest": {
+      "file": "jupiter-step2-swap-request.json",
+      "sha256": "7c97a15b977821b683996251cfd06ce028ffd72312dcd31770e39217ff4bfcfa",
+      "url": "https://api.jup.ag/swap/v1/swap-instructions",
+      "bodySha256": "f34d3dd6754237fb8deae46ad6aefe0650efc16a8ae4509e8141445d647e97a8"
+    },
+    "xdexStep1SwapQuote": {
+      "file": "xdex-step1-swap-quote.json",
+      "sha256": "5556ecca3de3e8cdc2708d9ebfd8fbcc446b41d89840198698467497fcfb855c",
+      "outRaw": "12531771639",
+      "minOutRaw": "0"
+    },
+    "xdexStep2SwapIx": {
+      "file": "xdex-step2-swap-ix.json",
+      "sha256": "104d41b536dd76f1ff3cce36339278e8df0cc56d877ccc609743ca0245f4b8b6",
+      "dataSha256": "75ddd912b1ba19a2bfd3b8e79f82a6a71646ecbca2220e95765e64545db71541",
+      "txSha256": "a504c8d3e28a28cfc0def36a5ce51055363869c26f7e1c1f460fc0c3da1386f9",
+      "discriminator": "8fbe5adac41e33de"
+    },
+    "lifiStep1SameChainSwapRequest": {
+      "file": "lifi-step1-samechain-swap-request.json",
+      "sha256": "15581ae353e716c821b069338412ef7ddb70c9d294bd88ed399d357f1ecef301",
+      "upstreamUrl": "https://li.quest/v1/quote?fromChain=eth&toChain=eth&fromToken=0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48&toToken=0xdAC17F958D2ee523a2206206994597C13D831ec7&fromAmount=10000000&fromAddress=0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6&toAddress=0x4634e8e0b1c2d3f4a5b6c7d8e9f0a1b2c3d4e5f6&slippage=0.005&integrator=x1-teleporter-labs&order=CHEAPEST&allowSwitchChain=false&fee=0.005",
+      "urlSha256": "fb79050cecb38708c03c1fdaaa86407579c4c73628667e80edda6877dab4d3d6"
+    }
+  },
+  "verify": "test/goldenDex.test.js rebuilds every step from the same inputs and asserts byte-identical + sha256 match + the dex-leg invariants (raw amounts, verbatim quote forwarding, the LIVE-VERIFIED XDEX discriminator 8fbe5adac41e33de anchored to tx 65xjdHVd…, the forced same-chain fee)."
+}
